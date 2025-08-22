@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import List, Optional
 
 @dataclass
 class GenConfig:
@@ -20,4 +21,17 @@ class GenConfig:
     origin_y: int = 0
     meters_per_pixel: float = 1.0
     height_range_m: float = 200.0
-    version: str = "v1"   # <- Новая папка версии (например, v20250822_1530)
+    import_vertical_scale_m: Optional[float] = None
+    version: str = "v1"
+
+    # доп. опции (по умолчанию не обязательны в GUI)
+    overview_map_px: int = 0                     # 0=выкл
+    lods: List[int] = field(default_factory=lambda: [2, 4])
+    navgrid_enabled: bool = False
+    navgrid_cell_m: float = 1.0
+    navgrid_max_slope_deg: float = 35.0
+    navgrid_block_water: bool = True
+
+    # подсказки клиенту
+    active_chunk_radius: int = 3
+    target_vertex_pitch_m: float = 2.0
