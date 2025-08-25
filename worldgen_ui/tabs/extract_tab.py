@@ -6,6 +6,8 @@ import math
 from PIL import Image, ImageTk
 
 from ..widgets.tooltip import tip
+from ..descriptions.tooltips import *
+from ..descriptions.help_texts import HELP_TEXTS
 from worldgen_core.pipeline import detail_world_chunk, detail_entire_world
 from ..utils.run_bg import run_bg
 
@@ -25,32 +27,29 @@ class ExtractTab(ttk.Frame):
         l_ds.grid(row=0, column=0, sticky="w", **pad)
         e_ds = ttk.Entry(settings_frame, textvariable=self.detail_scale, width=10)
         e_ds.grid(row=0, column=1, sticky="w", **pad)
-        tip(l_ds,
-            "Задает 'размер' мелких деталей (холмы, овраги).\nМЕНЬШЕ (50-100) = частые, мелкие детали.\nБОЛЬШЕ (300+) = более крупные, пологие детали.")
+        tip(l_ds, EXT_DETAIL_SCALE_TIP)
         l_str = ttk.Label(settings_frame, text="Сила деталей:")
         l_str.grid(row=0, column=2, sticky="w", **pad)
         e_str = ttk.Entry(settings_frame, textvariable=self.detail_strength, width=10)
         e_str.grid(row=0, column=3, sticky="w", **pad)
-        tip(l_str, "Насколько сильно детали влияют на основной рельеф (от 0.0 до 1.0).\nРекомендуется: 0.1-0.25.")
+        tip(l_str, EXT_DETAIL_STRENGTH_TIP)
         l_up = ttk.Label(settings_frame, text="Увеличение x:")
         l_up.grid(row=0, column=4, sticky="w", **pad)
         e_up = ttk.Entry(settings_frame, textvariable=self.upscale_factor, width=10)
         e_up.grid(row=0, column=5, sticky="w", **pad)
-        tip(l_up, "Во сколько раз увеличить разрешение карты.\nНапример, 4 превратит чанк 512x512 в локацию 2048x2048.")
+        tip(l_up, EXT_UPSCALE_TIP)
         settings_frame.columnconfigure(6, weight=1)
 
         # --- Кнопки ---
         button_frame = ttk.Frame(self)
         button_frame.pack(side="top", fill="x", padx=pad['padx'], pady=pad['pady'])
-        # ... (код кнопок без изменений)
         self.btn_load = ttk.Button(button_frame, text="Загрузить мир...", command=self._load_world)
         self.btn_load.pack(side="left", **pad)
-        tip(self.btn_load, "Выбрать папку с ранее сгенерированным миром (например, out/demo/v2025...).")
+        tip(self.btn_load, EXT_LOAD_WORLD_TIP)
         self.btn_detail_all = ttk.Button(button_frame, text="Детализировать весь мир", command=self._detail_all,
                                          state="disabled")
         self.btn_detail_all.pack(side="left", **pad)
-        tip(self.btn_detail_all,
-            "Применить настройки ко ВСЕМ чанкам мира и сохранить результат в новую папку.\nЭто может занять много времени!")
+        tip(self.btn_detail_all, EXT_DETAIL_ALL_TIP)
         self.btn_help = ttk.Button(button_frame, text="Помощь", command=self._show_help)
         self.btn_help.pack(side="left", **pad)
         self.status_label = ttk.Label(button_frame, text="<- Загрузите мир для начала работы")
@@ -113,25 +112,19 @@ class ExtractTab(ttk.Frame):
         """Вызывает обновление картинок с задержкой, чтобы избежать артефактов."""
         if self._resize_job_id:
             self.after_cancel(self._resize_job_id)
-        # Ждем 250 мс после последнего изменения размера, и только потом обновляем
         self._resize_job_id = self.after(250, self._update_grid_images)
 
     def _update_grid_images(self):
         """Обновляет картинки в ячейках, подгоняя их под оптимальный размер."""
         if not self.chunk_widgets or not self.loaded_path: return
-
         container_w = self.grid_container.winfo_width()
         container_h = self.grid_container.winfo_height()
         if container_w <= 1 or container_h <= 1: return
-
         cols = len(self.grid_frame.grid_slaves(row=0))
         rows = len(self.grid_frame.grid_slaves(column=0))
         if cols == 0 or rows == 0: return
-
-        # Рассчитываем оптимальный размер ячейки, чтобы вся сетка была квадратной
         cell_size = int(min(container_w / cols, container_h / rows))
         if cell_size <= 4: return
-
         self.photos.clear()
         biome_path = self.loaded_path / "biome"
         for (c, r), label in self.chunk_widgets.items():
@@ -214,7 +207,6 @@ class ExtractTab(ttk.Frame):
             self.btn_help.config(state="normal")
 
     def _show_help(self):
-        # (Код этой функции остается без изменений)
         win = tk.Toplevel(self)
         win.title("Справка: Этап 2 - Детализация мира")
         win.geometry("650x500")
@@ -222,23 +214,10 @@ class ExtractTab(ttk.Frame):
         text_widget.pack(expand=True, fill="both")
         text_widget.tag_configure("h1", font=("TkDefaultFont", 14, "bold"), spacing3=10)
         text_widget.tag_configure("h2", font=("TkDefaultFont", 11, "bold"), spacing1=10, spacing3=5)
+        text_widget.tag_configure("h3", font=("TkDefaultFont", 10, "bold"), spacing1=5, spacing3=3)
         text_widget.tag_configure("p", lmargin1=10, lmargin2=10)
-        help_text = [
-            ("h1", "Этап 2: Превращение карты в локацию"),
-            ("p",
-             "Этот режим берет 'черновик' мира, созданный на вкладке 'Generate', и добавляет к нему мелкие детали, превращая его в высокодетализированную карту, готовую для импорта в игровой движок."),
-            ("h2", "Рабочий процесс:"),
-            ("p", "1. Нажмите 'Загрузить мир...' и выберите папку с версией мира (например, 'v2025...').\n"
-                  "2. Настройте параметры детализации сверху.\n"
-                  "3. Нажмите на любой чанк в сетке, чтобы детализировать только его, или на кнопку 'Детализировать весь мир' для обработки всей карты."),
-            ("h2", "Ключевые параметры детализации:"),
-            ("h2", "Масштаб деталей (Detail Scale)"),
-            ("p",
-             "Определяет 'размер' мелких неровностей (холмов, дюн). МЕНЬШЕ (50-100) = частые, острые детали. БОЛЬШЕ (300+) = плавные, пологие холмы."),
-            ("h2", "Увеличение (Upscale Factor)"),
-            ("p",
-             "Во сколько раз увеличить разрешение. Значение '4' превратит чанк 512x512 в игровую локацию размером 2048x2048 пикселей."),
-        ]
-        for tag, content in help_text:
+
+        for tag, content in HELP_TEXTS["extract"]:
             text_widget.insert("end", content + "\n\n", tag)
+
         text_widget.configure(state="disabled")

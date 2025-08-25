@@ -5,11 +5,15 @@ from pathlib import Path
 import imageio.v2 as imageio
 import numpy as np
 
-from .config import GenConfig
-from .noise import height_block
-from .edges import apply_edge_boost_radial, to_uint16
-from .biome import biome_block, biome_palette
-from .io_png import save_png16, save_biome_png, load_png16, save_raw16, save_control_map_r32
+from setting.config import GenConfig
+from worldgen_core.noise import height_block
+from worldgen_core.edges import apply_edge_boost_radial, to_uint16
+from worldgen_core.biome import biome_block, biome_palette
+from worldgen_core.io.io_png import save_png16, save_biome_png, load_png16, save_raw16, save_control_map_r32
+
+
+# Добавляем импорт для _detail_heightmap, так как она находится в этом файле
+
 
 try:
     import cv2
@@ -33,12 +37,12 @@ def _write_meta(base: Path, cfg: GenConfig):
         "edge_margin_frac": cfg.edge_margin_frac,
         "origin_px": {"x": cfg.origin_x, "y": cfg.origin_y},
         "meters_per_pixel": cfg.meters_per_pixel,
-        # --- ИСПРАВЛЕНИЕ: Используем новый параметр ---
         "land_height_m": cfg.land_height_m,
         "layers": ["height"] + (["biome"] if cfg.with_biomes else [])
     }
     base.mkdir(parents=True, exist_ok=True)
     _meta_path(base).write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
 
 def generate_world(cfg: GenConfig, update_queue=None):
     base = Path(cfg.out_dir) / cfg.world_id / cfg.version
@@ -48,16 +52,31 @@ def generate_world(cfg: GenConfig, update_queue=None):
     canvas_h = np.zeros((cfg.height, cfg.width), dtype=np.uint16) if cfg.export_for_godot else None
     canvas_b = np.zeros((cfg.height, cfg.width), dtype=np.uint8) if cfg.export_for_godot and cfg.with_biomes else None
 
-    for y0 in range(0, cfg.height, cfg.chunk):
-        for x0 in range(0, cfg.width, cfg.chunk):
+    cols = math.ceil(cfg.width / cfg.chunk)
+    rows = math.ceil(cfg.height / cfg.chunk)
+
+    for cy in range(rows):
+        for cx in range(cols):
+            x0 = cx * cfg.chunk
+            y0 = cy * cfg.chunk
             w = min(cfg.chunk, cfg.width - x0)
             h = min(cfg.chunk, cfg.height - y0)
             gx0, gy0 = cfg.origin_x + x0, cfg.origin_y + y0
-            cx, cy = x0 // cfg.chunk, y0 // cfg.chunk
 
             block_f32 = height_block(cfg.seed, gx0, gy0, w, h, cfg.scale, cfg.octaves, cfg.lacunarity, cfg.gain)
             block_f32 = apply_edge_boost_radial(block_f32, gx0, gy0, w, h, cfg.width + cfg.origin_x,
                                                 cfg.height + cfg.origin_y, cfg.edge_boost, cfg.edge_margin_frac)
+
+            if cfg.flat_edges:
+                if cx == 0:
+                    block_f32[:, 0] = 0.0
+                if cy == 0:
+                    block_f32[0, :] = 0.0
+                if cx == cols - 1:
+                    block_f32[:, -1] = 0.0
+                if cy == rows - 1:
+                    block_f32[-1, :] = 0.0
+
             block_u16 = to_uint16(block_f32)
             save_png16(hdir / f"chunk_{cx}_{cy}.png", block_u16)
 
@@ -71,7 +90,6 @@ def generate_world(cfg: GenConfig, update_queue=None):
                 if canvas_b is not None:
                     canvas_b[y0:y0 + h, x0:x0 + w] = b
 
-                # --- ИЗМЕНЕНИЕ: Отправляем превью в очередь для UI ---
                 if update_queue is not None:
                     rgb_preview = palette[b]
                     update_queue.put((cx, cy, rgb_preview))
@@ -81,12 +99,11 @@ def generate_world(cfg: GenConfig, update_queue=None):
         save_raw16(godot_dir / "heightmap.r16", canvas_h)
         if canvas_b is not None:
             save_control_map_r32(godot_dir / "controlmap.r32", canvas_b)
-            # --- ДОБАВЛЕНО: Сохраняем общую карту биомов в PNG ---
             palette = biome_palette()
             save_biome_png(godot_dir / "biomemap.png", canvas_b, palette)
 
     if update_queue is not None:
-        update_queue.put(("done", None, None))  # Сигнал о завершении
+        update_queue.put(("done", None, None))
 
 
 def extract_window(src_base: Path, dst_base: Path, origin_x: int, origin_y: int, width: int, height: int,
@@ -166,31 +183,7 @@ def _stitch_height(base: Path, width: int, height: int, chunk: int) -> np.ndarra
     return canvas
 
 
-def _build_overview(base: Path, cfg: GenConfig, out_px: int):
-    """Создает уменьшенное 8-битное превью всей карты."""
-    full_heightmap = _stitch_height(base, cfg.width, cfg.height, cfg.chunk)
-    overview_map_8bit = None
 
-    if cv2:
-        try:
-            scale_factor = out_px / float(max(full_heightmap.shape))
-            resized_map = cv2.resize(
-                full_heightmap,
-                (int(full_heightmap.shape[1] * scale_factor), int(full_heightmap.shape[0] * scale_factor)),
-                interpolation=cv2.INTER_AREA
-            )
-            overview_map_8bit = np.right_shift(resized_map, 8).astype(np.uint8)
-        except Exception:
-            # Если cv2 не справился, используем простой метод
-            pass
-
-    if overview_map_8bit is None:
-        # Простой даунсемплинг без cv2 или если cv2 выдал ошибку
-        step = max(1, max(full_heightmap.shape) // out_px)
-        overview_map_8bit = np.right_shift(full_heightmap[::step, ::step], 8).astype(np.uint8)
-
-    (base / "overview").mkdir(exist_ok=True)
-    imageio.imwrite((base / "overview" / f"height_overview_{out_px}.png").as_posix(), overview_map_8bit)
 
 
 def _export_lods(base: Path, cfg: GenConfig):
