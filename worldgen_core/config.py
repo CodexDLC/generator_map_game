@@ -9,7 +9,7 @@ class GenConfig:
     width: int
     height: int
     chunk: int = 512
-    scale: float = 1000.0
+    scale: float = 3000.0
     octaves: int = 3
     lacunarity: float = 2.0
     gain: float = 0.5

@@ -81,6 +81,9 @@ def generate_world(cfg: GenConfig, update_queue=None):
         save_raw16(godot_dir / "heightmap.r16", canvas_h)
         if canvas_b is not None:
             save_control_map_r32(godot_dir / "controlmap.r32", canvas_b)
+            # --- ДОБАВЛЕНО: Сохраняем общую карту биомов в PNG ---
+            palette = biome_palette()
+            save_biome_png(godot_dir / "biomemap.png", canvas_b, palette)
 
     if update_queue is not None:
         update_queue.put(("done", None, None))  # Сигнал о завершении
@@ -111,7 +114,7 @@ def extract_window(src_base: Path, dst_base: Path, origin_x: int, origin_y: int,
             if ix1 <= ix0 or iy1 <= iy0: continue
 
             sx0, sy0 = ix0 - x_start, iy0 - y_start
-            dx0, dy0 = ix0 - origin_x, iy0 - origin_y
+            dx0, dy0 = ix0 - origin_x, iy0 - origin_x
             h, w = iy1 - iy0, ix1 - ix0
 
             canvas_h[dy0:dy0 + h, dx0:dx0 + w] = tile[sy0:sy0 + h, sx0:sx0 + w]
