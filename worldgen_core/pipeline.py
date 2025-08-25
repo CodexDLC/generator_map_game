@@ -7,7 +7,7 @@ import numpy as np
 
 from setting.config import GenConfig
 from worldgen_core.noise import height_block
-from worldgen_core.edges import apply_edge_boost_radial, to_uint16
+from worldgen_core.edges import apply_edge_boost_radial, to_uint16, apply_edge_falloff
 from worldgen_core.biome import biome_block, biome_palette
 from worldgen_core.io.io_png import save_png16, save_biome_png, load_png16, save_raw16, save_control_map_r32
 from worldgen_core.utils.overview import _build_overview
@@ -31,7 +31,8 @@ def _write_meta(base: Path, cfg: GenConfig):
         "encoding": {"height": "uint16_0..65535"},
         "noise": {"scale": cfg.scale, "octaves": cfg.octaves,
                   "lacunarity": cfg.lacunarity, "gain": cfg.gain},
-        "ocean_level": cfg.ocean_level, "edge_boost": cfg.edge_boost,
+        "ocean_level": cfg.ocean_level,
+        "edge_boost": cfg.edge_boost,
         "edge_margin_frac": cfg.edge_margin_frac,
         "origin_px": {"x": cfg.origin_x, "y": cfg.origin_y},
         "meters_per_pixel": cfg.meters_per_pixel,
@@ -44,7 +45,6 @@ def _write_meta(base: Path, cfg: GenConfig):
 
 def generate_world(cfg: GenConfig, update_queue=None):
     base = Path(cfg.out_dir) / cfg.world_id / cfg.version
-    # --- ИЗМЕНЕНИЕ: Больше не создаем hdir и bdir ---
     _write_meta(base, cfg)
 
     canvas_h = np.zeros((cfg.height, cfg.width), dtype=np.uint16) if cfg.export_for_godot else None
@@ -61,7 +61,6 @@ def generate_world(cfg: GenConfig, update_queue=None):
             h = min(cfg.chunk, cfg.height - y0)
             gx0, gy0 = cfg.origin_x + x0, cfg.origin_y + y0
 
-            # --- НОВОЕ: Создаем папку для каждого чанка ---
             chunk_dir = base / f"chunk_{cx}_{cy}"
             chunk_dir.mkdir(parents=True, exist_ok=True)
 
@@ -70,14 +69,7 @@ def generate_world(cfg: GenConfig, update_queue=None):
                                                 cfg.height + cfg.origin_y, cfg.edge_boost, cfg.edge_margin_frac)
 
             if cfg.flat_edges:
-                if cx == 0:
-                    block_f32[:, 0] = 0.0
-                if cy == 0:
-                    block_f32[0, :] = 0.0
-                if cx == cols - 1:
-                    block_f32[:, -1] = 0.0
-                if cy == rows - 1:
-                    block_f32[-1, :] = 0.0
+                block_f32 = apply_edge_falloff(block_f32, cx, cy, cols, rows)
 
             block_u16 = to_uint16(block_f32)
             save_png16(chunk_dir / "height.png", block_u16)
@@ -86,7 +78,9 @@ def generate_world(cfg: GenConfig, update_queue=None):
                 canvas_h[y0:y0 + h, x0:x0 + w] = block_u16
 
             if cfg.with_biomes:
-                b = biome_block(block_f32, cfg.seed, gx0, gy0, ocean_level=cfg.ocean_level)
+                b = biome_block(block_f32, cfg.seed, gx0, gy0, ocean_level=cfg.ocean_level,
+                                land_height_m=cfg.land_height_m, meters_per_pixel=cfg.meters_per_pixel,
+                                biome_config=cfg.biome_config)
                 palette = biome_palette()
                 save_biome_png(chunk_dir / "biome.png", b, palette)
                 if canvas_b is not None:
@@ -96,7 +90,6 @@ def generate_world(cfg: GenConfig, update_queue=None):
                     rgb_preview = palette[b]
                     update_queue.put((cx, cy, rgb_preview))
 
-            # --- НОВОЕ: Сохраняем Godot-файлы в папку чанка ---
             if cfg.export_for_godot:
                 save_raw16(chunk_dir / "heightmap.r16", block_u16)
                 if cfg.with_biomes:
@@ -129,7 +122,6 @@ def extract_window(src_base: Path, dst_base: Path, origin_x: int, origin_y: int,
 
     for cy in range(cy0, cy1 + 1):
         for cx in range(cx0, cx1 + 1):
-            # --- ИЗМЕНЕНИЕ: Читаем из новой структуры папок ---
             src_chunk_dir = src_base / f"chunk_{cx}_{cy}"
             src_height_path = src_chunk_dir / "height.png"
             if not src_height_path.exists(): continue
@@ -162,7 +154,6 @@ def extract_window(src_base: Path, dst_base: Path, origin_x: int, origin_y: int,
     for j in range(ny):
         for i in range(nx):
             x0, y0 = i * chunk, j * chunk
-            # --- ИЗМЕНЕНИЕ: Сохраняем в новую структуру ---
             dst_chunk_dir = dst_base / f"chunk_{i}_{j}"
             dst_chunk_dir.mkdir(exist_ok=True)
             save_png16(dst_chunk_dir / "height.png", canvas_h[y0:y0 + chunk, x0:x0 + chunk])
@@ -186,7 +177,6 @@ def _stitch_height(base: Path, width: int, height: int, chunk: int) -> np.ndarra
     ny, nx = math.ceil(height / chunk), math.ceil(width / chunk)
     for j in range(ny):
         for i in range(nx):
-            # --- ИЗМЕНЕНИЕ: Читаем из новой структуры папок ---
             p = base / f"chunk_{i}_{j}" / "height.png"
             if not p.exists(): continue
             tile = imageio.imread(p.as_posix())
@@ -196,7 +186,6 @@ def _stitch_height(base: Path, width: int, height: int, chunk: int) -> np.ndarra
     return canvas
 
 
-# ... (Остальной код остается без изменений)
 def _export_lods(base: Path, cfg: GenConfig):
     """Экспортирует чанки с уменьшенным разрешением (LODs)."""
     hdir = base / "height"
@@ -270,7 +259,6 @@ def detail_world_chunk(world_path: Path, out_dir: Path, cx: int, cy: int,
     with open(meta_path, 'r', encoding='utf-8') as f:
         meta = json.load(f)
 
-    # --- ИЗМЕНЕНИЕ: Читаем из новой структуры папок ---
     chunk_path = world_path / f"chunk_{cx}_{cy}" / "height.png"
     if not chunk_path.is_file():
         raise FileNotFoundError(f"Исходный чанк не найден: {chunk_path}")
@@ -279,7 +267,6 @@ def detail_world_chunk(world_path: Path, out_dir: Path, cx: int, cy: int,
     chunk_size = meta['chunk_size']
     gx0, gy0 = cx * chunk_size, cy * chunk_size
 
-    # Эта функция не была перемещена, поэтому она доступна
     detailed_h16 = _detail_heightmap(
         base_h16, upscale, meta['seed'] ^ 0xDEADBEEF,
         gx0, gy0, detail_scale, detail_strength,

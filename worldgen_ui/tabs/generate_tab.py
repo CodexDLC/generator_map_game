@@ -6,7 +6,7 @@ import queue
 import math
 from PIL import Image, ImageTk
 
-from setting.config import GenConfig
+from setting.config import GenConfig, BiomeConfig
 from worldgen_core.pipeline import generate_world
 from ..utils.run_bg import run_bg
 from ..widgets.tooltip import tip
@@ -17,32 +17,57 @@ from ..descriptions.help_texts import HELP_TEXTS
 def _ts_version() -> str: return "v" + datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
+def _parse_dimension(dim_str: str, chunk_size: int) -> int:
+    """
+    Разбирает строку размера, допуская формат 'N' или '*N' для расчета
+    на основе размера чанка.
+    """
+    dim_str = dim_str.strip()
+    if dim_str.startswith('*'):
+        try:
+            multiplier = int(dim_str[1:])
+            return multiplier * chunk_size
+        except (ValueError, IndexError):
+            raise ValueError(f"Неверный формат '{dim_str}'. Используйте число или *N.")
+    else:
+        return int(dim_str)
+
+
 class GenerateTab(ttk.Frame):
     def __init__(self, master):
         super().__init__(master)
         pad = {"padx": 6, "pady": 4}
 
+        default_cfg = GenConfig()
+
         # --- Переменные ---
-        self.out = tk.StringVar(value=str(Path("./out").resolve()))
-        self.world = tk.StringVar(value="demo")
-        self.seed = tk.StringVar(value="12345")
-        self.width = tk.StringVar(value="2")
-        self.height = tk.StringVar(value="2")
-        self.chunk = tk.StringVar(value="512")
-        self.scale = tk.StringVar(value="600")
-        self.oct = tk.StringVar(value="6")
-        self.lac = tk.StringVar(value="2.0")
-        self.gain = tk.StringVar(value="0.5")
-        self.biomes = tk.IntVar(value=1)
-        self.ocean = tk.StringVar(value="0.12")
-        self.land_height = tk.StringVar(value="500")
-        self.inland = tk.IntVar(value=1)
-        self.edge_boost = tk.StringVar(value="0.25")
-        self.edge_margin = tk.StringVar(value="0.12")
+        self.out = tk.StringVar(value=str(Path(default_cfg.out_dir).resolve()))
+        self.world = tk.StringVar(value=default_cfg.world_id)
+        self.seed = tk.StringVar(value=str(default_cfg.seed))
+        self.width = tk.StringVar(value=str(default_cfg.width // default_cfg.chunk))
+        self.height = tk.StringVar(value=str(default_cfg.height // default_cfg.chunk))
+        self.chunk = tk.StringVar(value=str(default_cfg.chunk))
+        self.scale = tk.StringVar(value=str(default_cfg.scale))
+        self.oct = tk.StringVar(value=str(default_cfg.octaves))
+        self.lac = tk.StringVar(value=str(default_cfg.lacunarity))
+        self.gain = tk.StringVar(value=str(default_cfg.gain))
+        self.biomes = tk.IntVar(value=int(default_cfg.with_biomes))
+
+        self.ocean_level_m = tk.StringVar(value=str(default_cfg.biome_config.ocean_level_m))
+        self.land_height = tk.StringVar(value=str(default_cfg.land_height_m))
+
+        self.create_island = tk.IntVar(value=int(default_cfg.create_island))
+
+        self.edge_boost = tk.StringVar(value=str(default_cfg.edge_boost))
+        self.edge_margin = tk.StringVar(value=str(default_cfg.edge_margin_frac))
         self.auto_ver = tk.IntVar(value=1)
-        self.version = tk.StringVar(value="v1")
-        self.export_godot = tk.IntVar(value=0)
-        self.flat_edges = tk.IntVar(value=0)
+        self.version = tk.StringVar(value=str(default_cfg.version))
+        self.export_godot = tk.IntVar(value=int(default_cfg.export_for_godot))
+
+        self.beach_height = tk.StringVar(value=str(default_cfg.biome_config.beach_height_m))
+        self.rock_height = tk.StringVar(value=str(default_cfg.biome_config.rock_height_m))
+        self.snow_height = tk.StringVar(value=str(default_cfg.biome_config.snow_height_m))
+        self.max_grass_slope = tk.StringVar(value=str(default_cfg.biome_config.max_grass_slope_deg))
 
         r = 0
         l_out = ttk.Label(self, text="* Output dir:")
@@ -98,27 +123,60 @@ class GenerateTab(ttk.Frame):
         l_gain.grid(row=r, column=0, sticky="w", **pad)
         e_gain = ttk.Entry(self, textvariable=self.gain)
         e_gain.grid(row=r, column=1, sticky="we", **pad)
-        cb_biomes = ttk.Checkbutton(self, text="Biomes", variable=self.biomes)
-        cb_biomes.grid(row=r, column=2, sticky="w", **pad)
-        tip(cb_biomes, GEN_BIOMES_TIP)
+        # --- ИЗМЕНЕНИЕ: Убираем флажок для Biomes ---
+        # cb_biomes = ttk.Checkbutton(self, text="Biomes", variable=self.biomes)
+        # cb_biomes.grid(row=r, column=2, sticky="w", **pad)
+        # tip(cb_biomes, GEN_BIOMES_TIP)
         r += 1
 
-        l_ocean = ttk.Label(self, text="Ocean lvl:")
-        l_ocean.grid(row=r, column=0, sticky="w", **pad)
-        e_ocean = ttk.Entry(self, textvariable=self.ocean)
-        e_ocean.grid(row=r, column=1, sticky="we", **pad)
+        l_ocean_m = ttk.Label(self, text="Уровень океана (м):")
+        l_ocean_m.grid(row=r, column=0, sticky="w", **pad)
+        e_ocean_m = ttk.Entry(self, textvariable=self.ocean_level_m)
+        e_ocean_m.grid(row=r, column=1, sticky="we", **pad)
+
         l_land_h = ttk.Label(self, text="Высота суши (м):")
         l_land_h.grid(row=r, column=2, sticky="e", **pad)
         e_land_h = ttk.Entry(self, textvariable=self.land_height)
         e_land_h.grid(row=r, column=3, sticky="we", **pad)
-        tip(l_ocean, GEN_OCEAN_LEVEL_TIP)
+
+        tip(l_ocean_m, "Уровень моря в метрах.")
         tip(l_land_h, GEN_LAND_HEIGHT_TIP)
         r += 1
 
-        cb_inland = ttk.Checkbutton(self, text="Без океана по краям", variable=self.inland)
-        cb_inland.grid(row=r, column=0, columnspan=2, sticky="w", **pad)
-        tip(cb_inland, GEN_INLAND_TIP)
+        l_beach_h = ttk.Label(self, text="Высота пляжа (м):")
+        l_beach_h.grid(row=r, column=0, sticky="w", **pad)
+        e_beach_h = ttk.Entry(self, textvariable=self.beach_height)
+        e_beach_h.grid(row=r, column=1, sticky="we", **pad)
+        tip(l_beach_h, "Высота в метрах, до которой будет генерироваться пляж.")
+
+        l_rock_h = ttk.Label(self, text="Высота скал (м):")
+        l_rock_h.grid(row=r, column=2, sticky="e", **pad)
+        e_rock_h = ttk.Entry(self, textvariable=self.rock_height)
+        e_rock_h.grid(row=r, column=3, sticky="we", **pad)
+        tip(l_rock_h, "Высота в метрах, с которой начнутся скалистые горы.")
         r += 1
+
+        l_snow_h = ttk.Label(self, text="Высота снега (м):")
+        l_snow_h.grid(row=r, column=0, sticky="w", **pad)
+        e_snow_h = ttk.Entry(self, textvariable=self.snow_height)
+        e_snow_h.grid(row=r, column=1, sticky="we", **pad)
+        tip(l_snow_h, "Высота в метрах, с которой начнутся снежные пики.")
+
+        l_slope_deg = ttk.Label(self, text="Угол склона (град):")
+        l_slope_deg.grid(row=r, column=2, sticky="e", **pad)
+        e_slope_deg = ttk.Entry(self, textvariable=self.max_grass_slope)
+        e_slope_deg.grid(row=r, column=3, sticky="we", **pad)
+        tip(l_slope_deg, "Любой склон круче этого угла будет превращаться в скалу.")
+        r += 1
+
+        # --- ИЗМЕНЕНИЕ: Объединяем две функции в одну галочку ---
+        cb_island = ttk.Checkbutton(self, text="Создать остров", variable=self.create_island)
+        cb_island.grid(row=r, column=0, columnspan=2, sticky="w", **pad)
+        tip(cb_island,
+            "Включите, чтобы поднять края карты и создать остров. Если выключено, края будут плавно опускаться.")
+
+        r += 1
+
         l_edge_b = ttk.Label(self, text="Edge boost:")
         l_edge_b.grid(row=r, column=0, sticky="w", **pad)
         e_edge_b = ttk.Entry(self, textvariable=self.edge_boost)
@@ -130,6 +188,7 @@ class GenerateTab(ttk.Frame):
         tip(l_edge_b, GEN_EDGE_BOOST_TIP)
         tip(l_edge_m, GEN_EDGE_MARGIN_TIP)
         r += 1
+
         cb_godot = ttk.Checkbutton(self, text="Экспорт для Godot Terrain3D", variable=self.export_godot)
         cb_godot.grid(row=r, column=0, columnspan=2, sticky="w", **pad)
         tip(cb_godot, GEN_EXPORT_GODOT_TIP)
@@ -144,11 +203,6 @@ class GenerateTab(ttk.Frame):
         self.e_version.grid(row=r, column=3, sticky="we", **pad)
         r += 1
         self._toggle_version()
-
-        cb_flat_edges = ttk.Checkbutton(self, text="Выровнять края чанков", variable=self.flat_edges)
-        cb_flat_edges.grid(row=r, column=0, columnspan=2, sticky="w", **pad)
-        tip(cb_flat_edges, "Выравнивает края каждого чанка до высоты 0 для бесшовных переходов.")
-        r += 1
 
         btn_frame = ttk.Frame(self)
         btn_frame.grid(row=r, column=0, columnspan=4, sticky="we")
@@ -186,24 +240,33 @@ class GenerateTab(ttk.Frame):
             width_val = int(self.width.get()) * chunk_size
             height_val = int(self.height.get()) * chunk_size
 
+            biome_config = BiomeConfig(
+                ocean_level_m=float(self.ocean_level_m.get()),
+                beach_height_m=float(self.beach_height.get()),
+                rock_height_m=float(self.rock_height.get()),
+                snow_height_m=float(self.snow_height.get()),
+                max_grass_slope_deg=float(self.max_grass_slope.get())
+            )
+
             cfg = GenConfig(
                 out_dir=str(out), world_id=world, version=version,
                 seed=int(self.seed.get()),
                 width=width_val, height=height_val,
                 chunk=chunk_size, scale=float(self.scale.get()),
                 octaves=int(self.oct.get()), lacunarity=float(self.lac.get()), gain=float(self.gain.get()),
-                with_biomes=bool(self.biomes.get()), ocean_level=float(self.ocean.get()),
+                with_biomes=True,
+
                 land_height_m=float(self.land_height.get()),
-                edge_boost=(float(self.edge_boost.get()) if self.inland.get() else 0.0),
+                create_island=bool(self.create_island.get()),
+                edge_boost=float(self.edge_boost.get()),
                 edge_margin_frac=float(self.edge_margin.get()),
                 export_for_godot=bool(self.export_godot.get()),
-                flat_edges=bool(self.flat_edges.get())
+
+                biome_config=biome_config
             )
 
             cfg.validate()
-            if not cfg.with_biomes:
-                messagebox.showwarning("Внимание", "Для отображения превью необходимо включить галочку 'Biomes'.")
-                return
+
             self._prepare_grid(cfg.width, cfg.height, cfg.chunk)
             self.btn.configure(state="disabled")
             self.help_btn.configure(state="disabled")

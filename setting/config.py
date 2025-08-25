@@ -1,20 +1,34 @@
 from dataclasses import dataclass, field
 from typing import List
 
+
+@dataclass
+class BiomeConfig:
+    """
+    Класс для хранения фиксированных высот и углов наклона биомов.
+    """
+    ocean_level_m: float = 0.0  # Высота, ниже которой находится океан (обычно 0)
+    beach_height_m: float = 5.0  # Высота, до которой находится пляж
+    rock_height_m: float = 500.0  # Высота, с которой начинается скалистый рельеф
+    snow_height_m: float = 1000.0  # Высота, с которой начинается снег
+    max_grass_slope_deg: float = 40.0  # Смена земли на скалу
+
+
 @dataclass
 class GenConfig:
-    out_dir: str
-    world_id: str
-    seed: int
-    width: int
-    height: int
+    out_dir: str = "./out"
+    world_id: str = "demo"
+    seed: int = 12345
+    width: int = 1024
+    height: int = 1024
     chunk: int = 512
     scale: float = 3000.0
     octaves: int = 3
     lacunarity: float = 2.0
     gain: float = 0.5
-    with_biomes: bool = False
-    ocean_level: float = 0.10
+    with_biomes: bool = True
+
+    create_island: bool = True
     edge_boost: float = 0.0
     edge_margin_frac: float = 0.12
     origin_x: int = 0
@@ -23,7 +37,8 @@ class GenConfig:
     land_height_m: float = 150.0
     version: str = "v1"
     export_for_godot: bool = False
-    flat_edges: bool = False # ДОБАВЛЕННЫЙ ПАРАМЕТР
+
+    biome_config: BiomeConfig = field(default_factory=BiomeConfig)
 
     lods: List[int] = field(default_factory=lambda: [2, 4])
     navgrid_cell_m: float = 2.0
