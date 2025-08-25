@@ -19,19 +19,16 @@ class GenConfig:
     edge_margin_frac: float = 0.12
     origin_x: int = 0
     origin_y: int = 0
-    meters_per_pixel: float = 5.0
-    # --- ИЗМЕНЕНИЕ: Новый, понятный параметр ---
-    land_height_m: float = 500.0 # Максимальная высота суши в метрах
+    meters_per_pixel: float = 1.0
+    land_height_m: float = 150.0
     version: str = "v1"
     export_for_godot: bool = False
+    flat_edges: bool = False # ДОБАВЛЕННЫЙ ПАРАМЕТР
 
-    # --- Поля для старого функционала (оставляем) ---
     lods: List[int] = field(default_factory=lambda: [2, 4])
     navgrid_cell_m: float = 2.0
     navgrid_max_slope_deg: float = 40.0
     navgrid_block_water: bool = True
-
-
 
     def validate(self):
         """Проверяет, что все параметры конфигурации находятся в допустимых пределах."""

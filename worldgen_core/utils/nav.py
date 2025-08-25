@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import cv2
@@ -5,7 +6,7 @@ import imageio
 import numpy as np
 
 from setting.config import GenConfig
-from worldgen_core.pipeline import _stitch_height
+from worldgen_core.utils.overview import _stitch_height
 
 
 def _build_navgrid(base: Path, cfg: GenConfig):

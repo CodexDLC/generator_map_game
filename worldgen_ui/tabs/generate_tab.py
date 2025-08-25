@@ -42,6 +42,7 @@ class GenerateTab(ttk.Frame):
         self.auto_ver = tk.IntVar(value=1)
         self.version = tk.StringVar(value="v1")
         self.export_godot = tk.IntVar(value=0)
+        self.flat_edges = tk.IntVar(value=0)
 
         r = 0
         l_out = ttk.Label(self, text="* Output dir:")
@@ -144,6 +145,11 @@ class GenerateTab(ttk.Frame):
         r += 1
         self._toggle_version()
 
+        cb_flat_edges = ttk.Checkbutton(self, text="Выровнять края чанков", variable=self.flat_edges)
+        cb_flat_edges.grid(row=r, column=0, columnspan=2, sticky="w", **pad)
+        tip(cb_flat_edges, "Выравнивает края каждого чанка до высоты 0 для бесшовных переходов.")
+        r += 1
+
         btn_frame = ttk.Frame(self)
         btn_frame.grid(row=r, column=0, columnspan=4, sticky="we")
         self.btn = ttk.Button(btn_frame, text="Generate", command=self._run)
@@ -176,7 +182,6 @@ class GenerateTab(ttk.Frame):
             world = self.world.get().strip()
             version = _ts_version() if self.auto_ver.get() else (self.version.get().strip() or "v1")
 
-            # --- ИЗМЕНЕНИЕ: Теперь ширина и высота - это количество чанков ---
             chunk_size = int(self.chunk.get())
             width_val = int(self.width.get()) * chunk_size
             height_val = int(self.height.get()) * chunk_size
@@ -191,7 +196,8 @@ class GenerateTab(ttk.Frame):
                 land_height_m=float(self.land_height.get()),
                 edge_boost=(float(self.edge_boost.get()) if self.inland.get() else 0.0),
                 edge_margin_frac=float(self.edge_margin.get()),
-                export_for_godot=bool(self.export_godot.get())
+                export_for_godot=bool(self.export_godot.get()),
+                flat_edges=bool(self.flat_edges.get())
             )
 
             cfg.validate()
