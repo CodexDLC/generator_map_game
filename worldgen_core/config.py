@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List
 
 @dataclass
 class GenConfig:
@@ -9,8 +9,8 @@ class GenConfig:
     width: int
     height: int
     chunk: int = 512
-    scale: float = 3000.0
-    octaves: int = 6
+    scale: float = 1000.0
+    octaves: int = 3
     lacunarity: float = 2.0
     gain: float = 0.5
     with_biomes: bool = False
@@ -19,19 +19,14 @@ class GenConfig:
     edge_margin_frac: float = 0.12
     origin_x: int = 0
     origin_y: int = 0
-    meters_per_pixel: float = 1.0
-    height_range_m: float = 200.0
-    import_vertical_scale_m: Optional[float] = None
+    meters_per_pixel: float = 5.0
+    # --- ИЗМЕНЕНИЕ: Новый, понятный параметр ---
+    land_height_m: float = 500.0 # Максимальная высота суши в метрах
     version: str = "v1"
+    export_for_godot: bool = False
 
-    # доп. опции (по умолчанию не обязательны в GUI)
-    overview_map_px: int = 0                     # 0=выкл
+    # --- Поля для старого функционала (оставляем) ---
     lods: List[int] = field(default_factory=lambda: [2, 4])
-    navgrid_enabled: bool = False
-    navgrid_cell_m: float = 1.0
-    navgrid_max_slope_deg: float = 35.0
+    navgrid_cell_m: float = 2.0
+    navgrid_max_slope_deg: float = 40.0
     navgrid_block_water: bool = True
-
-    # подсказки клиенту
-    active_chunk_radius: int = 3
-    target_vertex_pitch_m: float = 2.0

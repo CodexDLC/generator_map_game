@@ -2,8 +2,8 @@
 import tkinter as tk
 from tkinter import ttk
 
-from worldgen_ui.tabs import GenerateTab, ExtractTab
-
+# --- ИЗМЕНЕНИЕ: Импортируем ScatterTab ---
+from worldgen_ui.tabs import GenerateTab, ExtractTab, ScatterTab
 
 def main():
     root = tk.Tk()
@@ -13,8 +13,10 @@ def main():
     nb = ttk.Notebook(root)
     nb.pack(fill="both", expand=True)
 
-    nb.add(GenerateTab(nb), text="Generate")
-    nb.add(ExtractTab(nb), text="Extract")
+    nb.add(GenerateTab(nb), text="1. Generate")
+    nb.add(ExtractTab(nb), text="2. World Detailer")
+    # --- ИЗМЕНЕНИЕ: Добавляем новую вкладку ---
+    nb.add(ScatterTab(nb), text="3. Scatter Objects")
 
     root.mainloop()
 
