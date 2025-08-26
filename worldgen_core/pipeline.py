@@ -31,7 +31,7 @@ def _write_meta(base: Path, cfg: GenConfig):
         "encoding": {"height": "uint16_0..65535"},
         "noise": {"scale": cfg.scale, "octaves": cfg.octaves,
                   "lacunarity": cfg.lacunarity, "gain": cfg.gain},
-        "ocean_level": cfg.ocean_level,
+        "ocean_level": cfg.biome_config.ocean_level_m, # <--- Исправлено
         "edge_boost": cfg.edge_boost,
         "edge_margin_frac": cfg.edge_margin_frac,
         "origin_px": {"x": cfg.origin_x, "y": cfg.origin_y},
@@ -41,7 +41,6 @@ def _write_meta(base: Path, cfg: GenConfig):
     }
     base.mkdir(parents=True, exist_ok=True)
     _meta_path(base).write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
-
 
 def generate_world(cfg: GenConfig, update_queue=None):
     base = Path(cfg.out_dir) / cfg.world_id / cfg.version
@@ -65,10 +64,10 @@ def generate_world(cfg: GenConfig, update_queue=None):
             chunk_dir.mkdir(parents=True, exist_ok=True)
 
             block_f32 = height_block(cfg.seed, gx0, gy0, w, h, cfg.scale, cfg.octaves, cfg.lacunarity, cfg.gain)
-            block_f32 = apply_edge_boost_radial(block_f32, gx0, gy0, w, h, cfg.width + cfg.origin_x,
-                                                cfg.height + cfg.origin_y, cfg.edge_boost, cfg.edge_margin_frac)
-
-            if cfg.flat_edges:
+            if cfg.create_island:
+                block_f32 = apply_edge_boost_radial(block_f32, gx0, gy0, w, h, cfg.width + cfg.origin_x,
+                                                    cfg.height + cfg.origin_y, cfg.edge_boost, cfg.edge_margin_frac)
+            else:
                 block_f32 = apply_edge_falloff(block_f32, cx, cy, cols, rows)
 
             block_u16 = to_uint16(block_f32)
@@ -78,9 +77,10 @@ def generate_world(cfg: GenConfig, update_queue=None):
                 canvas_h[y0:y0 + h, x0:x0 + w] = block_u16
 
             if cfg.with_biomes:
-                b = biome_block(block_f32, cfg.seed, gx0, gy0, ocean_level=cfg.ocean_level,
+                b = biome_block(block_f32, cfg.seed, gx0, gy0,
                                 land_height_m=cfg.land_height_m, meters_per_pixel=cfg.meters_per_pixel,
                                 biome_config=cfg.biome_config)
+
                 palette = biome_palette()
                 save_biome_png(chunk_dir / "biome.png", b, palette)
                 if canvas_b is not None:
@@ -213,7 +213,8 @@ def _build_navgrid(base: Path, cfg: GenConfig):
     slope = np.degrees(np.arctan(np.hypot(gx, gy)))
     blocked = slope > cfg.navgrid_max_slope_deg
     if cfg.navgrid_block_water:
-        water_h_abs = cfg.ocean_level * total_height_range
+        # вода по высоте: теперь порог считается от общего диапазона
+        water_h_abs = cfg.biome_config.ocean_level_m * total_height_range  # <--- Исправлено
         blocked |= (Hm <= water_h_abs + 1e-3)
 
     cell = max(1, int(round(cfg.navgrid_cell_m / cfg.meters_per_pixel)))

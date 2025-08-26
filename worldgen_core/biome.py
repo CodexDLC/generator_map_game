@@ -4,9 +4,10 @@ from setting.config import BiomeConfig
 
 
 def biome_block(height01, seed: int, gx0: int, gy0: int,
-                ocean_level: float, land_height_m: float, meters_per_pixel: float,
+                land_height_m: float, meters_per_pixel: float,
                 biome_config: BiomeConfig,
                 moisture_scale: float = 4000.0, octaves: int = 4):
+
     h, w = height01.shape
     gen_m = OpenSimplex(seed ^ 0xA5A5A5A5)
     inv_m = 1.0 / max(moisture_scale, 1e-6)
