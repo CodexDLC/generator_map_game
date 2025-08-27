@@ -9,40 +9,20 @@ def _smoothstep(a, b, x):
     return t * t * (3 - 2 * t)
 
 
-def apply_edge_falloff(h01, cx, cy, cols, rows, falloff_width_px=64):
-    """
-    Применяет плавный спад ТОЛЬКО к внешним границам всей карты.
-    """
-    h, w = h01.shape
-
-    # Клонируем массив, чтобы не изменять оригинал напрямую
-    h01_modified = h01.copy()
-
-    # Убедимся, что ширина спада не больше половины чанка
-    falloff_width_px = min(falloff_width_px, w // 2, h // 2)
-    if falloff_width_px <= 0: return h01_modified
-
-    # Создаем одномерную маску спада от 0.0 до 1.0
-    coords = np.arange(falloff_width_px)
-    fade_in = _smoothstep(0.0, 1.0, coords / falloff_width_px)
-
-    # Левый край всей карты
-    if cx == 0:
-        h01_modified[:, :falloff_width_px] *= fade_in
-
-    # Правый край всей карты
-    if cx == cols - 1:
-        h01_modified[:, -falloff_width_px:] *= np.flip(fade_in)
-
-    # Верхний край всей карты
-    if cy == 0:
-        h01_modified[:falloff_width_px, :] *= fade_in[:, np.newaxis]
-
-    # Нижний край всей карты
-    if cy == rows - 1:
-        h01_modified[-falloff_width_px:, :] *= np.flip(fade_in)[:, np.newaxis]
-
-    return h01_modified
+def apply_edge_falloff(h, cx, cy, cols, rows, width_px=256, ocean=0.5, power=1.8):
+    import numpy as np
+    H, W = h.shape
+    gx0, gy0 = cx*W, cy*H
+    X = np.arange(gx0, gx0+W)[None, :]
+    Y = np.arange(gy0, gy0+H)[:, None]
+    max_x, max_y = cols*W - 1, rows*H - 1
+    dx = np.minimum(X - 0, max_x - X)
+    dy = np.minimum(Y - 0, max_y - Y)
+    dist = np.minimum(dx, dy).astype(np.float32)
+    w = max(float(width_px), 1.0)
+    t = np.clip(dist / w, 0.0, 1.0)
+    f = (t*t*(3-2*t)) ** power          # smoothstep^power
+    return ocean + (h - ocean) * f
 
 
 def to_uint16(height01):
