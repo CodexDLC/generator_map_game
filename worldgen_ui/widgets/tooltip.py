@@ -1,50 +1,32 @@
 import tkinter as tk
 
-class Tooltip:
-    _keepalive = []  # глобально удерживаем ссылки
+class _Tooltip:
+    def __init__(self, widget, text: str):
+        self.widget = widget
+        self.text = text
+        self.tip = None
+        widget.bind("<Enter>", self._show)
+        widget.bind("<Leave>", self._hide)
 
-    def __init__(self, widget, text: str, delay_ms=300):
-        self.widget, self.text, self.delay = widget, text, delay_ms
-        self._after_id = None
-        self._tw = None
-        # добавляем бинды, не перетирая существующие
-        widget.bind("<Enter>", self._schedule, add="+")
-        widget.bind("<Leave>", self._hide, add="+")
-        widget.bind("<ButtonPress>", self._hide, add="+")
-        Tooltip._keepalive.append(self)  # не даём GC удалить
-
-    def _schedule(self, _):
-        self._cancel()
-        self._after_id = self.widget.after(self.delay, self._show)
-
-    def _show(self):
-        if self._tw or not self.text:
+    def _show(self, _):
+        if self.tip or not self.text:
             return
-        root = self.widget.winfo_toplevel()
-        x, y = self.widget.winfo_pointerxy()  # показываем у курсора
-        tw = tk.Toplevel(root)
-        self._tw = tw
-        tw.wm_overrideredirect(True)
-        try:
-            tw.wm_attributes("-topmost", True)
-            tw.transient(root)
-        except Exception:
-            pass
-        tw.geometry(f"+{x+12}+{y+12}")
-        tk.Label(tw, text=self.text, justify="left",
-                 background="#ffffe0", relief="solid",
-                 borderwidth=1, padx=6, pady=4).pack()
+        x, y, cx, cy = self.widget.bbox("insert") or (0, 0, 0, 0)
+        x += self.widget.winfo_rootx() + 20
+        y += self.widget.winfo_rooty() + 20
+        self.tip = tk.Toplevel(self.widget)
+        self.tip.wm_overrideredirect(True)
+        self.tip.wm_geometry(f"+{x}+{y}")
+        lbl = tk.Label(self.tip, text=self.text, justify="left",
+                       relief="solid", borderwidth=1,
+                       background="#ffffe0")
+        lbl.pack(ipadx=4, ipady=2)
 
-    def _hide(self, _=None):
-        self._cancel()
-        if self._tw:
-            self._tw.destroy()
-            self._tw = None
+    def _hide(self, _):
+        if self.tip:
+            self.tip.destroy()
+            self.tip = None
 
-    def _cancel(self):
-        if self._after_id:
-            try: self.widget.after_cancel(self._after_id)
-            finally: self._after_id = None
-
-def tip(widget, text: str):
-    return Tooltip(widget, text)
+def attach(widget, text: str):
+    """Прикрепить всплывающую подсказку к виджету."""
+    _Tooltip(widget, text)

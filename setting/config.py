@@ -48,6 +48,20 @@ class GenConfig:
     navgrid_max_slope_deg: float = 40.0
     navgrid_block_water: bool = True
 
+    # temp_equator_C = 24.0, temp_pole_C = -6.0, temp_axis_deg = 0.0,
+    # temp_lapse_C_per_km = 6.5, temp_noise_scale_m = 12000.0, temp_noise_amp_C = 4.0
+
+    # в dataclass GenConfig
+    volcano_enable: bool = False
+    volcano_center_px: tuple[int, int] | None = None  # None = центр карты
+    volcano_radius_m: float = 2500.0
+    crater_radius_m: float = 300.0
+    peak_add_m: float = 120.0
+    island_radius_m: float = 9000.0
+    island_band_m: float = 2000.0
+    ridge_noise_amp: float = 0.10
+
+
     def validate(self):
         if not self.out_dir or not self.world_id:
             raise ValueError("Поля 'Output dir' и 'World ID' не могут быть пустыми.")

@@ -1,77 +1,100 @@
-import os
-
-import cv2
-
-os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
-
-import imageio.v2 as imageio  # <--- ИСПРАВЛЕНИЕ ЗДЕСЬ
-
+# io_png.py
 from pathlib import Path
 import numpy as np
+import imageio.v2 as imageio
 
-def save_png16(path: Path, data_u16: np.ndarray):
+
+def save_png16(path: Path, data_u16: np.ndarray) -> None:
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    if data_u16.dtype != np.uint16:
+        data_u16 = data_u16.astype(np.uint16, copy=False)
     imageio.imwrite(path.as_posix(), data_u16)
 
-def save_biome_png(path: Path, biome_u8: np.ndarray, palette):
-    rgb = palette[biome_u8]
+
+def save_biome_png(path: Path, biome_u8: np.ndarray, palette: np.ndarray) -> None:
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    if biome_u8.dtype != np.uint8:
+        biome_u8 = biome_u8.astype(np.uint8, copy=False)
+    rgb = palette[biome_u8]
     imageio.imwrite(path.as_posix(), rgb)
 
+
 def load_png16(path: Path) -> np.ndarray:
-    arr = imageio.imread(path.as_posix())
+    arr = imageio.imread(Path(path).as_posix())
     if arr.dtype != np.uint16:
-        arr = arr.astype(np.uint16)
+        arr = arr.astype(np.uint16, copy=False)
     return arr
 
-def save_raw16(path: Path, data_u16: np.ndarray):
-    """ Сохраняет карту высот в сыром 16-битном формате (R16) для Terrain3D. """
+
+def save_raw16(path: Path, data_u16: np.ndarray) -> None:
+    """R16 «сырым» для Terrain3D (без заголовка)."""
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    if data_u16.dtype != np.uint16:
+        data_u16 = data_u16.astype(np.uint16, copy=False)
     data_u16.tofile(path)
+
 
 def save_control_map_exr_rf(path: Path, control_u32: np.ndarray) -> None:
     """
-    Пишет control-карту Terrain3D в EXR (один канал R, FLOAT32).
-    Данные берутся бит-в-бит из uint32 (биткаст в float32), как требует FORMAT_RF.
-    Требуется один из бэкендов: OpenEXR+Imath или tinyexr.
+    EXR (FORMAT_RF): один канал R, float32.
+    Пишем бит-в-бит: uint32 -> view(float32), без конверсии значений.
+    Бэкенды: OpenEXR -> imageio FreeImage.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    if control_u32.dtype != np.uint32:
-        raise TypeError("control_u32 должен быть dtype=uint32")
-    if control_u32.ndim != 2:
-        raise ValueError("control_u32 должен быть 2D HxW")
+    if control_u32.dtype != np.uint32 or control_u32.ndim != 2:
+        raise TypeError("control_u32 должен быть 2D и dtype=uint32")
 
-    img_f32 = control_u32.view(np.float32)  # биткаст без копирования
+    img_f32 = control_u32.view(np.float32)
     H, W = img_f32.shape
 
-    # Пытаемся через OpenEXR
+    # 1) OpenEXR (+Imath)
     try:
         import OpenEXR, Imath
         header = OpenEXR.Header(W, H)
-        # один канал R, тип FLOAT
         header["channels"] = {"R": Imath.Channel(Imath.PixelType(Imath.PixelType.FLOAT))}
-        # необязательно, но полезно:
-        header["compression"] = Imath.Compression(Imath.Compression.ZIP_COMPRESSION)
-        exr = OpenEXR.OutputFile(str(path), header)
-        exr.writePixels({"R": img_f32.tobytes()})
-        exr.close()
+        # опционально: сжатие
+        try:
+            header["compression"] = Imath.Compression(Imath.Compression.ZIP_COMPRESSION)
+        except Exception:
+            pass
+        out = OpenEXR.OutputFile(str(path), header)
+        out.writePixels({"R": img_f32.tobytes()})
+        out.close()
         return
     except Exception:
         pass
 
-    # Пытаемся через tinyexr
+    # 2) imageio + FreeImage (EXR-FI)
     try:
-        import tinyexr
-        # tinyexr ожидает список байтовых буферов на канал
-        channels = [img_f32.tobytes()]  # только R
-        channel_names = ["R"]
-        pixel_types = [tinyexr.PixelType.FLOAT]
-        tinyexr.save_image(str(path), channels, W, H, channel_names, pixel_types)
+        # попробуем подтянуть бинарник FreeImage (если ещё не скачан)
+        try:
+            import imageio.plugins.freeimage as fi
+            fi.download()  # no-op если уже есть
+        except Exception:
+            pass
+        imageio.imwrite(path.as_posix(), img_f32, format="EXR-FI")
         return
     except Exception as e:
         raise RuntimeError(
-            "Нет доступного бэкенда для записи EXR. "
-            "Установите один из вариантов: `pip install OpenEXR Imath` или `pip install tinyexr`."
+            "Не удалось сохранить EXR: нет доступных бэкендов (OpenEXR или imageio FreeImage). "
+            "Решение: либо установите `pip install OpenEXR Imath` (желательно Python 3.11), "
+            "либо используйте imageio с FreeImage (см. логи)."
         ) from e
+
+
+def save_temperature_png(path: Path, temp_C: np.ndarray,
+                         tmin: float = -30.0, tmax: float = 40.0) -> None:
+    """
+    Сохраняет температуру (°C) как серый PNG16.
+    Диапазон tmin..tmax линеаризуется в 0..65535.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    t = np.clip((temp_C.astype(np.float32) - tmin) / (tmax - tmin), 0.0, 1.0)
+    img = (t * 65535.0 + 0.5).astype(np.uint16)
+    imageio.imwrite(path.as_posix(), img)

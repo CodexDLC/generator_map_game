@@ -10,7 +10,7 @@ from worldgen_core.noise import height_block
 from worldgen_core.edges import to_uint16, apply_edge_falloff
 from worldgen_core.biome import biome_block, biome_palette
 from worldgen_core.io.io_png import (
-    save_png16, save_biome_png, load_png16, save_raw16, save_control_map_exr_rf
+    save_png16, save_biome_png, load_png16, save_raw16, save_control_map_exr_rf, save_temperature_png
 )
 
 # ---------- Control Map (Terrain3D FORMAT_RF) ----------
@@ -138,3 +138,128 @@ def write_metadata(base: Path, cfg: GenConfig) -> None:
     }
     base.mkdir(parents=True, exist_ok=True)
     (base / "metadata.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+def compute_temperature(full_h_norm: np.ndarray, cfg) -> np.ndarray:
+    """
+    Температура T(x,y), °C: широтный градиент + охлаждение с высотой + крупномасштабный шум.
+    full_h_norm — нормализованная высота [0..1] той же размерности, что карта.
+    Параметры читаем из cfg.* с дефолтами, чтобы не ломать существующий конфиг.
+    """
+    H_m = full_h_norm.astype(np.float32) * float(getattr(cfg, "land_height_m", 1000.0))
+
+    # Параметры климата
+    T_eq   = float(getattr(cfg, "temp_equator_C",        24.0))
+    T_pole = float(getattr(cfg, "temp_pole_C",           -6.0))
+    axis   = float(getattr(cfg, "temp_axis_deg",          0.0))  # 0° = "север вверх"
+    lapse  = float(getattr(cfg, "temp_lapse_C_per_km",    6.5))  # °C/км
+    n_scale= float(getattr(cfg, "temp_noise_scale_m",  12000.0)) # м
+    n_amp  = float(getattr(cfg, "temp_noise_amp_C",       4.0))
+
+    h, w = full_h_norm.shape
+    # широтный градиент
+    ang = np.deg2rad(axis)
+    gx, gy = np.cos(ang), np.sin(ang)
+    xs = np.arange(w, dtype=np.float32)
+    ys = np.arange(h, dtype=np.float32)
+    X, Y = np.meshgrid(xs, ys)
+    u = X * gx + Y * gy
+    u -= u.min()
+    umax = u.max()
+    if umax > 1e-6:
+        u /= umax
+    # тёплый "экватор" ↔ холодный "полюс"
+    T_lat = T_pole + (T_eq - T_pole) * (1.0 - u)
+
+    # охлаждение с высотой
+    T = T_lat - lapse * (H_m / 1000.0)
+
+    # крупный шум климата (без гор/маски — только "равнинный" канал)
+    # используем имеющийся height_block как источник сглаженного шума
+    # seed смещаем, метры→пиксели через meters_per_pixel
+    mpp = float(getattr(cfg, "meters_per_pixel", 1.0))
+    scale_px = max(1.0, n_scale / max(mpp, 1e-6))
+    N = height_block(
+        int(getattr(cfg, "seed", 0)) ^ 0xA1B2C3D4,
+        0, 0, w, h,
+        scale_px, 3,  # plains_scale, plains_octaves
+        0.0, 0,  # mountains_scale, mountains_octaves (выкл)
+        0.0,  # mask_scale
+        0.0,  # mountain_strength
+        1.0,  # height_distribution_power
+        2.0, 0.5  # lacunarity, gain
+    ).astype(np.float32)
+
+    T += n_amp * (N - 0.5) * 2.0
+    return T.astype(np.float32)
+
+
+def export_chunk_temperature_png(chunk_dir: Path, temp_chunk_C: np.ndarray,
+                                 tmin: float = -30.0, tmax: float = 40.0) -> None:
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+    save_temperature_png(chunk_dir / "temp.png", temp_chunk_C, tmin=tmin, tmax=tmax)
+
+
+
+
+def apply_volcano_island(full_norm: np.ndarray, cfg) -> np.ndarray:
+    """
+    Вулканический остров БЕЗ кратера:
+      - крутой пик в центре (R_peak)
+      - мягкое широкое "плечо" / равнины (R_shoulder)
+      - затем спад к океану к радиусу острова (R_island, band)
+    Ничего не опускает ниже базового рельефа: только добавляет высоту.
+    """
+    H, W = full_norm.shape
+    mpp = float(getattr(cfg, "meters_per_pixel", 1.0))
+
+    cxcy = getattr(cfg, "volcano_center_px", None)
+    cx, cy = (W // 2, H // 2) if not cxcy else (int(cxcy[0]), int(cxcy[1]))
+
+    # параметры из конфигурации
+    peak_add_m   = float(getattr(cfg, "peak_add_m", 180.0))       # добавка высоты в пике (м)
+    R_peak_m     = float(getattr(cfg, "volcano_radius_m", 2500.0))  # радиус крутого конуса
+    R_shoulder_m = float(getattr(cfg, "shoulder_radius_m", 5500.0)) # радиус "плеча" / равнины
+    R_island_m   = float(getattr(cfg, "island_radius_m", 9000.0))   # край острова (начало спада к воде)
+    band_m       = float(getattr(cfg, "island_band_m", 2000.0))     # ширина спада
+    ridge_amp    = float(getattr(cfg, "ridge_noise_amp", 0.08))     # легкая рябь по окружности
+    land_h_m     = float(getattr(cfg, "land_height_m", 150.0))
+
+    # сетка расстояний
+    xs = np.arange(W, dtype=np.float32)
+    ys = np.arange(H, dtype=np.float32)
+    X, Y = np.meshgrid(xs, ys)
+    r_m = np.hypot((X - cx) * mpp, (Y - cy) * mpp)
+
+    # профиль: сумма двух радиальных "шляп"
+    # 1) крутой центральный конус
+    p1 = 2.6
+    s1 = 1.0 - np.power(np.clip(r_m / max(R_peak_m, 1e-6), 0.0, 1.0), p1)
+    s1 = np.clip(s1, 0.0, 1.0)
+
+    # 2) широкое "плечо" (пологий склон/равнина)
+    p2 = 1.2
+    s2 = 1.0 - np.power(np.clip(r_m / max(R_shoulder_m, 1e-6), 0.0, 1.0), p2)
+    s2 = np.clip(s2, 0.0, 1.0)
+
+    # смешиваем: центр — за счет s1, средние расстояния — за счет s2
+    profile = 0.75 * s1 + 0.35 * s2
+    profile = np.clip(profile, 0.0, 1.0)
+
+    # легкая рябь по углу (чтобы не было идеального круга)
+    if ridge_amp > 0.0:
+        angle = np.arctan2(Y - cy, X - cx)
+        ridges = 0.5 + 0.5 * np.sin(6.0 * angle)
+        profile = np.clip(profile * (1.0 + ridge_amp * (ridges - 0.5)), 0.0, 1.0)
+
+    # перевод в нормализованную добавку
+    peak_add_norm = np.clip(peak_add_m / max(land_h_m, 1e-6), 0.0, 1.0)
+    delta = profile * peak_add_norm
+
+    out = np.clip(full_norm + delta, 0.0, 1.0)
+
+    # внешний спад к океану (smoothstep)
+    t = np.clip((r_m - R_island_m) / max(band_m, 1e-6), 0.0, 1.0)
+    t = t * t * (3.0 - 2.0 * t)  # smoothstep
+    out = np.clip(out * (1.0 - t), 0.0, 1.0)
+
+    return out.astype(np.float32)

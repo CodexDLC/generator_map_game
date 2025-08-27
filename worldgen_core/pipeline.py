@@ -9,7 +9,8 @@ from worldgen_core.edges import apply_edge_falloff, to_uint16
 from worldgen_core.utils.core import (
     build_full_height_f32, normalize_heightmap, edge_params, slice_block,
     export_chunk_height_png, export_chunk_biome_png, append_canvases,
-    export_for_godot, write_metadata
+    export_for_godot, write_metadata,
+    compute_temperature, export_chunk_temperature_png, apply_volcano_island  # ← добавили
 )
 
 def generate_world(cfg: GenConfig, update_queue=None):
@@ -21,7 +22,10 @@ def generate_world(cfg: GenConfig, update_queue=None):
 
     full = build_full_height_f32(cfg)
     full = normalize_heightmap(full)
+    if getattr(cfg, "volcano_enable", True):
+        full = apply_volcano_island(full, cfg)
     ocean_norm, falloff_px = edge_params(cfg)
+    temp_full_C = compute_temperature(full, cfg)
 
     canvas_h = np.zeros((cfg.height, cfg.width), dtype=np.uint16) if cfg.export_for_godot else None
     canvas_b = np.zeros((cfg.height, cfg.width), dtype=np.uint8)  if (cfg.export_for_godot and cfg.with_biomes) else None
@@ -34,6 +38,9 @@ def generate_world(cfg: GenConfig, update_queue=None):
             u16 = to_uint16(block)
             chunk_dir = base / f"chunk_{cx}_{cy}"
             export_chunk_height_png(chunk_dir, u16)
+
+            temp_chunk = temp_full_C[y0:y0 + h, x0:x0 + w]
+            export_chunk_temperature_png(chunk_dir, temp_chunk)
 
             b = None
             if cfg.with_biomes:
@@ -53,5 +60,10 @@ def generate_world(cfg: GenConfig, update_queue=None):
 
     if update_queue is not None:
         update_queue.put(("done", None, None))
+
+    if cfg.export_for_godot:  # по желанию
+        from worldgen_core.io.io_png import save_temperature_png
+        save_temperature_png((base / "godot_export_full" / "temperature.png"),
+                             temp_full_C, tmin=-30, tmax=40)
 
     write_metadata(base, cfg)
