@@ -2,45 +2,47 @@ import numpy as np
 
 
 def _smoothstep(a, b, x):
+    """Плавная S-образная интерполяция."""
+    # Масштабируем x, чтобы он был в диапазоне [0, 1]
     t = np.clip((x - a) / (b - a), 0.0, 1.0)
+    # Применяем формулу smoothstep
     return t * t * (3 - 2 * t)
 
 
-def apply_edge_boost_radial(h01, gx0, gy0, w, h, W, H, edge_boost, edge_margin_frac):
-    if edge_boost <= 0 or edge_margin_frac <= 0: return h01
-    cx, cy = (W - 1) * 0.5, (H - 1) * 0.5
-    xs = np.arange(gx0, gx0 + w);
-    ys = np.arange(gy0, gy0 + h)
-    X, Y = np.meshgrid(xs, ys)
-    r = np.sqrt((X - cx) ** 2 + (Y - cy) ** 2)
-    r_norm = r / np.sqrt(cx ** 2 + cy ** 2)  # 0 центр → 1 углы
-    mask = _smoothstep(1.0 - edge_margin_frac, 1.0, r_norm)
-    return np.clip(h01 + edge_boost * mask, 0.0, 1.0)
-
-
-# --- НОВАЯ ФУНКЦИЯ: Применяет плавный спад к краям чанка ---
-def apply_edge_falloff(h01, cx, cy, cols, rows, falloff_width_px=32):
+def apply_edge_falloff(h01, cx, cy, cols, rows, falloff_width_px=64):
+    """
+    Применяет плавный спад ТОЛЬКО к внешним границам всей карты.
+    """
     h, w = h01.shape
-    mask = np.ones_like(h01, dtype=np.float32)
 
-    # Левый край
+    # Клонируем массив, чтобы не изменять оригинал напрямую
+    h01_modified = h01.copy()
+
+    # Убедимся, что ширина спада не больше половины чанка
+    falloff_width_px = min(falloff_width_px, w // 2, h // 2)
+    if falloff_width_px <= 0: return h01_modified
+
+    # Создаем одномерную маску спада от 0.0 до 1.0
+    coords = np.arange(falloff_width_px)
+    fade_in = _smoothstep(0.0, 1.0, coords / falloff_width_px)
+
+    # Левый край всей карты
     if cx == 0:
-        fade_mask = np.linspace(0.0, 1.0, falloff_width_px)
-        mask[:, :falloff_width_px] *= fade_mask
-    # Правый край
-    if cx == cols - 1:
-        fade_mask = np.linspace(1.0, 0.0, falloff_width_px)
-        mask[:, -falloff_width_px:] *= fade_mask
-    # Верхний край
-    if cy == 0:
-        fade_mask = np.linspace(0.0, 1.0, falloff_width_px)
-        mask[:falloff_width_px, :] *= fade_mask[:, np.newaxis]
-    # Нижний край
-    if cy == rows - 1:
-        fade_mask = np.linspace(1.0, 0.0, falloff_width_px)
-        mask[-falloff_width_px:, :] *= fade_mask[:, np.newaxis]
+        h01_modified[:, :falloff_width_px] *= fade_in
 
-    return h01 * mask
+    # Правый край всей карты
+    if cx == cols - 1:
+        h01_modified[:, -falloff_width_px:] *= np.flip(fade_in)
+
+    # Верхний край всей карты
+    if cy == 0:
+        h01_modified[:falloff_width_px, :] *= fade_in[:, np.newaxis]
+
+    # Нижний край всей карты
+    if cy == rows - 1:
+        h01_modified[-falloff_width_px:, :] *= np.flip(fade_in)[:, np.newaxis]
+
+    return h01_modified
 
 
 def to_uint16(height01):

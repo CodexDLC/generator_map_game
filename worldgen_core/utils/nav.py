@@ -1,30 +1,24 @@
 import json
+import math
 from pathlib import Path
-
-import cv2
 import imageio
 import numpy as np
-
 from setting.config import GenConfig
 from worldgen_core.utils.overview import _stitch_height
-
 
 def _build_navgrid(base: Path, cfg: GenConfig):
     """Очень простой navgrid: блокируем по уклону и воде."""
     H16 = _stitch_height(base, cfg.width, cfg.height, cfg.chunk)
 
-    # --- ИЗМЕНЕНИЕ: Новая логика расчета высоты ---
-    # Вычисляем общий диапазон высот, чтобы высота суши была равна land_height_m
-    total_height_range = cfg.land_height_m / max(1.0 - cfg.ocean_level, 1e-6)
+    total_height_range = cfg.land_height_m / max(1.0 - cfg.biome_config.ocean_level_m, 1e-6)
     Hm = (H16.astype(np.float32) / 65535.0) * total_height_range
-    # --- Конец изменений ---
 
     gy, gx = np.gradient(Hm, cfg.meters_per_pixel, cfg.meters_per_pixel)
     slope = np.degrees(np.arctan(np.hypot(gx, gy)))
     blocked = slope > cfg.navgrid_max_slope_deg
     if cfg.navgrid_block_water:
         # вода по высоте: теперь порог считается от общего диапазона
-        water_h_abs = cfg.ocean_level * total_height_range
+        water_h_abs = cfg.biome_config.ocean_level_m * total_height_range
         blocked |= (Hm <= water_h_abs + 1e-3)
 
     cell = max(1, int(round(cfg.navgrid_cell_m / cfg.meters_per_pixel)))
