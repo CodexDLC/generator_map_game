@@ -3,7 +3,7 @@ from tkinter import ttk
 from PIL import Image, ImageTk
 
 from ...widgets import GroupBox, row, check
-from ...descriptions import HELP, TOOLTIP
+from ...descriptions import HELP
 from .state import GenerateState
 
 
@@ -12,6 +12,7 @@ class GenerateView:
     Слева — вертикальная панель настроек.
     Справа — сетка миниатюр чанков + прогресс/статус.
     """
+
     def __init__(self, parent):
         self.frame = ttk.Frame(parent)
         self.state = GenerateState.create_defaults()
@@ -93,8 +94,6 @@ class GenerateView:
         self._imgrefs: list[list[ImageTk.PhotoImage | None]] = []
         self._tile_px = 96
 
-    # --- API для контроллера ---
-
     def init_grid(self, cols: int, rows: int, tile_px: int = 96) -> None:
         for row_lbls in self._tiles:
             for lbl in row_lbls:
@@ -124,9 +123,7 @@ class GenerateView:
         except Exception:
             self._tiles[cy][cx].configure(text="×")
 
-    # --- Справка: один экземпляр ---
     def show_help(self):
-        # если уже открыта — просто активируем
         if self._help_win and tk.Toplevel.winfo_exists(self._help_win):
             self._help_win.deiconify()
             self._help_win.lift()
@@ -148,7 +145,6 @@ class GenerateView:
         txt.configure(state="disabled")
 
         def _on_close():
-            # помечаем, что окна больше нет
             self._help_win = None
             win.destroy()
 

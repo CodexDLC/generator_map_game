@@ -1,14 +1,12 @@
 from queue import Queue
+
+from worldgen_core import generate_grid
 from .tasks import run_in_thread
 from worldgen_core.pipeline import generate_world
 from worldgen_core.utils.window import extract_window
 
 # безопасная прокладка для scatter: если нет реализации — тихо no-op
-try:
-    from worldgen_core.scatter import scatter_world as _scatter_impl
-except Exception:  # ImportError, AttributeError и др.
-    def _scatter_impl(*args, **kwargs):
-        return  # заглушка
+
 
 def generate(cfg):
     q = Queue()
@@ -21,6 +19,12 @@ def extract(src_base, dst_base, origin_x, origin_y, width, height, chunk, copy_b
         src_base, dst_base, origin_x, origin_y, width, height, chunk, copy_biomes
     )
 
-def scatter(*args, **kwargs):
-    """Запускает worldgen_core.scatter.scatter_world(...) в фоне (или no-op, если нет реализации)."""
-    return run_in_thread(_scatter_impl, *args, **kwargs)
+def generate_grid_sync(seed, width, height, out_dir, wall_chance): # <-- Добавлен wall_chance
+    """Синхронный вызов генератора сеток."""
+    return generate_grid(
+        seed=seed,
+        width=width,
+        height=height,
+        out_dir=out_dir,
+        wall_chance=wall_chance # <-- Добавлен wall_chance
+    )

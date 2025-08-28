@@ -40,7 +40,7 @@ class GenerateState:
     island_radius_m: tk.StringVar
     island_band_m: tk.StringVar
     ridge_noise_amp: tk.StringVar
-    volcano_center_x: tk.StringVar   # можно оставить пустым => центр карты
+    volcano_center_x: tk.StringVar
     volcano_center_y: tk.StringVar
 
     @staticmethod
@@ -118,7 +118,6 @@ class GenerateState:
             ),
         )
 
-        # вулкан
         cfg.volcano_enable   = bool(self.volcano_enable.get())
         cfg.peak_add_m       = float(self.volcano_peak_m.get())
         cfg.volcano_radius_m = float(self.volcano_radius_m.get())

@@ -3,7 +3,7 @@ from pathlib import Path
 from queue import Empty
 
 from ...services import worldgen as svc
-from .view import GenerateView
+from .view import GenerateView # <-- ДОБАВЬТЕ ЭТУ СТРОКУ
 
 TabHandle = namedtuple("TabHandle", "name frame on_show dispose")
 
@@ -12,6 +12,7 @@ def make_tab(parent, services):
     ui = GenerateView(parent)
 
     def on_click():
+        # ... (остальной код файла без изменений)
         cfg = ui.state.to_config()
 
         cols = (cfg.width + cfg.chunk - 1) // cfg.chunk
@@ -21,7 +22,7 @@ def make_tab(parent, services):
         ui.init_grid(cols, rows, tile_px=96)
         ui.btn_gen.config(state="disabled")
         ui.prog.config(value=0, maximum=total)
-        ui.prog.grid()  # показать прогресс-бар только во время генерации
+        ui.prog.grid()
         ui.lbl_status.config(text="Генерация...")
 
         t, q = svc.generate(cfg)
@@ -57,8 +58,8 @@ def make_tab(parent, services):
                 finalize()
 
         def finalize():
-            ui.prog.grid_remove()          # спрятать прогресс-бар
-            ui.prog.config(value=0)        # сбросить значение
+            ui.prog.grid_remove()
+            ui.prog.config(value=0)
             ui.lbl_status.config(text="Готово.")
             ui.btn_gen.config(state="normal")
 
