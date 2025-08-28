@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
-from ..tabs import TABS
+from worldgen_ui.tabs import TABS
 
 def main():
     root = tk.Tk()

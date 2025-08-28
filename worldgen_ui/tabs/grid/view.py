@@ -48,9 +48,56 @@ class GridView:
         self.lbl_status = ttk.Label(left_panel, text="Готово")
         self.lbl_status.grid(row=2, column=0, sticky="w", padx=5, pady=5)
 
-        self.json_label = tk.Label(gb_params, text="", anchor="w", justify="left", wraplength=260)
-        self.json_label.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(4, 0))
-        gb_params.columnconfigure(1, weight=1)  # чтобы тянулся центр. столбец
+        # --- Mode & Open% ---
+        ttk.Label(gb_params, text="Mode").grid(row=5, column=0, sticky="w")
+        cb_mode = ttk.Combobox(gb_params, values=["cave", "rooms", "hybrid", "open"],
+                               textvariable=self.state.mode, state="readonly", width=10)
+        cb_mode.grid(row=5, column=1, sticky="ew")
+
+        ttk.Label(gb_params, text="Open % min").grid(row=6, column=0, sticky="w")
+        self.scale_open = ttk.Scale(
+            gb_params, from_=0, to=100, orient="horizontal",
+            command=lambda v: self.state.open_min.set(str(int(float(v))))
+        )
+        self.scale_open.set(float(self.state.open_min.get()))
+        self.scale_open.grid(row=6, column=1, sticky="ew")
+        ttk.Entry(gb_params, width=4, textvariable=self.state.open_min).grid(row=6, column=2, sticky="w")
+
+        # --- Border ---
+        ttk.Label(gb_params, text="Border mode").grid(row=7, column=0, sticky="w")
+        cb_border = ttk.Combobox(gb_params, values=["cliff", "wall", "void"],
+                                 textvariable=self.state.border_mode, state="readonly", width=10)
+        cb_border.grid(row=7, column=1, sticky="ew")
+        ttk.Label(gb_params, text="Outer cells").grid(row=7, column=2, sticky="w")
+        ttk.Entry(gb_params, width=4, textvariable=self.state.border_outer_cells).grid(row=7, column=2, padx=(80, 0),
+                                                                                       sticky="w")
+
+        # --- Water: deep ---
+        deep_frame = ttk.LabelFrame(left_panel, text="Water: deep (terrain)", padding=6)
+        deep_frame.grid(row=3, column=0, sticky="ew", padx=5, pady=(6, 2))
+        ttk.Checkbutton(deep_frame, text="Enabled", variable=self.state.deep_enabled).grid(row=0, column=0, sticky="w")
+        ttk.Label(deep_frame, text="Density %").grid(row=1, column=0, sticky="w")
+        ttk.Entry(deep_frame, width=5, textvariable=self.state.deep_density).grid(row=1, column=1, sticky="w")
+        ttk.Label(deep_frame, text="Scale").grid(row=1, column=2, sticky="e")
+        ttk.Entry(deep_frame, width=6, textvariable=self.state.deep_scale).grid(row=1, column=3, sticky="w")
+        ttk.Label(deep_frame, text="Threshold %").grid(row=1, column=4, sticky="e")
+        ttk.Entry(deep_frame, width=5, textvariable=self.state.deep_threshold).grid(row=1, column=5, sticky="w")
+
+        # --- Water: puddles ---
+        pud_frame = ttk.LabelFrame(left_panel, text="Water: puddles (overlay)", padding=6)
+        pud_frame.grid(row=4, column=0, sticky="ew", padx=5, pady=(2, 8))
+        ttk.Checkbutton(pud_frame, text="Enabled", variable=self.state.puddles_enabled).grid(row=0, column=0,
+                                                                                             sticky="w")
+        ttk.Label(pud_frame, text="Density %").grid(row=1, column=0, sticky="w")
+        ttk.Entry(pud_frame, width=5, textvariable=self.state.puddles_density).grid(row=1, column=1, sticky="w")
+        ttk.Label(pud_frame, text="Scale").grid(row=1, column=2, sticky="e")
+        ttk.Entry(pud_frame, width=6, textvariable=self.state.puddles_scale).grid(row=1, column=3, sticky="w")
+        ttk.Label(pud_frame, text="Threshold %").grid(row=1, column=4, sticky="e")
+        ttk.Entry(pud_frame, width=5, textvariable=self.state.puddles_threshold).grid(row=1, column=5, sticky="w")
+
+        # переместить блок json_label ниже (после gb_params) оставить как есть
+
+
 
         # === ПРАВАЯ ПАНЕЛЬ: Превью ===
         right_panel = ttk.Frame(pw, padding=8)
@@ -60,6 +107,10 @@ class GridView:
 
         self.preview_label = ttk.Label(right_panel, anchor="center", background="gray20")
         self.preview_label.grid(row=0, column=0, sticky="nsew")
+
+        self.json_label = tk.Label(gb_params, text="", anchor="w", justify="left", wraplength=260)
+        self.json_label.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+        gb_params.columnconfigure(1, weight=1)  # чтобы тянулся центр. столбец
 
     def set_preview_image(self, image_path: str):
         """Загружает и отображает изображение в области превью."""
