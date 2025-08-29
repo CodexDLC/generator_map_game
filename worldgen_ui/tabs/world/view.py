@@ -2,8 +2,10 @@
 from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
-from .state import WorldState
+
 from .controller import WorldController
+from .state import WorldState
+
 
 PALETTE = {
     "ground": "#7a9e7a",
@@ -12,7 +14,11 @@ PALETTE = {
     "void": "#000000",
 }
 
+ID2KIND = {0: "ground", 1: "obstacle", 2: "water"}
+
 class WorldView(ttk.Frame):
+
+
     def __init__(self, master, state: WorldState):
         super().__init__(master)
         self.state = state
@@ -28,10 +34,14 @@ class WorldView(ttk.Frame):
 
         nav = ttk.Frame(self)
         nav.pack(fill="x", padx=6, pady=6)
-        ttk.Button(nav, text="← W", command=lambda: self._move(-1,0)).pack(side="left")
-        ttk.Button(nav, text="↑ N", command=lambda: self._move(0,-1)).pack(side="left", padx=4)
-        ttk.Button(nav, text="↓ S", command=lambda: self._move(0,1)).pack(side="left", padx=4)
-        ttk.Button(nav, text="E →", command=lambda: self._move(1,0)).pack(side="left")
+        self.btn_w = ttk.Button(nav, text="← W", command=lambda: self._on_nav(-1, 0))
+        self.btn_n = ttk.Button(nav, text="↑ N", command=lambda: self._on_nav(0, -1))
+        self.btn_s = ttk.Button(nav, text="↓ S", command=lambda: self._on_nav(0, 1))
+        self.btn_e = ttk.Button(nav, text="E →", command=lambda: self._on_nav(1, 0))
+        self.btn_w.pack(side="left")
+        self.btn_n.pack(side="left", padx=4)
+        self.btn_s.pack(side="left", padx=4)
+        self.btn_e.pack(side="left")
 
         self.canvas = tk.Canvas(self, width=512, height=512, bg="#222")
         self.canvas.pack(fill="both", expand=True, padx=6, pady=6)
@@ -50,53 +60,161 @@ class WorldView(ttk.Frame):
         self.ctrl.move(dx, dz)
         self._redraw()
 
+    def _on_nav(self, dx: int, dz: int):
+        # жёсткая проверка шва
+        if not self.ctrl.can_move(dx, dz):
+            self.status.set("Нет порта в эту сторону — переход запрещён.")
+            return
+        self.ctrl.move(dx, dz)
+        self._redraw()
+
+    def _update_nav_buttons(self, ports: dict):
+        def en(btn, ok): btn.config(state=("normal" if ok else "disabled"))
+
+        en(self.btn_n, bool(ports.get("N")))
+        en(self.btn_e, bool(ports.get("E")))
+        en(self.btn_s, bool(ports.get("S")))
+        en(self.btn_w, bool(ports.get("W")))
+
+    def _grid_from_kind_payload(self, payload, size):
+        """
+        Нормализует layers.kind:
+          - если RLE dict -> декодируем в grid и считаем, что значения = id (0/1/2)
+          - если 2D list  -> берём как есть (значения могут быть строками или id)
+          - иначе          -> пустая сетка
+        Возвращает (grid, val_to_kind_fn)
+        """
+        if isinstance(payload, dict) and payload.get("encoding") == "rle_rows_v1":
+            rows = payload.get("rows", [])
+            grid = self._decode_rle_rows(rows)
+
+            def val_to_kind(v):  # RLE обычно отдаём id
+                try:
+                    return ID2KIND.get(int(v), "ground")
+                except Exception:
+                    return "ground"
+
+            return grid, val_to_kind
+
+        if isinstance(payload, list):
+            grid = payload
+
+            def val_to_kind(v):
+                if isinstance(v, str):
+                    return v
+                try:
+                    return ID2KIND.get(int(v), "ground")
+                except Exception:
+                    return "ground"
+
+            return grid, val_to_kind
+
+        # fallback
+        grid = [[0] * size for _ in range(size)]
+
+        def val_to_kind(_v):
+            return "ground"
+
+        return grid, val_to_kind
+
+    def _decode_rle_rows(self, rows):
+        grid = []
+        for r in rows:
+            line = []
+            for val, run in r:
+                line.extend([val] * int(run))
+            grid.append(line)
+        return grid
+
+    def _extract_grid_and_size(self, data):
+        """
+        Возвращает (grid, size), где grid — 2D список значений (строки или id).
+        Понимает три формата:
+          - data["layers"]["kind"] как RLE dict {"encoding":"rle_rows_v1","rows":[...]}
+          - data["layers"]["kind"] как 2D list
+          - data["chunks"][0] как RLE (при загрузке с диска)
+        """
+        # 1) layers.kind
+        layers = data.get("layers", {})
+        if "kind" in layers:
+            payload = layers["kind"]
+            if isinstance(payload, dict) and payload.get("encoding") == "rle_rows_v1":
+                grid = self._decode_rle_rows(payload.get("rows", []))
+                size = len(grid) if grid else data.get("size", 64)
+                return grid, size
+            if isinstance(payload, list):
+                grid = payload
+                size = len(grid) if grid else data.get("size", 64)
+                return grid, size
+
+        # 2) chunks[0] (как в сохранённом chunk.rle.json)
+        chunks = data.get("chunks", [])
+        if chunks:
+            ch = chunks[0]
+            grid = self._decode_rle_rows(ch.get("rows", []))
+            size = ch.get("h", len(grid) if grid else data.get("size", 64))
+            return grid, size
+
+        # 3) пусто — вернём чистую сетку
+        size = data.get("size", 64)
+        return [[0] * size for _ in range(size)], size
+
+
     def _redraw(self):
         data = self.ctrl.load_center()
-        layers = data.get("layers", {})
-        kind_rle = layers.get("kind", {})
-        rows = kind_rle.get("rows", [])
-        size = data.get("size", 64)
-        # раскодируем RLE в грид для отрисовки
-        grid = []
-        for row in rows:
-            line = []
-            for val, run in row:
-                line.extend([val]*run)
-            grid.append(line)
+
+        grid, size = self._extract_grid_and_size(data)
 
         self.canvas.delete("all")
         w = self.canvas.winfo_width() or 512
         h = self.canvas.winfo_height() or 512
         cell = max(1, min(w, h) // max(1, size))
-        offx = (w - size*cell)//2
-        offy = (h - size*cell)//2
+        offx = (w - size * cell) // 2
+        offy = (h - size * cell) // 2
 
         for z in range(size):
-            row = grid[z]
+            row = grid[z] if z < len(grid) else []
             for x in range(size):
-                v = row[x] if x < len(row) else "void"
-                color = PALETTE.get(v, "#000000")
-                x0 = offx + x*cell; y0 = offy + z*cell
-                x1 = x0 + cell; y1 = y0 + cell
-                self.canvas.create_rectangle(x0,y0,x1,y1, outline=color, fill=color)
+                v = row[x] if x < len(row) else 0
+                # нормализуем к имени тайла
+                if isinstance(v, str):
+                    kind_name = v
+                else:
+                    try:
+                        kind_name = ID2KIND.get(int(v), "ground")
+                    except Exception:
+                        kind_name = "ground"
+                color = PALETTE.get(kind_name, "#000000")
+                x0 = offx + x * cell
+                y0 = offy + z * cell
+                x1 = x0 + cell
+                y1 = y0 + cell
+                self.canvas.create_rectangle(x0, y0, x1, y1, outline=color, fill=color)
 
-        # порты подсветим красным
-        ports = data.get("ports", {"N":[],"E":[],"S":[],"W":[]})
+        # порты (берём из top-level или из _meta, что найдём)
+        ports = data.get("ports") or (data.get("_meta", {}) or {}).get("ports") or {"N": [], "E": [], "S": [], "W": []}
+
         # N
         for x in ports.get("N", []):
-            x0 = offx + x*cell; y0 = offy + 0*cell
-            self.canvas.create_rectangle(x0, y0, x0+cell, y0+cell, outline="#ff0000", width=2)
+            x0 = offx + x * cell
+            y0 = offy
+            self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline="#ff0000", width=2)
         # S
         for x in ports.get("S", []):
-            x0 = offx + x*cell; y0 = offy + (size-1)*cell
-            self.canvas.create_rectangle(x0, y0, x0+cell, y0+cell, outline="#ff0000", width=2)
+            x0 = offx + x * cell
+            y0 = offy + (size - 1) * cell
+            self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline="#ff0000", width=2)
         # W
         for z in ports.get("W", []):
-            x0 = offx + 0*cell; y0 = offy + z*cell
-            self.canvas.create_rectangle(x0, y0, x0+cell, y0+cell, outline="#ff0000", width=2)
+            x0 = offx
+            y0 = offy + z * cell
+            self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline="#ff0000", width=2)
         # E
         for z in ports.get("E", []):
-            x0 = offx + (size-1)*cell; y0 = offy + z*cell
-            self.canvas.create_rectangle(x0, y0, x0+cell, y0+cell, outline="#ff0000", width=2)
+            x0 = offx + (size - 1) * cell
+            y0 = offy + z * cell
+            self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline="#ff0000", width=2)
 
-        self.status.set(f"seed={self.state.seed}  cx={self.state.cx} cz={self.state.cz}")
+        world_label = "Город" if self.state.world_id == "city" else self.state.world_id
+        self.status.set(
+            f"{world_label}  city_seed={self.state.city_seed}  seed={self.state.seed}  cx={self.state.cx} cz={self.state.cz}")

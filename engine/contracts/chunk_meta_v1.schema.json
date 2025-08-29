@@ -2,50 +2,125 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "chunk_meta_v1",
   "type": "object",
-  "required": [
-    "version",
-    "type",
-    "seed",
-    "cx",
-    "cz",
-    "size",
-    "cell_size",
-    "metrics",
-    "stage_seeds",
-    "capabilities"
-  ],
+  "additionalProperties": true,
+
   "properties": {
-    "version": {
-      "const": "chunk_v1"
+    "version": { "type": "string" },
+    "type":    { "type": "string" },
+
+    "seed":    { "type": "integer" },
+    "size":    { "type": "integer" },
+    "cx":      { "type": "integer" },
+    "cz":      { "type": "integer" },
+
+    "edges":   { "type": "object" },
+
+    "ports": {
+      "type": "object",
+      "properties": {
+        "N": { "$ref": "#/definitions/ports_arr" },
+        "E": { "$ref": "#/definitions/ports_arr" },
+        "S": { "$ref": "#/definitions/ports_arr" },
+        "W": { "$ref": "#/definitions/ports_arr" }
+      },
+      "additionalProperties": false
     },
-    "type": {
-      "const": "world_chunk_base"
+
+    "metrics": { "type": "object" },
+
+    "world_id": {
+      "oneOf": [
+        { "const": "city" },
+        { "type": "string", "pattern": "^branch/[A-Za-z0-9_-]+$" }
+      ]
     },
-    "seed": {
-      "type": "integer"
+    "branch_id": { "type": "string" },
+    "branch_seed": { "type": "integer", "minimum": 0 },
+    "branch_origin": {
+      "type": "object",
+      "properties": { "cx": { "type": "integer" }, "cz": { "type": "integer" } },
+      "required": ["cx", "cz"],
+      "additionalProperties": false
     },
-    "cx": {
-      "type": "integer"
+
+    "domain": {
+      "type": "object",
+      "properties": {
+        "x_min": { "type": "integer" },
+        "x_max": { "type": "integer" },
+        "z_min": { "type": "integer" },
+        "z_max": { "type": "integer" }
+      },
+      "additionalProperties": false
     },
-    "cz": {
-      "type": "integer"
+
+    "difficulty": {
+      "type": "object",
+      "properties": {
+        "value": { "type": "number" },
+        "dist":  { "type": "number" }
+      },
+      "additionalProperties": false
     },
-    "size": {
-      "type": "integer",
-      "minimum": 8
+
+    "gateway": {
+      "type": "object",
+      "properties": {
+        "id":   { "type": "string" },
+        "kind": { "type": "string", "default": "tunnel_v1" },
+        "from": {
+          "$ref": "#/definitions/gw_endpoint"
+        },
+        "to": {
+          "allOf": [
+            { "$ref": "#/definitions/gw_endpoint" },
+            {
+              "properties": {
+                "world_id": {
+                  "oneOf": [
+                    { "type": "string", "pattern": "^branch/[A-Za-z0-9_-]+$" },
+                    { "const": "city" }
+                  ]
+                },
+                "seed": { "type": "integer", "minimum": 0 }
+              }
+            }
+          ]
+        }
+      },
+      "required": ["id", "from", "to"],
+      "additionalProperties": true
+    }
+  },
+
+  "required": ["version", "type", "seed", "size", "cx", "cz", "edges", "ports"],
+
+  "definitions": {
+    "ports_arr": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "idx":  { "type": "integer", "minimum": 0 },
+          "type": { "type": "string", "enum": ["normal", "gateway"], "default": "normal" },
+          "gateway_id": { "type": "string" }
+        },
+        "required": ["idx"],
+        "additionalProperties": true
+      }
     },
-    "cell_size": {
-      "type": "number",
-      "exclusiveMinimum": 0
-    },
-    "metrics": {
-      "type": "object"
-    },
-    "stage_seeds": {
-      "type": "object"
-    },
-    "capabilities": {
-      "type": "object"
+
+    "gw_endpoint": {
+      "type": "object",
+      "properties": {
+        "world_id": { "type": "string" },
+        "cx": { "type": "integer" },
+        "cz": { "type": "integer" },
+        "side": { "type": "string", "enum": ["N", "E", "S", "W"] },
+        "idx":  { "type": "integer" }
+      },
+      "required": ["world_id", "cx", "cz", "side", "idx"],
+      "additionalProperties": true
     }
   }
 }

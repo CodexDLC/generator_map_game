@@ -73,43 +73,60 @@ def inner_point_for_side(side: str, idx: int, size: int, t: int) -> Tuple[int, i
 
 def choose_ports(seed: int, cx: int, cz: int, size: int, cfg: Dict[str, Any]) -> Dict[str, List[int]]:
     """
-    Детерминированный выбор сторон от edge_key + позиция окна.
-    Соблюдаем min..max (2..4 по умолчанию).
+    Симметричное правило с гарантией min-degree >= 2:
+    порт активен, если (бит) ИЛИ (входит в 2 минимальных у этого чанка) ИЛИ (в 2 минимальных у соседа).
     """
-    pmin = int(cfg.get("min", 2)); pmax = int(cfg.get("max", 4))
     margin = int(cfg.get("edge_margin", 3))
-    margin = max(0, min(margin, max(0, (size//2)-1)))
+    margin = max(0, min(margin, max(0, (size // 2) - 1)))
 
-    sides = ["N","E","S","W"]
-    active: Dict[str, bool] = {}
-    pos: Dict[str, int] = {}
+    sides = ["N", "E", "S", "W"]
+    opposite = {"N": "S", "S": "N", "W": "E", "E": "W"}
+
+    # -- веса/позиции для текущего чанка
+    this_h: Dict[str, int] = {}
+    this_pos: Dict[str, int] = {}
+    this_base: Dict[str, bool] = {}
 
     for side in sides:
         nx, nz = side_neighbor(cx, cz, side)
         k = edge_key(seed, cx, cz, nx, nz)
         r = RNG(k)
-        is_active = (r.u32() & 1) == 1
-        idx = r.randint(margin, max(margin, size-1-margin)) if size > 0 else 0
-        active[side] = is_active
-        pos[side] = idx
+        h = r.u32()                              # вес ребра
+        this_h[side] = h
+        this_base[side] = (h & 1) == 1          # базовый бит
+        this_pos[side] = r.randint(margin, max(margin, size - 1 - margin)) if size > 0 else 0
 
-    def count_active() -> int: return sum(1 for v in active.values() if v)
-    # добираем до min
-    if count_active() < pmin:
-        for side in sides:
-            if count_active() >= pmin: break
-            nx, nz = side_neighbor(cx, cz, side)
-            r = RNG(edge_key(seed, cx, cz, nx, nz)); _ = r.u32()
-            if (r.u32() & 1) == 1: active[side] = True
-    # урезаем до max
-    if count_active() > pmax:
-        for side in sides:
-            if count_active() <= pmax: break
-            nx, nz = side_neighbor(cx, cz, side)
-            r = RNG(edge_key(seed, cx, cz, nx, nz)); _ = r.u32(); _ = r.u32()
-            if (r.u32() & 1) == 1: active[side] = False
+    # два минимальных у текущего
+    this_min2 = set(sorted(sides, key=lambda s: this_h[s])[:2])
 
-    return {s: ([] if not active[s] else [pos[s]]) for s in sides}
+    # -- кэш «двух минимальных» для соседей
+    neigh_min2: Dict[Tuple[int, int], set] = {}
+
+    def get_min2_for(nx: int, nz: int) -> set:
+        key = (nx, nz)
+        if key in neigh_min2:
+            return neigh_min2[key]
+        # посчитать 4 веса у соседа
+        nh: Dict[str, int] = {}
+        for s in sides:
+            nnx, nnz = side_neighbor(nx, nz, s)
+            kk = edge_key(seed, nx, nz, nnx, nnz)
+            rr = RNG(kk)
+            nh[s] = rr.u32()
+        m2 = set(sorted(sides, key=lambda s: nh[s])[:2])
+        neigh_min2[key] = m2
+        return m2
+
+    # -- итог: активна ли грань?
+    result: Dict[str, List[int]] = {}
+    for side in sides:
+        nx, nz = side_neighbor(cx, cz, side)
+        n_min2 = get_min2_for(nx, nz)
+        active = this_base[side] or (side in this_min2) or (opposite[side] in n_min2)
+        result[side] = [this_pos[side]] if active else []
+
+    return result
+
 
 # ---------- Пути/коридоры ----------
 
