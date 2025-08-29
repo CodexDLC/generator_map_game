@@ -6,8 +6,8 @@ from ..base.generator import BaseGenerator
 from ..base.rng import split_chunk_seed
 from .ops import (
     apply_border_ring, carve_port_window, inner_point_for_side,
-    choose_ports, carve_connectivity,
-    compute_hint_and_halo, edges_tiles_and_pass_from_kind, find_path_network, dijkstra_path,
+    choose_ports,
+    compute_hint_and_halo, edges_tiles_and_pass_from_kind, find_path_network, dijkstra_path, carve_path_emergency,
 )
 from ..grid_alg.terrain import generate_elevation, classify_terrain
 
@@ -129,10 +129,7 @@ class WorldBaseGenerator(BaseGenerator):
             path = dijkstra_path(kind, height_grid, start, end)
 
             if path is None:
-                # Путь не найден! Используем "план Б".
-                # Находим путь по прямой линии (или можно использовать A* без весов)
-                # и пробиваем туннель.
-                import math
+
                 emergency_path = []
                 x1, z1 = start
                 x2, z2 = end
