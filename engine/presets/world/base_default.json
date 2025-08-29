@@ -1,0 +1,43 @@
+{
+  "id": "world/base_default",
+  "size": 64,
+  "cell_size": 1.0,
+  "obstacles": {
+    "density": 0.12,
+    "min_blob": 8,
+    "max_blob": 64
+  },
+  "water": {
+    "density": 0.05,
+    "lake_chance": 0.2
+  },
+  "height_q": {
+    "scale": 0.1
+  },
+  "ports": {
+    "min": 2,
+    "max": 4,
+    "edge_margin": 3
+  },
+  "fields": {
+    "temperature": {
+      "enabled": true,
+      "downsample": 4,
+      "scale": 0.5
+    },
+    "humidity": {
+      "enabled": true,
+      "downsample": 4,
+      "scale": 0.5
+    }
+  },
+  "export": {
+    "palette": {
+      "ground": "#7a9e7a",
+      "obstacle": "#444444",
+      "water": "#3573b8",
+      "void": "#00000000"
+    },
+    "thick": true
+  }
+}

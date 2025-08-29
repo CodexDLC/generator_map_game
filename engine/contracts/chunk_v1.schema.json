@@ -1,0 +1,131 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "chunk_v1",
+  "type": "object",
+  "required": [
+    "version",
+    "type",
+    "seed",
+    "cx",
+    "cz",
+    "size",
+    "cell_size",
+    "layers",
+    "ports",
+    "blocked"
+  ],
+  "properties": {
+    "version": {
+      "const": "chunk_v1"
+    },
+    "type": {
+      "const": "world_chunk_base"
+    },
+    "seed": {
+      "type": "integer"
+    },
+    "cx": {
+      "type": "integer"
+    },
+    "cz": {
+      "type": "integer"
+    },
+    "size": {
+      "type": "integer",
+      "minimum": 8
+    },
+    "cell_size": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "ports": {
+      "type": "object",
+      "properties": {
+        "N": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "E": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "S": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "W": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        }
+      },
+      "required": [
+        "N",
+        "E",
+        "S",
+        "W"
+      ]
+    },
+    "blocked": {
+      "type": "boolean"
+    },
+    "layers": {
+      "type": "object",
+      "required": [
+        "kind",
+        "height_q"
+      ],
+      "properties": {
+        "kind": {
+          "type": "object",
+          "required": [
+            "encoding",
+            "rows"
+          ],
+          "properties": {
+            "encoding": {
+              "const": "rle_rows_v1"
+            },
+            "rows": {
+              "type": "array"
+            }
+          }
+        },
+        "height_q": {
+          "type": "object",
+          "required": [
+            "zero",
+            "scale",
+            "encoding",
+            "rows"
+          ],
+          "properties": {
+            "zero": {
+              "type": "number"
+            },
+            "scale": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "encoding": {
+              "const": "rle_rows_v1"
+            },
+            "rows": {
+              "type": "array"
+            }
+          }
+        }
+      }
+    },
+    "fields": {
+      "type": "object"
+    }
+  }
+}

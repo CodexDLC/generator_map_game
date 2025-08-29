@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "chunk_meta_v1",
+  "type": "object",
+  "required": [
+    "version",
+    "type",
+    "seed",
+    "cx",
+    "cz",
+    "size",
+    "cell_size",
+    "metrics",
+    "stage_seeds",
+    "capabilities"
+  ],
+  "properties": {
+    "version": {
+      "const": "chunk_v1"
+    },
+    "type": {
+      "const": "world_chunk_base"
+    },
+    "seed": {
+      "type": "integer"
+    },
+    "cx": {
+      "type": "integer"
+    },
+    "cz": {
+      "type": "integer"
+    },
+    "size": {
+      "type": "integer",
+      "minimum": 8
+    },
+    "cell_size": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "metrics": {
+      "type": "object"
+    },
+    "stage_seeds": {
+      "type": "object"
+    },
+    "capabilities": {
+      "type": "object"
+    }
+  }
+}

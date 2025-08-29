@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import json
 import uuid
 import logging
 from pathlib import Path
 
-from .grid_utils.core import GenParams, TILE, init_rng
-from .grid_utils.cellular import make_noise_grid, smooth_cellular
-from .grid_utils.terrain import paint_road_on_path, apply_biomes
-from .grid_utils.topology import (
+from archive.grid_utils.core import GenParams, TILE, init_rng
+from archive.grid_utils import make_noise_grid, smooth_cellular
+from archive.grid_utils.terrain import paint_road_on_path, apply_biomes
+from engine.worldgen_core.grid_alg.topology import (
     largest_component_only,
     add_border,
     a_star_abilities,
@@ -17,8 +16,8 @@ from .grid_utils.topology import (
     widen_corridors,
     carve_path_weighted,
 )
-from .grid_utils.features import add_water, gen_rooms_map, carve_room_at
-from .grid_utils.export import build_json_data, save_json, render_png_preview
+from archive.grid_utils.features import add_water, gen_rooms_map, carve_room_at
+from archive.grid_utils.export import build_json_data, save_json, render_png_preview
 
 log = logging.getLogger(__name__)
 

@@ -1,19 +1,17 @@
+
+from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
-from worldgen_ui.tabs import TABS
+from ..tabs.world.state import WorldState
+from ..tabs.world.view import WorldView
 
 def main():
     root = tk.Tk()
-    root.title("WorldGen")
-    root.geometry("900x560")
+    root.title("WorldGen — Stage C (base preview)")
+    root.geometry("720x800")
 
-    nb = ttk.Notebook(root)
-    nb.pack(fill="both", expand=True)
-
-    services = {}  # общий контейнер сервисов, если потребуется
-
-    for make_tab in TABS:
-        tab = make_tab(nb, services)
-        nb.add(tab.frame, text=tab.name)
+    state = WorldState()
+    view = WorldView(root, state)
+    view.pack(fill="both", expand=True)
 
     root.mainloop()
