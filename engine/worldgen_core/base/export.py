@@ -1,44 +1,18 @@
 from __future__ import annotations
 import json
-from typing import Any, Dict, List, Sequence, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 from pathlib import Path
+
+from engine.worldgen_core.utils.rle import encode_rle_rows, decode_rle_rows
 
 # PIL опционально — превью делаем, если доступен
 try:
     from PIL import Image
     PIL_OK = True
-except Exception:
+except ImportError:
     PIL_OK = False
 
-
-# ---------------- RLE helpers ----------------
-
-def encode_rle_line(line: Sequence[Any]) -> List[List[Any]]:
-    out: List[List[Any]] = []
-    if not line:
-        return out
-    cur = line[0]; run = 1
-    for v in line[1:]:
-        if v == cur:
-            run += 1
-        else:
-            out.append([cur, run])
-            cur = v; run = 1
-    out.append([cur, run])
-    return out
-
-def encode_rle_rows(grid: List[List[Any]]) -> Dict[str, Any]:
-    return {"encoding": "rle_rows_v1", "rows": [encode_rle_line(row) for row in grid]}
-
-def decode_rle_rows(rows: List[List[List[Any]]]) -> List[List[Any]]:
-    grid: List[List[Any]] = []
-    for r in rows:
-        line: List[Any] = []
-        for val, run in r:
-            line.extend([val] * int(run))
-        grid.append(line)
-    return grid
-
+PREVIEW_TILE_PX = 2
 
 # --------- main IO: chunk / meta / preview ---------
 
@@ -97,23 +71,51 @@ def write_preview_png(path: str,
                       palette: Dict[str, str],
                       ports: Dict[str, List[int]] | Dict[str, Any] | None = None) -> None:
     """
-    Рисуем маленький превью PNG (по клетке = 1px).
-    palette: {"ground":"#AABB77","obstacle":"#444", "water":"#2288ff", ...}
+    Рисуем превью PNG. Теперь каждый тайл рисуется как квадрат PREVIEW_TILE_PX.
     """
     if not PIL_OK:
+        print("WARN: Pillow not found, cannot generate preview.png")
         return
 
-    # получить грид значений (строки или id)
+    # Получаем грид значений (строки или id)
     if isinstance(kind_payload, dict) and kind_payload.get("encoding") == "rle_rows_v1":
         rows = kind_payload.get("rows", [])
         grid = decode_rle_rows(rows)
     else:
-        grid = kind_payload  # предполагаем 2D список
+        grid = kind_payload
 
     h = len(grid)
     w = len(grid[0]) if h else 0
     if w == 0 or h == 0:
         return
+
+    ID2NAME = {0: "ground", 1: "obstacle", 2: "water", 3: "border", 4: "road"}
+
+    def hex_to_rgb(s: str) -> Tuple[int, int, int]:
+        s = s.lstrip("#")
+        if len(s) == 3: s = "".join(c*2 for c in s)
+        if len(s) != 6: return (0,0,0)
+        return int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16)
+
+    def to_rgb(v: Any) -> Tuple[int, int, int]:
+        name = v if isinstance(v, str) else ID2NAME.get(int(v), "ground")
+        return hex_to_rgb(palette.get(name, "#000000"))
+
+    # <<< ОСНОВНЫЕ ИЗМЕНЕНИЯ ЗДЕСЬ >>>
+    # Создаем картинку увеличенного размера
+    img = Image.new("RGB", (w * PREVIEW_TILE_PX, h * PREVIEW_TILE_PX))
+    px = img.load()
+
+    # Рисуем увеличенными "пикселями"
+    for z in range(h):
+        for x in range(w):
+            color = to_rgb(grid[z][x])
+            for dx in range(PREVIEW_TILE_PX):
+                for dy in range(PREVIEW_TILE_PX):
+                    px[x * PREVIEW_TILE_PX + dx, z * PREVIEW_TILE_PX + dy] = color
+
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    img.save(path, format="PNG")
 
     # вспомогатели палитры: строка → rgb; числа мапим на имена
     # допустимые имена

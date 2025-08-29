@@ -68,13 +68,14 @@ class WorldView(ttk.Frame):
         self.ctrl.move(dx, dz)
         self._redraw()
 
-    def _update_nav_buttons(self, ports: dict):
+    def _update_nav_buttons(self, _ports_unused):
+        # Решаем, можно ли шагнуть логически, а не по порту
         def en(btn, ok): btn.config(state=("normal" if ok else "disabled"))
 
-        en(self.btn_n, bool(ports.get("N")))
-        en(self.btn_e, bool(ports.get("E")))
-        en(self.btn_s, bool(ports.get("S")))
-        en(self.btn_w, bool(ports.get("W")))
+        en(self.btn_n, self.ctrl.can_move(0, -1))
+        en(self.btn_e, self.ctrl.can_move(1, 0))
+        en(self.btn_s, self.ctrl.can_move(0, 1))
+        en(self.btn_w, self.ctrl.can_move(-1, 0))
 
     def _grid_from_kind_payload(self, payload, size):
         """
@@ -215,6 +216,27 @@ class WorldView(ttk.Frame):
             y0 = offy + z * cell
             self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline="#ff0000", width=2)
 
-        world_label = "Город" if self.state.world_id == "city" else self.state.world_id
-        self.status.set(
-            f"{world_label}  city_seed={self.state.city_seed}  seed={self.state.seed}  cx={self.state.cx} cz={self.state.cz}")
+        if self.state.world_id == "city" and self.state.cx == 0 and self.state.cz == 0:
+            gates = self.ctrl._city_gateway_sides()
+            size = len(grid)
+            cell = max(1, min(self.canvas.winfo_width() or 512, self.canvas.winfo_height() or 512) // max(1, size))
+            offx = (self.canvas.winfo_width() or 512 - size * cell) // 2
+            offy = (self.canvas.winfo_height() or 512 - size * cell) // 2
+            # рисуем маленькие оранжевые квадраты на соответствующих сторонах
+            mark = "#ffa600"
+            if "N" in gates:
+                x0 = offx + (size // 2) * cell
+                y0 = offy
+                self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline=mark, width=2)
+            if "S" in gates:
+                x0 = offx + (size // 2) * cell
+                y0 = offy + (size - 1) * cell
+                self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline=mark, width=2)
+            if "W" in gates:
+                x0 = offx
+                y0 = offy + (size // 2) * cell
+                self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline=mark, width=2)
+            if "E" in gates:
+                x0 = offx + (size - 1) * cell
+                y0 = offy + (size // 2) * cell
+                self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline=mark, width=2)

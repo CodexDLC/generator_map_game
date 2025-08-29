@@ -3,25 +3,8 @@ from typing import Any, Dict, List, Tuple
 from ..base.generator import KIND_GROUND, KIND_OBSTACLE, KIND_WATER
 from ..base.rng import RNG, edge_key
 from ..grid_alg.features import fbm2d  # шум для hint/halo
+from ..utils.rle import encode_rle_line, encode_rle_rows
 
-# ---------- RLE ----------
-
-def encode_rle_line(vals: List[int]) -> List[List[int]]:
-    out: List[List[int]] = []
-    if not vals:
-        return out
-    cur = int(vals[0]); run = 1
-    for v in vals[1:]:
-        v = int(v)
-        if v == cur:
-            run += 1
-        else:
-            out.append([cur, run]); cur = v; run = 1
-    out.append([cur, run])
-    return out
-
-def encode_rle_rows(grid: List[List[int]]) -> Dict[str, Any]:
-    return {"encoding": "rle_rows_v1", "rows": [encode_rle_line(row) for row in grid]}
 
 # ---------- Кромка/порты ----------
 
@@ -130,62 +113,109 @@ def choose_ports(seed: int, cx: int, cz: int, size: int, cfg: Dict[str, Any]) ->
 
 # ---------- Пути/коридоры ----------
 
-def _step_cost(val: str) -> int:
-    if val == KIND_GROUND:   return 1
-    if val == KIND_OBSTACLE: return 8
-    if val == KIND_WATER:    return 12
-    return 1
+def _step_cost(kind: List[List[str]],
+               height_grid: List[List[float]],
+               x: int, z: int, nx: int, nz: int) -> float:
+    """
+    Рассчитывает стоимость перехода между двумя ячейками.
+    Учитывает тип ландшафта и изменение высоты.
+    """
+    type_cost = {
+        KIND_GROUND: 1.0,
+        KIND_OBSTACLE: 100.0,  # Препятствия почти непроходимы
+        KIND_WATER: 25.0,     # По воде идти дорого
+    }.get(kind[nz][nx], 1.0)
 
-def dijkstra_path(kind: List[List[str]], start: Tuple[int,int], goal: Tuple[int,int]) -> List[Tuple[int,int]]:
+    # Штраф за подъем/спуск
+    height_diff = abs(height_grid[z][x] - height_grid[nz][nx])
+    slope_penalty = height_diff * 50.0 # Коэффициент можно настроить
+
+    return type_cost + slope_penalty
+
+
+def dijkstra_path(kind: List[List[str]],
+                  height_grid: List[List[float]],
+                  start: Tuple[int, int], goal: Tuple[int, int]) -> List[Tuple[int, int]]:
     import heapq
-    h = len(kind); w = len(kind[0]) if h else 0
-    sx, sz = start; gx, gz = goal
-    dist = [[10**12 for _ in range(w)] for _ in range(h)]
-    prev: List[List[Tuple[int,int] | None]] = [[None for _ in range(w)] for _ in range(h)]
-    pq: List[Tuple[int,int,int]] = []
+    h = len(kind)
+    w = len(kind[0]) if h else 0
+    sx, sz = start
+    gx, gz = goal
+
+    dist = [[float('inf') for _ in range(w)] for _ in range(h)]
+    prev: List[List[Tuple[int, int] | None]] = [[None for _ in range(w)] for _ in range(h)]
+    pq: List[Tuple[float, int, int]] = []
+
     dist[sz][sx] = 0
-    heapq.heappush(pq, (0, sx, sz))
+    heapq.heappush(pq, (0.0, sx, sz))
+
     while pq:
         d, x, z = heapq.heappop(pq)
         if (x, z) == (gx, gz): break
-        if d != dist[z][x]: continue
-        for dx, dz in ((1,0),(-1,0),(0,1),(0,-1)):
-            nx, nz = x+dx, z+dz
+        if d > dist[z][x]: continue
+
+        for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, nz = x + dx, z + dz
             if 0 <= nx < w and 0 <= nz < h:
-                nd = d + _step_cost(kind[nz][nx])
-                if nd < dist[nz][nx]:
-                    dist[nz][nx] = nd
+                # Стоимость шага теперь зависит от рельефа
+                cost = _step_cost(kind, height_grid, x, z, nx, nz)
+                if dist[z][x] + cost < dist[nz][nx]:
+                    dist[nz][nx] = dist[z][x] + cost
                     prev[nz][nx] = (x, z)
-                    heapq.heappush(pq, (nd, nx, nz))
-    path: List[Tuple[int,int]] = []
-    x, z = gx, gz
-    if prev[z][x] is None and (x, z) != (sx, sz):
-        return [start, goal]
-    while True:
-        path.append((x, z))
-        if (x, z) == (sx, sz): break
-        x, z = prev[z][x]
+                    heapq.heappush(pq, (dist[nz][nx], nx, nz))
+
+    path: List[Tuple[int, int]] = []
+    curr = goal
+    # <<< ИЗМЕНЕНА ЛОГИКА ВОЗВРАТА >>>
+    if prev[curr[1]][curr[0]] is None and curr != start:
+        return None  # Путь не найден
+
+    while curr is not None:
+        path.append(curr)
+        if curr == start: break
+        curr = prev[curr[1]][curr[0]]
+
     path.reverse()
     return path
 
-def carve_path(kind: List[List[str]], path: List[Tuple[int,int]], radius: int) -> None:
+def carve_path_emergency(kind: List[List[str]], path: List[Tuple[int,int]]) -> None:
+    """Силой пробивает туннель по координатам пути, меняя все на землю."""
     if not path: return
-    h = len(kind); w = len(kind[0]) if h else 0
-    r = max(0, radius)
-    for (x, z) in path:
-        for dz in range(-r, r+1):
-            for dx in range(-r, r+1):
-                nx, nz = x+dx, z+dz
-                if 0 <= nx < w and 0 <= nz < h:
-                    kind[nz][nx] = KIND_GROUND
+    for x, z in path:
+        # Просто меняем тайл на землю. Можно усложнить, добавив стены.
+        kind[z][x] = KIND_GROUND
 
-def carve_connectivity(kind: List[List[str]], points: List[Tuple[int,int]], width: int) -> None:
+def find_path_network(kind: List[List[str]],
+                      height_grid: List[List[float]],
+                      points: List[Tuple[int, int]]) -> List[List[Tuple[int, int]]]:
+    """
+    Находит сеть путей, соединяющих все точки, но не изменяет ландшафт.
+    Возвращает список путей.
+    """
+    if len(points) < 2: return []
+
+    # Простая реализация: соединяем все точки с первой (центроидом)
+    # Это можно будет заменить на вашу идею с перекрестками
+    paths: List[List[Tuple[int, int]]] = []
+    center_point = points[0]
+    for other_point in points[1:]:
+        path = dijkstra_path(kind, height_grid, center_point, other_point)
+        paths.append(path)
+
+    return paths
+
+def carve_connectivity(kind: List[List[str]],
+                       height_grid: List[List[float]],
+                       points: List[Tuple[int,int]],
+                       width: int) -> None:
     if len(points) < 2: return
     pts = sorted(points, key=lambda p: (p[0]+p[1], p[0]))
     r = max(1, width // 2)
     for a, b in zip(pts[:-1], pts[1:]):
-        path = dijkstra_path(kind, a, b)
+        # Передаем карту высот в алгоритм поиска пути
+        path = dijkstra_path(kind, height_grid, a, b)
         carve_path(kind, path, r)
+
 
 # ---------- Hint/Halo и кромки ----------
 

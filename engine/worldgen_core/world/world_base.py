@@ -1,75 +1,98 @@
+# engine/worldgen_core/world/world_base.py
+
 from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 from ..base.generator import BaseGenerator
 from ..base.rng import split_chunk_seed
-from ..grid_alg.features import (
-    make_obstacles_world, make_water_world, merge_masks_into_kind,
-    make_height_for_impassables,
-)
 from .ops import (
     apply_border_ring, carve_port_window, inner_point_for_side,
     choose_ports, carve_connectivity,
-    compute_hint_and_halo, edges_tiles_and_pass_from_kind,
+    compute_hint_and_halo, edges_tiles_and_pass_from_kind, find_path_network, dijkstra_path,
 )
+from ..grid_alg.terrain import generate_elevation, classify_terrain
 
 BORDER_THICKNESS_DEFAULT = 2
-HALO_THICKNESS_DEFAULT   = 2
-OPENING_WIDTH            = 3
-PATH_WIDTH               = 3
+HALO_THICKNESS_DEFAULT = 2
+OPENING_WIDTH = 3
+PATH_WIDTH = 3
+
 
 class WorldBaseGenerator(BaseGenerator):
-    """Тонкий оркестратор: шумы → рамка → порты → коридор → метаданные edges."""
+    """
+    Оркестратор генерации мира на основе карты высот.
+    1. Генерирует базовый рельеф (elevation).
+    2. Классифицирует ландшафт (вода, земля, скалы) по высоте.
+    3. Добавляет рамку, порты и соединяет их естественными путями.
+    """
 
     def _init_rng(self, seed: int, cx: int, cz: int) -> Dict[str, int]:
+        """
+        Инициализирует ключи для всех этапов генерации.
+        Мы возвращаем 'obstacles' и 'water' для совместимости
+        со старой функцией compute_hint_and_halo.
+        """
         base = split_chunk_seed(seed, cx, cz)
         return {
-            "obstacles": base ^ 0x01,
-            "water":     base ^ 0x02,
-            "ports":     base ^ 0x03,  # не используется в этой версии, но оставим
-            "height":    base ^ 0x04,
+            "elevation": base ^ 0x01,
+            "obstacles": base ^ 0x02, # <-- Возвращаем для hint/halo
+            "water":     base ^ 0x03, # <-- Возвращаем для hint/halo
+            "ports":     base ^ 0x04,
             "fields":    base ^ 0x05,
         }
 
-    def _scatter_obstacles_and_water(self, stage_seeds: Dict[str, int], layers: Dict[str, Any], params: Dict[str, Any]) -> None:
+
+    def _generate_world_layers(self, stage_seeds: Dict[str, int], layers: Dict[str, Any],
+                               params: Dict[str, Any]) -> None:
+        """Основной метод, заменяющий _scatter_obstacles_and_water и _assign_heights."""
         size = len(layers["kind"])
-        cx = int(params.get("cx", 0)); cz = int(params.get("cz", 0))
+        cx = int(params.get("cx", 0))
+        cz = int(params.get("cz", 0))
         preset = getattr(self, "preset", None)
+
+        # 1. Генерируем карту высот (elevation)
+        elevation_grid = generate_elevation(stage_seeds["elevation"], cx, cz, size)
+
+        # Сохраняем высоты в слои. Формат [0, 1] удобен для клиента.
+        # Клиент может умножить это значение на свою константу высоты.
+        layers["height_q"]["grid"] = elevation_grid
+        layers["height_q"]["scale"] = 1.0  # Теперь scale не нужен, высоты уже нормализованы
+        layers["height_q"]["zero"] = 0.0
+
+        # 2. Классифицируем ландшафт по высотам
+        classify_terrain(elevation_grid, layers["kind"], preset)
+
+        # 3. Рамка-барьер
+        self._border_t = int(getattr(preset, "border_thickness", BORDER_THICKNESS_DEFAULT))
+        apply_border_ring(layers["kind"], self._border_t)
+
+        # 4. Hint/Halo (оставим для совместимости, но можно будет улучшить)
+        self._halo_t = HALO_THICKNESS_DEFAULT
         obs_cfg = getattr(preset, "obstacles", {}) if preset else {}
         wat_cfg = getattr(preset, "water", {}) if preset else {}
-
-        self._border_t = int(getattr(preset, "border_thickness", BORDER_THICKNESS_DEFAULT)) if hasattr(preset, "border_thickness") else BORDER_THICKNESS_DEFAULT
-        self._halo_t   = HALO_THICKNESS_DEFAULT
-
-        # 1) сырой мир
-        obstacles = make_obstacles_world(stage_seeds["obstacles"], cx, cz, size, obs_cfg)
-        water     = make_water_world(stage_seeds["water"],     cx, cz, size, wat_cfg)
-        kind = layers["kind"]
-        merge_masks_into_kind(kind, obstacles, water)
-
-        # 2) hint/halo по миру
         self._edges_hint, self._edges_halo = compute_hint_and_halo(
             stage_seeds, cx, cz, size, obs_cfg, wat_cfg, self._halo_t
         )
 
-        # 3) рамка-барьер
-        apply_border_ring(kind, self._border_t)
+    # Переопределяем пайплайн из BaseGenerator
+    def _scatter_obstacles_and_water(self, stage_seeds: Dict[str, int], layers: Dict[str, Any],
+                                     params: Dict[str, Any]) -> None:
+        # Этот метод теперь вызывает наш новый основной метод
+        self._generate_world_layers(stage_seeds, layers, params)
 
-    def _assign_heights_for_impassables(self, stage_seeds: Dict[str, int], layers: Dict[str, Any], params: Dict[str, Any]) -> None:
-        scale = 0.1
-        preset = getattr(self, "preset", None)
-        if preset and isinstance(getattr(preset, "height_q", None), dict):
-            scale = float(preset.height_q.get("scale", 0.1))
-        cx = int(params.get("cx", 0)); cz = int(params.get("cz", 0))
-        grid = make_height_for_impassables(stage_seeds["height"], cx, cz, layers["kind"], scale)
-        layers["height_q"]["zero"] = 0.0
-        layers["height_q"]["scale"] = scale
-        layers["height_q"]["grid"] = grid
+    def _assign_heights_for_impassables(self, stage_seeds: Dict[str, int], layers: Dict[str, Any],
+                                        params: Dict[str, Any]) -> None:
+        # Этот метод больше не нужен, так как высоты генерируются для всей карты в _generate_world_layers.
+        # Оставляем его пустым, чтобы не нарушать контракт с BaseGenerator.
+        pass
 
-    def _place_ports(self, stage_seeds: Dict[str, int], layers: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, List[int]]:
+    def _place_ports(self, stage_seeds: Dict[str, int], layers: Dict[str, Any], params: Dict[str, Any]) -> Dict[
+        str, List[int]]:
         size = len(layers["kind"])
         seed = int(params.get("seed", 0))
-        cx = int(params.get("cx", 0)); cz = int(params.get("cz", 0))
+        cx = int(params.get("cx", 0))
+        cz = int(params.get("cz", 0))
         kind = layers["kind"]
+        height_grid = layers["height_q"]["grid"]
 
         ports_cfg = getattr(self.preset, "ports", {"min": 2, "max": 4, "edge_margin": 3})
         ports = choose_ports(seed, cx, cz, size, ports_cfg)
@@ -82,10 +105,46 @@ class WorldBaseGenerator(BaseGenerator):
             inner_points.append(inner_point_for_side(side, idx, size, self._border_t))
 
         if len(inner_points) >= 2:
-            carve_connectivity(kind, inner_points, PATH_WIDTH)
+            # Находим сеть путей, но НЕ меняем kind_grid
+            path_network = find_path_network(kind, height_grid, inner_points)
+            layers["roads"] = path_network
 
-        self._ports_for_meta = ports
+            # <<< НОВЫЙ ШАГ: ГАРАНТИЯ СВЯЗНОСТИ >>>
+            self._ensure_connectivity(layers, inner_points)
+
+            self._ports_for_meta = ports
         return ports
+
+    def _ensure_connectivity(self, layers: Dict[str, Any], points: List[Tuple[int, int]]):
+        """Проверяет связность и пробивает туннели, если нужно."""
+        if len(points) < 2:
+            return
+
+        kind = layers["kind"]
+        height_grid = layers["height_q"]["grid"]
+
+        # Правило: если всего 2 выхода, они должны быть связаны железно.
+        if len(points) == 2:
+            start, end = points[0], points[1]
+            path = dijkstra_path(kind, height_grid, start, end)
+
+            if path is None:
+                # Путь не найден! Используем "план Б".
+                # Находим путь по прямой линии (или можно использовать A* без весов)
+                # и пробиваем туннель.
+                import math
+                emergency_path = []
+                x1, z1 = start
+                x2, z2 = end
+                dx, dz = x2 - x1, z2 - z1
+                steps = max(abs(dx), abs(dz))
+                for i in range(steps + 1):
+                    t = i / steps
+                    x = round(x1 + t * dx)
+                    z = round(z1 + t * dz)
+                    emergency_path.append((x, z))
+
+                carve_path_emergency(kind, emergency_path)
 
     def _compute_metrics(self, layers: Dict[str, Any], ports: Dict[str, List[int]]) -> Dict[str, Any]:
         size = len(layers.get("kind", [])) or 0
@@ -109,3 +168,4 @@ class WorldBaseGenerator(BaseGenerator):
             },
             "ports": getattr(self, "_ports_for_meta", ports),
         }
+
