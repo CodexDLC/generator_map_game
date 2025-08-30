@@ -2,15 +2,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, sys, json, math, time, random, hashlib
+import os, sys, json, hashlib
 from dataclasses import dataclass
 from typing import Dict, Tuple, Optional, List
 
 # --- Engine imports ---
 sys.path.append(os.path.dirname(__file__))
 from engine.worldgen_core.world.world_generator import WorldGenerator
-from engine.worldgen_core.base.preset import Preset
-from engine.worldgen_core.base.constants import KIND_GROUND, KIND_OBSTACLE, KIND_WATER, KIND_ROAD, DEFAULT_PALETTE
+from engine.worldgen_core.base.preset import DEFAULT_BASE_PRESET
+from engine.worldgen_core.base.constants import DEFAULT_PALETTE
 from engine.worldgen_core.utils.rle import decode_rle_rows, encode_rle_rows
 
 # --- Optional PIL for saving thumbnails ---
@@ -59,8 +59,8 @@ class Chunk:
     height: Optional[List[List[float]]] = None
 
 class WorldStore:
-    def __init__(self, preset: Preset, branch_side: Optional[str]=None, branch_seed: Optional[int]=None):
-        self.preset = preset
+    def __init__(self, branch_side: Optional[str]=None, branch_seed: Optional[int]=None):
+        self.preset = DEFAULT_BASE_PRESET
         self.branch_side = branch_side  # 'E' or 'W' or None (в городе)
         self.branch_seed = branch_seed
         self.cache: Dict[Tuple[int,int,str], Chunk] = {}  # key = (cx,cz,world_id)
@@ -154,7 +154,7 @@ class WorldStore:
 
     def _generate_chunk(self, world_id: str, cx:int, cz:int) -> Chunk:
         # Простая генерация через WorldGenerator (детерминированно по branch_seed и координатам)
-        gen = WorldGenerator(Preset.load(PRESET_PATH))
+        gen = WorldGenerator(DEFAULT_BASE_PRESET)
         params = {"seed": int(self.branch_seed or 0), "cx": cx, "cz": cz}
         res = gen.generate(params)
         kind = res.layers["kind"]
@@ -180,7 +180,7 @@ class Player:
 class Game:
     def __init__(self, seed: int):
         self.global_seed = int(seed)
-        self.preset = Preset.load(PRESET_PATH)
+        self.preset = DEFAULT_BASE_PRESET
         self.palette = self.preset.export.get("palette", {})
         self.store = WorldStore(self.preset, None, None)  # в городе
         self.world_id = "city"
