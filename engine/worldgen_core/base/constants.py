@@ -1,5 +1,4 @@
-
-
+from typing import Dict
 
 KIND_GROUND = "ground"
 KIND_OBSTACLE = "obstacle"

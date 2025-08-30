@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, List
 
 from .features import fbm2d
-from ..base.generator import KIND_GROUND, KIND_OBSTACLE, KIND_WATER
+from ..base.constants import KIND_OBSTACLE, KIND_WATER, KIND_GROUND
 
 
 def generate_elevation(seed: int, cx: int, cz: int, size: int) -> List[List[float]]:

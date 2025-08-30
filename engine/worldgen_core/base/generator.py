@@ -1,53 +1,21 @@
-
+# engine/worldgen_core/base/generator.py
 from __future__ import annotations
-
 import math
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Protocol
 import time
 
-from engine.worldgen_core.base.rng import split_chunk_seed
-from engine.worldgen_core.grid_alg.terrain import classify_terrain, generate_elevation
+from typing import Any, Dict, List
 
-from engine.worldgen_core.base.constants import KIND_GROUND, KIND_OBSTACLE, KIND_WATER
-
-@dataclass
-class GenResult:
-    version: str
-    type: str
-    seed: int
-    cx: int
-    cz: int
-    size: int
-    cell_size: float
-
-    layers: Dict[str, Any] = field(default_factory=dict)
-    fields: Dict[str, Any] = field(default_factory=dict)
-    ports: Dict[str, List[int]] = field(default_factory=lambda: {"N": [], "E": [], "S": [], "W": []})
-    blocked: bool = False
-
-    metrics: Dict[str, Any] = field(default_factory=dict)
-    stage_seeds: Dict[str, int] = field(default_factory=dict)
-    capabilities: Dict[str, Any] = field(default_factory=lambda: {"has_roads": False, "has_biomes": False})
-
-    def header(self) -> Dict[str, Any]:
-        return {
-            "version": self.version,
-            "type": self.type,
-            "seed": self.seed,
-            "cx": self.cx,
-            "cz": self.cz,
-            "size": self.size,
-            "cell_size": self.cell_size,
-        }
-
-    def meta_header(self) -> Dict[str, Any]:
-        return self.header().copy()
+from .types import IGenerator, GenResult
+# --- Импорты для всей базовой логики ---
+from .utils import init_rng, make_empty_layers
+from .validate import compute_metrics
+from ..grid_alg.terrain import classify_terrain, generate_elevation
+from ..grid_alg.topology.metrics import compute_hint_and_halo, edges_tiles_and_pass_from_kind
+from ..grid_alg.topology.border import apply_border_ring, carve_port_window, inner_point_for_side
+from ..grid_alg.topology.connectivity import choose_ports
+from ..grid_alg.topology.pathfinding import find_path_network, ensure_connectivity
 
 
-class IGenerator(Protocol):
-    def generate(self, params: Dict[str, Any]) -> GenResult: ...
-    def capabilities(self) -> Dict[str, Any]: ...
 
 
 class BaseGenerator(IGenerator):
@@ -62,48 +30,71 @@ class BaseGenerator(IGenerator):
         cx = int(params.get("cx", 0))
         cz = int(params.get("cz", 0))
         size = int(getattr(self.preset, "size", 128))
-
         t0 = time.perf_counter()
-        stage_seeds = self._init_rng(seed, cx, cz)
-        layers = self._make_empty_layers(size)
 
-        # --- Основная генерация ландшафта ---
+        # --- ЭТАП 1: Генерация "сырого" ландшафта ---
+        stage_seeds = init_rng(seed, cx, cz)
+        layers = make_empty_layers(size)
         elevation_grid = generate_elevation(stage_seeds["elevation"], cx, cz, size)
         classify_terrain(elevation_grid, layers["kind"], self.preset)
         layers["height_q"]["grid"] = elevation_grid
 
-        # --- Расчет метрик и сложности ---
-        metrics = self._compute_base_metrics(layers)
+        # --- Создаем объект результата ПОСЛЕ генерации ландшафта ---
+        result = GenResult(
+            version=self.VERSION, type=self.TYPE,
+            seed=seed, cx=cx, cz=cz, size=size, cell_size=1.0,
+            layers=layers, stage_seeds=stage_seeds
+        )
+
+        # --- ЭТАП 2: Создание структуры для связного мира (бывшая логика WorldGenerator) ---
+        apply_border_ring(result.layers["kind"], 2)
+        ports = self._place_ports(result, params)
+        result.ports = ports
+        self._add_edge_meta(result) # Добавляем hint/halo
+
+        # --- ЭТАП 3: Финальный расчет метрик ---
+        metrics: Dict[str, Any] = compute_metrics(layers["kind"])
         distance = math.sqrt(cx ** 2 + cz ** 2)
         metrics["difficulty"] = {"value": distance / 10.0, "dist": distance}
         metrics["gen_ms"] = int((time.perf_counter() - t0) * 1000)
+        # Добавляем к метрикам данные о границах, которые мы рассчитали
+        result.metrics = {**metrics, **result.metrics}
 
-        return GenResult(
-            version=self.VERSION, type=self.TYPE,
-            seed=seed, cx=cx, cz=cz, size=size, cell_size=1.0,
-            layers=layers, metrics=metrics, stage_seeds=stage_seeds
-        )
+        return result
 
-    def _init_rng(self, seed: int, cx: int, cz: int) -> Dict[str, int]:
-        base = split_chunk_seed(seed, cx, cz)
-        return {"elevation": base ^ 0x01}
+    # --- Методы, перенесенные из WorldGenerator ---
 
-    def _make_empty_layers(self, size: int) -> Dict[str, Any]:
-        return {
-            "kind": [[KIND_GROUND for _ in range(size)] for _ in range(size)],
-            "height_q": {"grid": []}
-        }
+    def _place_ports(self, result: GenResult, params: Dict[str, Any]) -> Dict[str, List[int]]:
+        size = result.size; seed = result.seed; cx = result.cx; cz = result.cz
+        kind = result.layers["kind"]
+        height_grid = result.layers["height_q"]["grid"]
+        ports_cfg = getattr(self.preset, "ports", {})
 
-    def _compute_base_metrics(self, layers: Dict[str, Any]) -> Dict[str, Any]:
-        size = len(layers.get("kind", []))
-        if not size: return {}
-        total = size * size
-        counts = {"ground": 0, "obstacle": 0, "water": 0}
-        for row in layers["kind"]:
-            for tile in row:
-                if tile in counts: counts[tile] += 1
-        return {
-            "open_pct": counts["ground"] / total,
-            "obstacle_pct": counts["obstacle"] / total,
-            "water_pct": counts["water"] / total,
+        ports = choose_ports(seed, cx, cz, size, ports_cfg, params, kind)
+
+        inner_points = []
+        for side, arr in ports.items():
+            if arr:
+                idx = arr[0]
+                carve_port_window(kind, side, idx, 2, 3)
+                inner_points.append(inner_point_for_side(side, idx, size, 2))
+
+        if len(inner_points) >= 2:
+            paths = find_path_network(kind, height_grid, inner_points)
+            result.layers["roads"] = paths
+            ensure_connectivity(kind, height_grid, inner_points, paths)
+
+        return ports
+
+    def _add_edge_meta(self, result: GenResult):
+        obs_cfg = getattr(self.preset, "obstacles", {})
+        wat_cfg = getattr(self.preset, "water", {})
+        hint, halo = compute_hint_and_halo(result.stage_seeds, result.cx, result.cz, result.size, obs_cfg, wat_cfg, 2)
+        tiles_pass = edges_tiles_and_pass_from_kind(result.layers["kind"])
+        # Записываем данные о границах прямо в result.metrics, а не создаем новую переменную
+        result.metrics["edges"] = {
+            "N": {**tiles_pass["N"], "hint": hint["N"], "halo": halo["N"]},
+            "E": {**tiles_pass["E"], "hint": hint["E"], "halo": halo["E"]},
+            "S": {**tiles_pass["S"], "hint": hint["S"], "halo": halo["S"]},
+            "W": {**tiles_pass["W"], "hint": hint["W"], "halo": halo["W"]},
         }

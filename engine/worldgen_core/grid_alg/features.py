@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import List, Dict
 
+from ..base.constants import KIND_WATER, KIND_OBSTACLE, KIND_GROUND
 from ..base.rng import RNG, hash64
 
 # --------------------------- мировые шумы ---------------------------
