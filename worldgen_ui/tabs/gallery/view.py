@@ -10,7 +10,7 @@ from typing import Dict, Tuple, Optional, List
 try:
     from PIL import Image, ImageTk
     PIL_OK = True
-except ImportError: # <-- Уточнили тип ошибки
+except ImportError:
     PIL_OK = False
 
 # --- НОВЫЕ ПАРАМЕТРЫ СЕТКИ ---
@@ -131,29 +131,47 @@ class GalleryView(ttk.Frame):
             self._clear_canvas()
 
     def _scan(self, *_):
-        # ... (этот метод почти без изменений) ...
         root = pathlib.Path(self.root_dir_var.get())
         world = self.world_var.get()
         seed = self.seed_var.get()
+
+        print("\n--- GALLERY: Starting scan...")  # ЛОГ
+        print(f"--- GALLERY: Root='{root}', World='{world}', Seed='{seed}'")  # ЛОГ
+
         if not world or not seed:
             self._clear_canvas()
+            print("--- GALLERY: Scan aborted (no world or seed).")  # ЛОГ
             return
-        base = root / world / seed
+
+        world_parts = world.split('/')
+        base = root.joinpath(*world_parts) / seed
+        print(f"--- GALLERY: Scanning base directory: {base}")  # ЛОГ
+
         if not base.exists():
             self._clear_canvas()
+            print(f"!!! LOG: Base directory does not exist.")  # ЛОГ
             return
 
         items: Dict[Tuple[int, int], pathlib.Path] = {}
+        print("--- GALLERY: Iterating directory contents...")  # ЛОГ
+        found_items = False
         for p in base.iterdir():
+            print(f"--- GALLERY: Found item: '{p.name}'")  # ЛОГ
             if p.is_dir():
                 m = NAME_RE.match(p.name)
                 if m:
+                    found_items = True
                     cx = int(m.group("cx"))
                     cz = int(m.group("cz"))
                     items[(cx, cz)] = p
+                    print(f"--- GALLERY: Matched as chunk, coords=({cx},{cz})")  # ЛОГ
+
+        if not found_items:
+            print("--- GALLERY: No chunk directories found matching the pattern.")  # ЛОГ
 
         self.items = items
         self._render()
+        print("--- GALLERY: Scan and render finished.")  # ЛОГ
 
     def _clear_canvas(self):
         self.items = {}
@@ -211,6 +229,7 @@ class GalleryView(ttk.Frame):
         for name in ("preview.png", "preview.jpg", "preview.jpeg"):
             p = folder / name
             if p.exists():
+                print(f"--- GALLERY: Loading preview image: {p}") # ЛОГ
                 try:
                     # Основной, правильный способ с Pillow
                     if PIL_OK:

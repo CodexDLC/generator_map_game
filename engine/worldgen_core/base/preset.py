@@ -2,19 +2,9 @@
 from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, Mapping
+from engine.worldgen_core.base.constants import KIND_VALUES, DEFAULT_PALETTE
 
-KIND_GROUND = "ground"
-KIND_OBSTACLE = "obstacle"
-KIND_WATER = "water"
-KIND_VOID = "void"
-KIND_VALUES = (KIND_GROUND, KIND_OBSTACLE, KIND_WATER, KIND_VOID)
 
-DEFAULT_PALETTE: Dict[str, str] = {
-    KIND_GROUND: "#7a9e7a",
-    KIND_OBSTACLE: "#444444",
-    KIND_WATER: "#3573b8",
-    KIND_VOID: "#00000000",
-}
 
 @dataclass(frozen=True)
 class Preset:

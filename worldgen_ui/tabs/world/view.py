@@ -160,12 +160,15 @@ class WorldView(ttk.Frame):
         size = data.get("size", 64)
         return [[0] * size for _ in range(size)], size
 
-
     def _redraw(self):
-        data = self.ctrl.load_center()
+        # Шаг 1: Обновляем UI актуальными данными из состояния (например, Seed)
+        self.seed_var.set(self.state.seed)
 
+        # Шаг 2: Загружаем данные для текущего чанка
+        data = self.ctrl.load_center()
         grid, size = self._extract_grid_and_size(data)
 
+        # Шаг 3: Очищаем холст и рассчитываем геометрию сетки
         self.canvas.delete("all")
         w = self.canvas.winfo_width() or 512
         h = self.canvas.winfo_height() or 512
@@ -173,70 +176,59 @@ class WorldView(ttk.Frame):
         offx = (w - size * cell) // 2
         offy = (h - size * cell) // 2
 
+        # Шаг 4: Рисуем ландшафт (земля, вода, скалы)
         for z in range(size):
             row = grid[z] if z < len(grid) else []
             for x in range(size):
                 v = row[x] if x < len(row) else 0
-                # нормализуем к имени тайла
                 if isinstance(v, str):
                     kind_name = v
                 else:
-                    try:
-                        kind_name = ID2KIND.get(int(v), "ground")
-                    except Exception:
-                        kind_name = "ground"
+                    kind_name = ID2KIND.get(int(v), "ground")
+
                 color = PALETTE.get(kind_name, "#000000")
-                x0 = offx + x * cell
-                y0 = offy + z * cell
-                x1 = x0 + cell
-                y1 = y0 + cell
+                x0, y0 = offx + x * cell, offy + z * cell
+                x1, y1 = x0 + cell, y0 + cell
                 self.canvas.create_rectangle(x0, y0, x1, y1, outline=color, fill=color)
 
-        # порты (берём из top-level или из _meta, что найдём)
-        ports = data.get("ports") or (data.get("_meta", {}) or {}).get("ports") or {"N": [], "E": [], "S": [], "W": []}
+        # Шаг 5: Рисуем обычные порты (красные квадраты)
+        ports = data.get("ports") or (data.get("_meta", {}) or {}).get("ports") or {}
+        port_color = "#ff0000"
+        for x_coord in ports.get("N", []):
+            x0, y0 = offx + x_coord * cell, offy
+            self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline=port_color, width=2)
+        for x_coord in ports.get("S", []):
+            x0, y0 = offx + x_coord * cell, offy + (size - 1) * cell
+            self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline=port_color, width=2)
+        for z_coord in ports.get("W", []):
+            x0, y0 = offx, offy + z_coord * cell
+            self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline=port_color, width=2)
+        for z_coord in ports.get("E", []):
+            x0, y0 = offx + (size - 1) * cell, offy + z_coord * cell
+            self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline=port_color, width=2)
 
-        # N
-        for x in ports.get("N", []):
-            x0 = offx + x * cell
-            y0 = offy
-            self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline="#ff0000", width=2)
-        # S
-        for x in ports.get("S", []):
-            x0 = offx + x * cell
-            y0 = offy + (size - 1) * cell
-            self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline="#ff0000", width=2)
-        # W
-        for z in ports.get("W", []):
-            x0 = offx
-            y0 = offy + z * cell
-            self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline="#ff0000", width=2)
-        # E
-        for z in ports.get("E", []):
-            x0 = offx + (size - 1) * cell
-            y0 = offy + z * cell
-            self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline="#ff0000", width=2)
-
-        if self.state.world_id == "city" and self.state.cx == 0 and self.state.cz == 0:
+        # Шаг 6: Если это город (0,0), рисуем шлюзы (оранжевые квадраты)
+        if self.ctrl._is_city_origin():
             gates = self.ctrl._city_gateway_sides()
-            size = len(grid)
-            cell = max(1, min(self.canvas.winfo_width() or 512, self.canvas.winfo_height() or 512) // max(1, size))
-            offx = (self.canvas.winfo_width() or 512 - size * cell) // 2
-            offy = (self.canvas.winfo_height() or 512 - size * cell) // 2
-            # рисуем маленькие оранжевые квадраты на соответствующих сторонах
-            mark = "#ffa600"
+            gate_color = "#ffa600"
+            # Примечание: рисуем шлюзы в середине края для наглядности
+            mid = size // 2
             if "N" in gates:
-                x0 = offx + (size // 2) * cell
-                y0 = offy
-                self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline=mark, width=2)
+                x0, y0 = offx + mid * cell, offy
+                self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline=gate_color, width=3)
             if "S" in gates:
-                x0 = offx + (size // 2) * cell
-                y0 = offy + (size - 1) * cell
-                self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline=mark, width=2)
+                x0, y0 = offx + mid * cell, offy + (size - 1) * cell
+                self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline=gate_color, width=3)
             if "W" in gates:
-                x0 = offx
-                y0 = offy + (size // 2) * cell
-                self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline=mark, width=2)
+                x0, y0 = offx, offy + mid * cell
+                self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline=gate_color, width=3)
             if "E" in gates:
-                x0 = offx + (size - 1) * cell
-                y0 = offy + (size // 2) * cell
-                self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline=mark, width=2)
+                x0, y0 = offx + (size - 1) * cell, offy + mid * cell
+                self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline=gate_color, width=3)
+
+        # Шаг 7: Обновляем статусную строку и кнопки навигации
+        world_label = "Город" if self.state.world_id == "city" else self.state.world_id
+        self.status.set(
+            f"{world_label} | city_seed={self.state.city_seed} | seed={self.state.seed} | cx={self.state.cx} cz={self.state.cz}"
+        )
+        self._update_nav_buttons(ports)

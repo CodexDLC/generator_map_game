@@ -1,8 +1,9 @@
 
 from __future__ import annotations
-from typing import Union
+from typing import Union, List, Any
 
-_DEF_CONST = 0x9E3779B97F4A7C15  # golden ratio for 64-bit
+ # golden ratio for 64-bit
+_DEF_CONST = 0x9E3779B97F4A7C15
 
 def _splitmix64(x: int) -> int:
     x = (x + 0x9E3779B97F4A7C15) & 0xFFFFFFFFFFFFFFFF
@@ -34,7 +35,7 @@ def hash64(*vals: int) -> int:
 def split_chunk_seed(seed: int, cx: int, cz: int) -> int:
     return hash64(seed, cx & 0xFFFFFFFFFFFFFFFF, cz & 0xFFFFFFFFFFFFFFFF)
 
-def edge_key(seed: int, cx1: int, cz1: int, cx2: int, cz2: int) -> int:
+def edge_key(seed: int, cx1: int, cz1: int, cx2: int, cz2: int, ) -> int:
     if (cx2, cz2) < (cx1, cz1):
         cx1, cz1, cx2, cz2 = cx2, cz2, cx1, cz1
     return hash64(seed ^ _DEF_CONST, cx1, cz1, cx2, cz2)
@@ -62,3 +63,12 @@ class RNG:
 
     def choose(self, seq):
         return seq[self.u64() % len(seq)]
+
+    def shuffle(self, seq: List[Any]) -> None:
+        """
+        Перемешивает последовательность (list) на месте, используя
+        детерминированный алгоритм Fisher-Yates.
+        """
+        for i in range(len(seq) - 1, 0, -1):
+            j = self.u64() % (i + 1)
+            seq[i], seq[j] = seq[j], seq[i]

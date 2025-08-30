@@ -1,7 +1,7 @@
 # engine/worldgen_core/grid_alg/features.py
 from __future__ import annotations
 from typing import List, Dict
-from ..base.generator import KIND_GROUND, KIND_OBSTACLE, KIND_WATER
+
 from ..base.rng import RNG, hash64
 
 # --------------------------- мировые шумы ---------------------------

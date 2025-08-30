@@ -1,15 +1,15 @@
 
 from __future__ import annotations
+
+import math
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Protocol, Tuple
+from typing import Any, Dict, List, Protocol
 import time
 
-KIND_GROUND = "ground"
-KIND_OBSTACLE = "obstacle"
-KIND_WATER = "water"
-KIND_VOID = "void"
-KIND_VALUES = (KIND_GROUND, KIND_OBSTACLE, KIND_WATER, KIND_VOID)
+from engine.worldgen_core.base.rng import split_chunk_seed
+from engine.worldgen_core.grid_alg.terrain import classify_terrain, generate_elevation
 
+from engine.worldgen_core.base.constants import KIND_GROUND, KIND_OBSTACLE, KIND_WATER
 
 @dataclass
 class GenResult:
@@ -61,59 +61,49 @@ class BaseGenerator(IGenerator):
         seed = int(params.get("seed", 0))
         cx = int(params.get("cx", 0))
         cz = int(params.get("cz", 0))
-        size = int(params.get("size", getattr(self.preset, "size", 64)))
-        cell_size = float(params.get("cell_size", getattr(self.preset, "cell_size", 1.0)))
+        size = int(getattr(self.preset, "size", 128))
 
         t0 = time.perf_counter()
         stage_seeds = self._init_rng(seed, cx, cz)
         layers = self._make_empty_layers(size)
-        self._scatter_obstacles_and_water(stage_seeds, layers, params)
-        self._assign_heights_for_impassables(stage_seeds, layers, params)
-        ports = self._place_ports(stage_seeds, layers, params)
 
-        blocked = False  # диагностику путей добавим на A8 при наличии топологии/масок
-        fields: Dict[str, Any] = {}
-        metrics = self._compute_metrics(layers, ports)
-        metrics.setdefault("gen_ms", int((time.perf_counter() - t0) * 1000))
+        # --- Основная генерация ландшафта ---
+        elevation_grid = generate_elevation(stage_seeds["elevation"], cx, cz, size)
+        classify_terrain(elevation_grid, layers["kind"], self.preset)
+        layers["height_q"]["grid"] = elevation_grid
+
+        # --- Расчет метрик и сложности ---
+        metrics = self._compute_base_metrics(layers)
+        distance = math.sqrt(cx ** 2 + cz ** 2)
+        metrics["difficulty"] = {"value": distance / 10.0, "dist": distance}
+        metrics["gen_ms"] = int((time.perf_counter() - t0) * 1000)
 
         return GenResult(
             version=self.VERSION, type=self.TYPE,
-            seed=seed, cx=cx, cz=cz, size=size, cell_size=cell_size,
-            layers=layers, fields=fields, ports=ports, blocked=blocked,
-            metrics=metrics, stage_seeds=stage_seeds,
+            seed=seed, cx=cx, cz=cz, size=size, cell_size=1.0,
+            layers=layers, metrics=metrics, stage_seeds=stage_seeds
         )
 
-    def capabilities(self) -> Dict[str, Any]:
-        return {"has_roads": False, "has_biomes": False, "version": self.VERSION, "type": self.TYPE}
-
-    # --------- hooks to override ---------
     def _init_rng(self, seed: int, cx: int, cz: int) -> Dict[str, int]:
-        return {
-            "obstacles": seed ^ 0xA1B2C3D4,
-            "water":     seed ^ 0xB2C3D4E5,
-            "ports":     seed ^ 0xC3D4E5F6,
-            "height":    seed ^ 0xD4E5F607,
-            "fields":    seed ^ 0xE5F60718,
-        }
+        base = split_chunk_seed(seed, cx, cz)
+        return {"elevation": base ^ 0x01}
 
     def _make_empty_layers(self, size: int) -> Dict[str, Any]:
-        kind = [[KIND_GROUND for _ in range(size)] for _ in range(size)]
-        height_q = [[0 for _ in range(size)] for _ in range(size)]
         return {
-            "kind": kind,
-            "height_q": {"zero": 0.0, "scale": 0.1, "grid": height_q},
+            "kind": [[KIND_GROUND for _ in range(size)] for _ in range(size)],
+            "height_q": {"grid": []}
         }
 
-    def _scatter_obstacles_and_water(self, stage_seeds: Dict[str, int], layers: Dict[str, Any], params: Dict[str, Any]) -> None:
-        return None
-
-    def _assign_heights_for_impassables(self, stage_seeds: Dict[str, int], layers: Dict[str, Any], params: Dict[str, Any]) -> None:
-        return None
-
-    def _place_ports(self, stage_seeds: Dict[str, int], layers: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, List[int]]:
-        return {"N": [], "E": [], "S": [], "W": []}
-
-    def _compute_metrics(self, layers: Dict[str, Any], ports: Dict[str, List[int]]) -> Dict[str, Any]:
-        size = len(layers.get("kind", [])) or 0
-        total = size * size if size else 0
-        return {"open_pct": 1.0 if total else 0.0, "obstacle_pct": 0.0, "water_pct": 0.0}
+    def _compute_base_metrics(self, layers: Dict[str, Any]) -> Dict[str, Any]:
+        size = len(layers.get("kind", []))
+        if not size: return {}
+        total = size * size
+        counts = {"ground": 0, "obstacle": 0, "water": 0}
+        for row in layers["kind"]:
+            for tile in row:
+                if tile in counts: counts[tile] += 1
+        return {
+            "open_pct": counts["ground"] / total,
+            "obstacle_pct": counts["obstacle"] / total,
+            "water_pct": counts["water"] / total,
+        }

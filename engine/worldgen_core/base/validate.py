@@ -2,11 +2,8 @@
 from __future__ import annotations
 from typing import Any, Dict, List
 
-KIND_GROUND = "ground"
-KIND_OBSTACLE = "obstacle"
-KIND_WATER = "water"
-KIND_VOID = "void"
-KIND_VALUES = (KIND_GROUND, KIND_OBSTACLE, KIND_WATER, KIND_VOID)
+from engine.worldgen_core.base.constants import KIND_VALUES, KIND_GROUND, KIND_OBSTACLE, KIND_WATER
+
 
 def validate_rle_rows(size: int, rle_obj: Dict[str, Any]) -> None:
     if not isinstance(rle_obj, dict) or rle_obj.get("encoding") != "rle_rows_v1":

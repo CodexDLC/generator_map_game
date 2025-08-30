@@ -1,6 +1,6 @@
 {
   "id": "world/base_default",
-  "size": 64,
+  "size": 128,
   "cell_size": 1.0,
   "obstacles": {
     "density": 0.12,

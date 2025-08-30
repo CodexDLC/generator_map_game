@@ -54,62 +54,82 @@ def inner_point_for_side(side: str, idx: int, size: int, t: int) -> Tuple[int, i
     if side == "E": return size - 1 - t, idx
     raise ValueError(side)
 
-def choose_ports(seed: int, cx: int, cz: int, size: int, cfg: Dict[str, Any]) -> Dict[str, List[int]]:
+
+def choose_ports(seed: int, cx: int, cz: int, size: int, cfg: Dict[str, Any], params: Dict[str, Any], kind_grid: List[List[str]]) -> Dict[str, List[int]]:
     """
-    Симметричное правило с гарантией min-degree >= 2:
-    порт активен, если (бит) ИЛИ (входит в 2 минимальных у этого чанка) ИЛИ (в 2 минимальных у соседа).
+    Определяет активные порты, стараясь размещать их на проходимой земле.
     """
     margin = int(cfg.get("edge_margin", 3))
-    margin = max(0, min(margin, max(0, (size // 2) - 1)))
-
     sides = ["N", "E", "S", "W"]
     opposite = {"N": "S", "S": "N", "W": "E", "E": "W"}
 
-    # -- веса/позиции для текущего чанка
+    # --- Функция для поиска лучшей точки на границе ---
+    def find_best_pos(r: RNG, side: str) -> int:
+        positions = list(range(margin, size - margin))
+        r.shuffle(positions)  # Создаем детерминированный список кандидатов
+
+        # Ищем первую попавшуюся клетку с землей
+        for pos in positions:
+            if side == "N" and kind_grid[0][pos] == KIND_GROUND: return pos
+            if side == "S" and kind_grid[size - 1][pos] == KIND_GROUND: return pos
+            if side == "W" and kind_grid[pos][0] == KIND_GROUND: return pos
+            if side == "E" and kind_grid[pos][size - 1] == KIND_GROUND: return pos
+
+        # Если вся граница непроходима, возвращаем первого кандидата как запасной вариант
+        return positions[0]
+
+    # --- Шаг 0: Рассчитываем веса и позиции для всех сторон ---
     this_h: Dict[str, int] = {}
     this_pos: Dict[str, int] = {}
-    this_base: Dict[str, bool] = {}
-
     for side in sides:
         nx, nz = side_neighbor(cx, cz, side)
         k = edge_key(seed, cx, cz, nx, nz)
         r = RNG(k)
-        h = r.u32()                              # вес ребра
-        this_h[side] = h
-        this_base[side] = (h & 1) == 1          # базовый бит
-        this_pos[side] = r.randint(margin, max(margin, size - 1 - margin)) if size > 0 else 0
+        this_h[side] = r.u32()
+        # Позиция теперь ищется с помощью новой умной функции
+        this_pos[side] = find_best_pos(r, side)
 
-    # два минимальных у текущего
-    this_min2 = set(sorted(sides, key=lambda s: this_h[s])[:2])
+    # --- Шаг 1: Применяем "желания" (уклон для веток) ---
+    world_id = str(params.get("world_id", "city"))
+    result: Dict[str, List[int]] = {s: [] for s in sides}
+    active_ports = set()
 
-    # -- кэш «двух минимальных» для соседей
-    neigh_min2: Dict[Tuple[int, int], set] = {}
+    if world_id.startswith("branch/"):
+        branch_side = world_id.split('/', 1)[1]
+        bias = float(params.get("branch_bias", 0.3))  # Шанс на доп. ветвление
 
-    def get_min2_for(nx: int, nz: int) -> set:
-        key = (nx, nz)
-        if key in neigh_min2:
-            return neigh_min2[key]
-        # посчитать 4 веса у соседа
-        nh: Dict[str, int] = {}
-        for s in sides:
-            nnx, nnz = side_neighbor(nx, nz, s)
-            kk = edge_key(seed, nx, nz, nnx, nnz)
-            rr = RNG(kk)
-            nh[s] = rr.u32()
-        m2 = set(sorted(sides, key=lambda s: nh[s])[:2])
-        neigh_min2[key] = m2
-        return m2
+        for side in sides:
+            r = RNG(edge_key(seed, cx, cz, *side_neighbor(cx, cz, side)))
+            is_active = False
+            # Вероятность открытия зависит от направления
+            if side == branch_side:  # Вперед
+                is_active = r.uniform() < (0.6 + bias)  # Очень высокий шанс
+            elif side != opposite[branch_side]:  # Вбок
+                is_active = r.uniform() < (0.1 + bias / 2)  # Низкий шанс
+            else:  # Назад, к городу
+                is_active = r.uniform() < 0.5  # Средний шанс
 
-    # -- итог: активна ли грань?
-    result: Dict[str, List[int]] = {}
-    for side in sides:
-        nx, nz = side_neighbor(cx, cz, side)
-        n_min2 = get_min2_for(nx, nz)
-        active = this_base[side] or (side in this_min2) or (opposite[side] in n_min2)
-        result[side] = [this_pos[side]] if active else []
+            if is_active:
+                result[side] = [this_pos[side]]
+                active_ports.add(side)
+
+    # --- Шаг 2: Обеспечиваем "необходимость" (гарантия связности) ---
+    # Если мы не в ветке или портов получилось мало, применяем базовое правило
+    min_ports = 1 if world_id.startswith("branch/") else 2  # В ветках допустимы тупики
+
+    if len(active_ports) < min_ports:
+        # Сортируем стороны по весу, чтобы гарантировать одинаковый результат у соседей
+        sorted_sides = sorted(sides, key=lambda s: this_h[s])
+
+        # Принудительно открываем порты, пока не достигнем минимума
+        for side in sorted_sides:
+            if len(active_ports) >= min_ports:
+                break
+            if not result[side]:  # Если порт еще не открыт
+                result[side] = [this_pos[side]]
+                active_ports.add(side)
 
     return result
-
 
 # ---------- Пути/коридоры ----------
 
@@ -187,34 +207,18 @@ def carve_path_emergency(kind: List[List[str]], path: List[Tuple[int,int]]) -> N
 
 def find_path_network(kind: List[List[str]],
                       height_grid: List[List[float]],
-                      points: List[Tuple[int, int]]) -> List[List[Tuple[int, int]]]:
+                      points: List[Tuple[int, int]]) -> List[List[Tuple[int, int]] | None]:
     """
     Находит сеть путей, соединяющих все точки, но не изменяет ландшафт.
-    Возвращает список путей.
+    Возвращает список путей. Путь может быть None, если он не найден.
     """
     if len(points) < 2: return []
-
-    # Простая реализация: соединяем все точки с первой (центроидом)
-    # Это можно будет заменить на вашу идею с перекрестками
-    paths: List[List[Tuple[int, int]]] = []
+    paths: List[List[Tuple[int, int]] | None] = []
     center_point = points[0]
     for other_point in points[1:]:
         path = dijkstra_path(kind, height_grid, center_point, other_point)
         paths.append(path)
-
     return paths
-
-def carve_connectivity(kind: List[List[str]],
-                       height_grid: List[List[float]],
-                       points: List[Tuple[int,int]],
-                       width: int) -> None:
-    if len(points) < 2: return
-    pts = sorted(points, key=lambda p: (p[0]+p[1], p[0]))
-    r = max(1, width // 2)
-    for a, b in zip(pts[:-1], pts[1:]):
-        # Передаем карту высот в алгоритм поиска пути
-        path = dijkstra_path(kind, height_grid, a, b)
-        carve_path(kind, path, r)
 
 
 # ---------- Hint/Halo и кромки ----------
