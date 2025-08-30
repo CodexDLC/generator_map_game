@@ -9,14 +9,15 @@ from typing import Dict, Tuple, Optional, List
 # PIL для нормального ресайза (опционально, но рекомендуется)
 try:
     from PIL import Image, ImageTk
+
     PIL_OK = True
 except ImportError:
     PIL_OK = False
 
-# --- НОВЫЕ ПАРАМЕТРЫ СЕТКИ ---
-CELL_SIZE = 128 # Фиксированный размер ячейки в пикселях
-PADDING = 5  # Отступ внутри ячейки, чтобы картинка не прилипала к краям
-MARGIN = 5  # Отступ для всей сетки от краев окна
+# --- ПАРАМЕТРЫ СЕТКИ ---
+CELL_SIZE = 128
+PADDING = 5
+MARGIN = 5
 NAME_RE = re.compile(r"^(?P<cx>-?\d+)_(?P<cz>-?\d+)$")
 
 
@@ -55,7 +56,8 @@ class GalleryView(ttk.Frame):
         self.seed_cb.pack(side="left", padx=4)
         self.seed_cb.bind("<<ComboboxSelected>>", self._on_seed_select)
 
-        ttk.Button(bar2, text="Обновить", command=self._scan).pack(side="left", padx=4)
+        # <<< ИЗМЕНЕНО: Кнопка теперь вызывает _refresh_worlds, а не _scan >>>
+        ttk.Button(bar2, text="Обновить", command=self._refresh_worlds).pack(side="left", padx=4)
 
         # --- Канвас для отрисовки ---
         wrap = ttk.Frame(self)
@@ -86,7 +88,6 @@ class GalleryView(ttk.Frame):
             self._refresh_worlds()
 
     def _refresh_worlds(self):
-        # ... (этот метод без изменений) ...
         root = pathlib.Path(self.root_dir_var.get())
         worlds: List[str] = []
         if root.exists():
@@ -99,9 +100,11 @@ class GalleryView(ttk.Frame):
                             worlds.append(f"branch/{branch_p.name}")
                 else:
                     worlds.append(p.name)
+
+        current_world = self.world_var.get()
         self.world_cb["values"] = worlds
         if worlds:
-            if not self.world_var.get() in worlds:
+            if current_world not in worlds:
                 self.world_var.set(worlds[0])
             self._refresh_seeds()
         else:
@@ -111,19 +114,20 @@ class GalleryView(ttk.Frame):
             self._clear_canvas()
 
     def _refresh_seeds(self):
-        # ... (этот метод без изменений) ...
         root = pathlib.Path(self.root_dir_var.get())
         world = self.world_var.get()
         if not world: return
-        world_path = root / world
+        world_path = root.joinpath(*world.split('/'))  # Исправлено для branch/E
         seeds: List[str] = []
         if world_path.exists():
             for p in sorted(world_path.iterdir()):
-                if p.is_dir() and p.name.isdigit():
+                if p.is_dir() and (p.name.isdigit() or p.name == "static"):
                     seeds.append(p.name)
+
+        current_seed = self.seed_var.get()
         self.seed_cb["values"] = seeds
         if seeds:
-            if not self.seed_var.get() in seeds:
+            if current_seed not in seeds:
                 self.seed_var.set(seeds[0])
             self._scan()
         else:
@@ -135,28 +139,28 @@ class GalleryView(ttk.Frame):
         world = self.world_var.get()
         seed = self.seed_var.get()
 
-        print("\n--- GALLERY: Starting scan...")  # ЛОГ
-        print(f"--- GALLERY: Root='{root}', World='{world}', Seed='{seed}'")  # ЛОГ
+        print("\n--- GALLERY: Starting scan...")
+        print(f"--- GALLERY: Root='{root}', World='{world}', Seed='{seed}'")
 
         if not world or not seed:
             self._clear_canvas()
-            print("--- GALLERY: Scan aborted (no world or seed).")  # ЛОГ
+            print("--- GALLERY: Scan aborted (no world or seed).")
             return
 
         world_parts = world.split('/')
         base = root.joinpath(*world_parts) / seed
-        print(f"--- GALLERY: Scanning base directory: {base}")  # ЛОГ
+        print(f"--- GALLERY: Scanning base directory: {base}")
 
         if not base.exists():
             self._clear_canvas()
-            print(f"!!! LOG: Base directory does not exist.")  # ЛОГ
+            print(f"!!! LOG: Base directory does not exist.")
             return
 
         items: Dict[Tuple[int, int], pathlib.Path] = {}
-        print("--- GALLERY: Iterating directory contents...")  # ЛОГ
+        print("--- GALLERY: Iterating directory contents...")
         found_items = False
         for p in base.iterdir():
-            print(f"--- GALLERY: Found item: '{p.name}'")  # ЛОГ
+            print(f"--- GALLERY: Found item: '{p.name}'")
             if p.is_dir():
                 m = NAME_RE.match(p.name)
                 if m:
@@ -164,14 +168,14 @@ class GalleryView(ttk.Frame):
                     cx = int(m.group("cx"))
                     cz = int(m.group("cz"))
                     items[(cx, cz)] = p
-                    print(f"--- GALLERY: Matched as chunk, coords=({cx},{cz})")  # ЛОГ
+                    print(f"--- GALLERY: Matched as chunk, coords=({cx},{cz})")
 
         if not found_items:
-            print("--- GALLERY: No chunk directories found matching the pattern.")  # ЛОГ
+            print("--- GALLERY: No chunk directories found matching the pattern.")
 
         self.items = items
         self._render()
-        print("--- GALLERY: Scan and render finished.")  # ЛОГ
+        print("--- GALLERY: Scan and render finished.")
 
     def _clear_canvas(self):
         self.items = {}
@@ -201,11 +205,9 @@ class GalleryView(ttk.Frame):
             c = cx - min_cx
             r = cz - min_cz
 
-            # Координаты ячейки
             x0 = MARGIN + c * CELL_SIZE
             y0 = MARGIN + r * CELL_SIZE
 
-            # Координаты картинки внутри ячейки
             img_x = x0 + PADDING
             img_y = y0 + PADDING
 
@@ -219,7 +221,6 @@ class GalleryView(ttk.Frame):
                 self.canvas.create_text(img_x + img_size / 2, img_y + img_size / 2, text=f"{cx},{cz}",
                                         fill="#aaa", font=("TkDefaultFont", 10, "bold"))
 
-            # Подпись под ячейкой
             self.canvas.create_text(x0 + CELL_SIZE / 2, y0 + CELL_SIZE - 4, text=f"{cx},{cz}",
                                     fill="#555", font=("TkDefaultFont", 8), anchor="s")
 
@@ -229,32 +230,21 @@ class GalleryView(ttk.Frame):
         for name in ("preview.png", "preview.jpg", "preview.jpeg"):
             p = folder / name
             if p.exists():
-                print(f"--- GALLERY: Loading preview image: {p}") # ЛОГ
+                print(f"--- GALLERY: Loading preview image: {p}")
                 try:
-                    # Основной, правильный способ с Pillow
                     if PIL_OK:
                         im = Image.open(str(p)).convert("RGBA")
-                        # .thumbnail сохраняет пропорции, убедимся что она растянется до нужного размера
                         im.thumbnail((size, size), Image.Resampling.LANCZOS)
                         return ImageTk.PhotoImage(im)
-
-                    # <<< УЛУЧШЕННЫЙ ЗАПАСНОЙ ВАРИАНТ >>>
                     else:
-                        # Масштабирование без Pillow очень примитивное и НЕ УМЕЕТ УВЕЛИЧИВАТЬ
                         ph = tk.PhotoImage(file=str(p))
-
-                        # Если просим размер больше, а Pillow нет - возвращаем как есть
                         if size > ph.width() or size > ph.height():
                             return ph
-
-                            # Уменьшаем, если нужно (старая логика)
                         sx = max(1, ph.width() // size)
                         sy = max(1, ph.height() // size)
                         if sx > 1 or sy > 1:
                             ph = ph.subsample(sx, sy)
                         return ph
-
                 except Exception:
-                    # В случае ошибки при обработке файла, вернем None
                     return None
         return None

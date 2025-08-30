@@ -1,6 +1,6 @@
 from typing import List, Tuple
 
-from engine.worldgen_core.base.constants import KIND_GROUND, KIND_OBSTACLE, KIND_WATER
+from engine.worldgen_core.base.constants import KIND_GROUND, KIND_OBSTACLE, KIND_WATER, KIND_ROAD
 from engine.worldgen_core.base.types import GenResult
 
 from engine.worldgen_core.grid_alg.topology.border import apply_border_ring
@@ -71,6 +71,18 @@ def dijkstra_path(kind: List[List[str]],
     path.reverse()
     return path
 
+def apply_paths_to_grid(kind_grid: List[List[str]], paths: List[List[Tuple[int, int]] | None]):
+    """
+    "Рисует" найденные пути на карте, заменяя тайлы на KIND_ROAD.
+    """
+    if not paths: return
+    for path in paths:
+        if path:
+            for x, z in path:
+                # Рисуем дорогу, только если там сейчас земля (не трогаем воду и скалы)
+                if kind_grid[z][x] == KIND_GROUND:
+                    kind_grid[z][x] = KIND_ROAD
+
 def carve_path_emergency(kind: List[List[str]], path: List[Tuple[int,int]]) -> None:
     """Силой пробивает туннель по координатам пути, меняя все на землю."""
     if not path: return
@@ -78,40 +90,102 @@ def carve_path_emergency(kind: List[List[str]], path: List[Tuple[int,int]]) -> N
         # Просто меняем тайл на землю. Можно усложнить, добавив стены.
         kind[z][x] = KIND_GROUND
 
+
 def find_path_network(kind: List[List[str]],
                       height_grid: List[List[float]],
                       points: List[Tuple[int, int]]) -> List[List[Tuple[int, int]] | None]:
     """
-    Находит сеть путей, соединяющих все точки, но не изменяет ландшафт.
-    Возвращает список путей. Путь может быть None, если он не найден.
+    Находит сеть путей, соединяющих все точки, используя Minimum Spanning Tree (MST).
+    Это создает более естественные Y-образные перекрестки.
     """
-    if len(points) < 2: return []
-    paths: List[List[Tuple[int, int]] | None] = []
-    center_point = points[0]
-    for other_point in points[1:]:
-        path = dijkstra_path(kind, height_grid, center_point, other_point)
-        paths.append(path)
-    return paths
+    if len(points) < 2:
+        return []
+
+    # Шаг 1: Рассчитать стоимость пути между каждой парой точек
+    # Это "ребра" нашего полного графа
+    edges = []
+    for i in range(len(points)):
+        for j in range(i + 1, len(points)):
+            path = dijkstra_path(kind, height_grid, points[i], points[j])
+            if path:
+                # Стоимость = длина пути
+                cost = len(path)
+                # Сохраняем стоимость, начальную и конечную точки, и сам путь
+                edges.append((cost, points[i], points[j], path))
+
+    # Сортируем ребра от самых дешевых к самым дорогим
+    edges.sort(key=lambda x: x[0])
+
+    # Шаг 2: Алгоритм Прима/Крускала для построения MST
+    parent = {point: point for point in points}
+
+    def find_set(p):
+        if p == parent[p]:
+            return p
+        parent[p] = find_set(parent[p])
+        return parent[p]
+
+    def unite_sets(a, b):
+        a = find_set(a)
+        b = find_set(b)
+        if a != b:
+            parent[b] = a
+            return True
+        return False
+
+    final_paths = []
+    for cost, p1, p2, path_data in edges:
+        # Если точки еще не соединены, добавляем этот путь
+        if unite_sets(p1, p2):
+            final_paths.append(path_data)
+
+    return final_paths
 
 def add_border(self, result: GenResult):
     apply_border_ring(result.layers["kind"], 2)
 
-def ensure_connectivity(kind: List[List[str]], height_grid: List[List[float]], points: List[Tuple[int, int]], paths: List) -> None:
+
+def ensure_connectivity(kind: List[List[str]], height_grid: List[List[float]], points: List[Tuple[int, int]],
+                        paths: List) -> None:
     """
-    Гарантирует связность для 2-х портов, если "честный" путь не нашелся,
-    создавая аварийный прямой путь.
+    Гарантирует связность, создавая аварийный путь, если "честный" не нашелся.
     """
-    if len(points) == 2 and paths and paths[0] is None:
-        start, end = points[0], points[1]
-        emergency_path = []
-        x1, z1 = start
-        x2, z2 = end
-        steps = max(abs(x2 - x1), abs(z2 - z1))
-        # Защита от деления на ноль, если точки совпадают
-        if steps == 0: return
-        for i in range(steps + 1):
-            t = i / steps
-            x, z = round(x1 + t * (x2 - x1)), round(z1 + t * (z2 - z1))
-            emergency_path.append((x, z))
-        # Используем уже существующую функцию для прокладки пути
-        carve_path_emergency(kind, emergency_path)
+    if len(points) < 2 or not paths:
+        return
+
+    # Проверяем, все ли точки соединены с первой точкой
+    # (Для MST этого может быть недостаточно, но для начала сойдет)
+    if any(p is None for p in paths):
+        # Находим все точки, до которых не удалось построить путь
+        connected_points = {points[0]}
+        for i, path in enumerate(paths):
+            if path:
+                # В MST пути могут быть между разными точками
+                connected_points.add(path[0])
+                connected_points.add(path[-1])
+
+        unconnected_points = [p for p in points if p not in connected_points]
+
+        # Для каждой отсоединенной точки строим аварийный путь к ближайшей соединенной
+        for point_a in unconnected_points:
+            # Находим ближайшую соединенную точку (упрощенно)
+            point_b = min(connected_points, key=lambda p: (p[0] - point_a[0]) ** 2 + (p[1] - point_a[1]) ** 2)
+
+            emergency_path = []
+            x1, z1 = point_a
+            x2, z2 = point_b
+            steps = max(abs(x2 - x1), abs(z2 - z1))
+            if steps == 0: continue
+            for step in range(steps + 1):
+                t = step / steps
+                x = round(x1 + t * (x2 - x1))
+                z = round(z1 + t * (z2 - z1))
+                emergency_path.append((x, z))
+
+            # Пробиваем туннель
+            for x, z in emergency_path:
+                if 0 <= z < len(kind) and 0 <= x < len(kind[0]):
+                    kind[z][x] = KIND_GROUND
+
+            # Добавляем этот путь, чтобы по нему тоже нарисовали дорогу
+            paths.append(emergency_path)

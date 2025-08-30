@@ -2,8 +2,10 @@ from __future__ import annotations
 import pathlib, tkinter as tk
 from tkinter import ttk
 from ..tabs.world.state import WorldState
-from ..tabs.world.view import WorldView
+
 from ..tabs.gallery.view import GalleryView
+from ..tabs.world.view import WorldView
+
 
 def main():
     root = tk.Tk()

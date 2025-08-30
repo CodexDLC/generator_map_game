@@ -2,6 +2,15 @@
   "id": "world/base_default",
   "size": 128,
   "cell_size": 1.0,
+  "elevation": {
+    "enabled": true,
+    "max_height_m": 30.0,
+    "sea_level_m": 5.0,
+    "mountain_level_m": 20.0,
+    "shaping_power": 1.5,
+    "quantization_step_m": 1.0,
+    "smoothing_passes": 1
+  },
   "obstacles": {
     "density": 0.12,
     "min_blob": 8,
@@ -62,12 +71,13 @@
     }
   },
   "export": {
-    "palette": {
-      "ground": "#7a9e7a",
-      "obstacle": "#444444",
-      "water": "#3573b8",
-      "void": "#00000000"
-    },
+      "palette": {
+        "ground": "#7a9e7a",
+        "obstacle": "#444444",
+        "water": "#3573b8",
+        "road": "#d2b48c",
+        "void": "#00000000"
+      },
     "thick": true
   }
 }

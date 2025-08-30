@@ -1,23 +1,22 @@
-
 from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
 from .controller import WorldController
 from .state import WorldState
-
+# <<< Используем новую константу >>>
+from engine.worldgen_core.base.constants import ID_TO_KIND
 
 PALETTE = {
     "ground": "#7a9e7a",
     "obstacle": "#444444",
     "water": "#3573b8",
+    "road": "#d2b48c",
     "void": "#000000",
 }
 
-ID2KIND = {0: "ground", 1: "obstacle", 2: "water"}
 
 class WorldView(ttk.Frame):
-
 
     def __init__(self, master, state: WorldState):
         super().__init__(master)
@@ -47,12 +46,17 @@ class WorldView(ttk.Frame):
         self.canvas.pack(fill="both", expand=True, padx=6, pady=6)
 
         self.status = tk.StringVar(value="")
-        ttk.Label(self, textvariable=self.status).pack(fill="x", padx=6, pady=(0,6))
+        ttk.Label(self, textvariable=self.status).pack(fill="x", padx=6, pady=(0, 6))
 
         self._redraw()
 
     def _apply_seed(self):
-        self.state.seed = int(self.seed_var.get())
+        new_seed = int(self.seed_var.get())
+        self.state.city_seed = new_seed
+        self.state.world_id = "city"
+        self.state.cx = 0
+        self.state.cz = 0
+        self.state.seed = new_seed
         self.state.cache.clear()
         self._redraw()
 
@@ -61,7 +65,6 @@ class WorldView(ttk.Frame):
         self._redraw()
 
     def _on_nav(self, dx: int, dz: int):
-        # жёсткая проверка шва
         if not self.ctrl.can_move(dx, dz):
             self.status.set("Нет порта в эту сторону — переход запрещён.")
             return
@@ -69,7 +72,6 @@ class WorldView(ttk.Frame):
         self._redraw()
 
     def _update_nav_buttons(self, _ports_unused):
-        # Решаем, можно ли шагнуть логически, а не по порту
         def en(btn, ok): btn.config(state=("normal" if ok else "disabled"))
 
         en(self.btn_n, self.ctrl.can_move(0, -1))
@@ -78,20 +80,14 @@ class WorldView(ttk.Frame):
         en(self.btn_w, self.ctrl.can_move(-1, 0))
 
     def _grid_from_kind_payload(self, payload, size):
-        """
-        Нормализует layers.kind:
-          - если RLE dict -> декодируем в grid и считаем, что значения = id (0/1/2)
-          - если 2D list  -> берём как есть (значения могут быть строками или id)
-          - иначе          -> пустая сетка
-        Возвращает (grid, val_to_kind_fn)
-        """
         if isinstance(payload, dict) and payload.get("encoding") == "rle_rows_v1":
             rows = payload.get("rows", [])
             grid = self._decode_rle_rows(rows)
 
-            def val_to_kind(v):  # RLE обычно отдаём id
+            def val_to_kind(v):
                 try:
-                    return ID2KIND.get(int(v), "ground")
+                    # <<< ИСПРАВЛЕНО: Используем ID_TO_KIND >>>
+                    return ID_TO_KIND.get(int(v), "ground")
                 except Exception:
                     return "ground"
 
@@ -104,13 +100,13 @@ class WorldView(ttk.Frame):
                 if isinstance(v, str):
                     return v
                 try:
-                    return ID2KIND.get(int(v), "ground")
+                    # <<< ИСПРАВЛЕНО: Используем ID_TO_KIND >>>
+                    return ID_TO_KIND.get(int(v), "ground")
                 except Exception:
                     return "ground"
 
             return grid, val_to_kind
 
-        # fallback
         grid = [[0] * size for _ in range(size)]
 
         def val_to_kind(_v):
@@ -128,14 +124,6 @@ class WorldView(ttk.Frame):
         return grid
 
     def _extract_grid_and_size(self, data):
-        """
-        Возвращает (grid, size), где grid — 2D список значений (строки или id).
-        Понимает три формата:
-          - data["layers"]["kind"] как RLE dict {"encoding":"rle_rows_v1","rows":[...]}
-          - data["layers"]["kind"] как 2D list
-          - data["chunks"][0] как RLE (при загрузке с диска)
-        """
-        # 1) layers.kind
         layers = data.get("layers", {})
         if "kind" in layers:
             payload = layers["kind"]
@@ -148,7 +136,6 @@ class WorldView(ttk.Frame):
                 size = len(grid) if grid else data.get("size", 64)
                 return grid, size
 
-        # 2) chunks[0] (как в сохранённом chunk.rle.json)
         chunks = data.get("chunks", [])
         if chunks:
             ch = chunks[0]
@@ -156,19 +143,15 @@ class WorldView(ttk.Frame):
             size = ch.get("h", len(grid) if grid else data.get("size", 64))
             return grid, size
 
-        # 3) пусто — вернём чистую сетку
         size = data.get("size", 64)
         return [[0] * size for _ in range(size)], size
 
     def _redraw(self):
-        # Шаг 1: Обновляем UI актуальными данными из состояния (например, Seed)
         self.seed_var.set(self.state.seed)
 
-        # Шаг 2: Загружаем данные для текущего чанка
         data = self.ctrl.load_center()
         grid, size = self._extract_grid_and_size(data)
 
-        # Шаг 3: Очищаем холст и рассчитываем геометрию сетки
         self.canvas.delete("all")
         w = self.canvas.winfo_width() or 512
         h = self.canvas.winfo_height() or 512
@@ -176,7 +159,6 @@ class WorldView(ttk.Frame):
         offx = (w - size * cell) // 2
         offy = (h - size * cell) // 2
 
-        # Шаг 4: Рисуем ландшафт (земля, вода, скалы)
         for z in range(size):
             row = grid[z] if z < len(grid) else []
             for x in range(size):
@@ -184,14 +166,14 @@ class WorldView(ttk.Frame):
                 if isinstance(v, str):
                     kind_name = v
                 else:
-                    kind_name = ID2KIND.get(int(v), "ground")
+                    # <<< ИСПРАВЛЕНО: Используем ID_TO_KIND >>>
+                    kind_name = ID_TO_KIND.get(int(v), "ground")
 
                 color = PALETTE.get(kind_name, "#000000")
                 x0, y0 = offx + x * cell, offy + z * cell
                 x1, y1 = x0 + cell, y0 + cell
                 self.canvas.create_rectangle(x0, y0, x1, y1, outline=color, fill=color)
 
-        # Шаг 5: Рисуем обычные порты (красные квадраты)
         ports = data.get("ports") or (data.get("_meta", {}) or {}).get("ports") or {}
         port_color = "#ff0000"
         for x_coord in ports.get("N", []):
@@ -207,11 +189,9 @@ class WorldView(ttk.Frame):
             x0, y0 = offx + (size - 1) * cell, offy + z_coord * cell
             self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline=port_color, width=2)
 
-        # Шаг 6: Если это город (0,0), рисуем шлюзы (оранжевые квадраты)
         if self.ctrl._is_city_origin():
             gates = self.ctrl._city_gateway_sides()
             gate_color = "#ffa600"
-            # Примечание: рисуем шлюзы в середине края для наглядности
             mid = size // 2
             if "N" in gates:
                 x0, y0 = offx + mid * cell, offy
@@ -226,7 +206,6 @@ class WorldView(ttk.Frame):
                 x0, y0 = offx + (size - 1) * cell, offy + mid * cell
                 self.canvas.create_rectangle(x0, y0, x0 + cell, y0 + cell, outline=gate_color, width=3)
 
-        # Шаг 7: Обновляем статусную строку и кнопки навигации
         world_label = "Город" if self.state.world_id == "city" else self.state.world_id
         self.status.set(
             f"{world_label} | city_seed={self.state.city_seed} | seed={self.state.seed} | cx={self.state.cx} cz={self.state.cz}"

@@ -1,9 +1,9 @@
+# engine/worldgen_core/base/preset.py
 
 from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, Mapping
 from engine.worldgen_core.base.constants import KIND_VALUES, DEFAULT_PALETTE
-
 
 
 @dataclass(frozen=True)
@@ -12,13 +12,25 @@ class Preset:
     size: int = 64
     cell_size: float = 1.0
 
+    # <<< НОВЫЙ БЛОК: Добавляем секцию elevation в сам класс >>>
+    elevation: Dict[str, Any] = field(default_factory=lambda: {
+        "enabled": True,
+        "max_height_m": 60.0,
+        "sea_level_m": 20.0,
+        "mountain_level_m": 45.0,
+        "shaping_power": 1.5,
+        "quantization_step_m": 1.0,
+        "smoothing_passes": 1
+    })
+    # <<< КОНЕЦ НОВОГО БЛОКА >>>
+
     obstacles: Dict[str, Any] = field(default_factory=lambda: {"density": 0.12, "min_blob": 8, "max_blob": 64})
     water: Dict[str, Any] = field(default_factory=lambda: {"density": 0.05, "lake_chance": 0.2})
     height_q: Dict[str, Any] = field(default_factory=lambda: {"scale": 0.1})
     ports: Dict[str, Any] = field(default_factory=lambda: {"min": 2, "max": 4, "edge_margin": 3})
     fields: Dict[str, Any] = field(default_factory=lambda: {
         "temperature": {"enabled": True, "downsample": 4, "scale": 0.5},
-        "humidity":    {"enabled": True, "downsample": 4, "scale": 0.5},
+        "humidity": {"enabled": True, "downsample": 4, "scale": 0.5},
     })
     export: Dict[str, Any] = field(default_factory=lambda: {"palette": DEFAULT_PALETTE.copy(), "thick": True})
 
@@ -43,8 +55,11 @@ class Preset:
     def from_dict(cls, data: Mapping[str, Any]) -> "Preset":
         default = cls().to_dict()
         merged = cls._deep_merge(default, dict(data))
+
+        # <<< ИЗМЕНЕНО: Создаем объект, включая новую секцию elevation >>>
         obj = cls(
             id=merged["id"], size=int(merged["size"]), cell_size=float(merged["cell_size"]),
+            elevation=dict(merged["elevation"]),  # <-- Добавлено
             obstacles=dict(merged["obstacles"]), water=dict(merged["water"]),
             height_q=dict(merged["height_q"]), ports=dict(merged["ports"]),
             fields=dict(merged["fields"]), export=dict(merged["export"]),
@@ -53,6 +68,7 @@ class Preset:
         return obj
 
     def validate(self) -> None:
+        # (Этот метод без изменений, валидация для elevation пока не нужна)
         if not isinstance(self.id, str) or not self.id:
             raise ValueError("Preset.id must be non-empty string")
         if self.size < 8:
@@ -104,5 +120,6 @@ class Preset:
             col = str(pal[k])
             if not col.startswith("#"):
                 raise ValueError(f"export.palette['{k}'] must be hex like '#RRGGBB' or '#AARRGGBB'")
+
 
 DEFAULT_BASE_PRESET = Preset()

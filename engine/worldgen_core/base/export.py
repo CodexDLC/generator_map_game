@@ -4,6 +4,8 @@ import json
 
 from typing import Any, Dict, List, Tuple, Union
 from pathlib import Path
+
+from .constants import ID_TO_KIND
 from ..utils.rle import encode_rle_rows, decode_rle_rows
 
 try:
@@ -91,6 +93,7 @@ def write_preview_png(path: str,
 
         ID2NAME = {0: "ground", 1: "obstacle", 2: "water", 3: "border", 4: "road"}
 
+        # <<< ЗАМЕНЕН БЛОК to_rgb >>>
         def hex_to_rgb(s: str) -> Tuple[int, int, int]:
             s = s.lstrip("#")
             if len(s) == 3: s = "".join(c*2 for c in s)
@@ -98,8 +101,10 @@ def write_preview_png(path: str,
             return int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16)
 
         def to_rgb(v: Any) -> Tuple[int, int, int]:
-            name = v if isinstance(v, str) else ID2NAME.get(int(v), "ground")
+            # Теперь логика едина: если это строка - берем ее, если число - ищем в ID_TO_KIND
+            name = v if isinstance(v, str) else ID_TO_KIND.get(int(v), "ground")
             return hex_to_rgb(palette.get(name, "#000000"))
+        # <<< КОНЕЦ ЗАМЕНЕННОГО БЛОКА >>>
 
         img = Image.new("RGB", (w * PREVIEW_TILE_PX, h * PREVIEW_TILE_PX))
         px = img.load()
