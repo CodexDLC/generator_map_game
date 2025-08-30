@@ -182,7 +182,7 @@ class Game:
         self.global_seed = int(seed)
         self.preset = DEFAULT_BASE_PRESET
         self.palette = self.preset.export.get("palette", {})
-        self.store = WorldStore(self.preset, None, None)  # в городе
+        self.store = WorldStore(self.preset)  # в городе
         self.world_id = "city"
         self.center_c = (0, 0)  # текущий центральный чанк (cx,cz) для города/ветки
         # старт в центре города
