@@ -49,10 +49,30 @@ class PygameViewer:
         # --- Цвета ---
         self.colors = {k: hex_to_rgb(v) for k, v in DEFAULT_PALETTE.items()}
 
-    def _get_tile_data(self) -> Tuple[List[List[str]], List[List[float]]]:
-        """Извлекает kind и height из данных чанка."""
-        kind_grid, _ = self.ctrl._extract_grid_and_size(self.current_chunk_data)
-        height_grid = self.current_chunk_data.get("layers", {}).get("height_q", {}).get("grid", [])
+    def _get_tile_data(self):
+        data = self.current_chunk_data
+        layers = data.get("layers", {})
+        kind_payload = layers.get("kind", {})
+        from engine.worldgen_core.base.constants import ID_TO_KIND
+        def decode(rows):
+            grid = []
+            for r in rows:
+                line = []
+                for v, c in r: line.extend([v] * int(c))
+                grid.append(line)
+            return grid
+
+        if isinstance(kind_payload, dict) and kind_payload.get("encoding") == "rle_rows_v1":
+            grid_ids = decode(kind_payload.get("rows", []))
+            kind_grid = [[ID_TO_KIND.get(v, "ground") for v in row] for row in grid_ids]
+        elif isinstance(kind_payload, list):
+            if kind_payload and kind_payload[0] and isinstance(kind_payload[0][0], int):
+                kind_grid = [[ID_TO_KIND.get(v, "ground") for v in row] for row in kind_payload]
+            else:
+                kind_grid = kind_payload
+        else:
+            kind_grid = [["ground"] * MAP_SIZE_TILES for _ in range(MAP_SIZE_TILES)]
+        height_grid = layers.get("height_q", {}).get("grid", [])
         return kind_grid, height_grid
 
     def run(self):
@@ -90,7 +110,7 @@ class PygameViewer:
 
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
-                pygame.quit();
+                pygame.quit()
                 sys.exit(0)
 
             # Ручное перемещение

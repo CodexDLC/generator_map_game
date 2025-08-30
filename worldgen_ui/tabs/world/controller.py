@@ -3,7 +3,7 @@ import json, pathlib, hashlib
 from typing import Dict, Set, Tuple
 from .state import WorldState
 from ...services.worldgen import generate_or_load
-
+from engine.worldgen_core.base.constants import ID_TO_KIND
 
 class WorldController:
     def __init__(self, state: WorldState):
@@ -199,3 +199,61 @@ class WorldController:
         self.s.cx += dx
         self.s.cz += dz
         return self.load_center()
+
+
+    def _decode_rle_rows(self, rows):
+        grid = []
+        for r in rows:
+            line = []
+            for pair in r:
+                # пара вида [value, run]
+                if isinstance(pair, (list, tuple)) and len(pair) == 2:
+                    val, run = pair
+                    line.extend([val] * int(run))
+            grid.append(line)
+        return grid
+
+
+    def _extract_grid_and_size(self, data):
+        """
+        Универсальный извлекатель грида:
+        - layers.kind = {"encoding":"rle_rows_v1","rows":[...]}  -> раскодируем
+        - layers.kind = [[...]] (сырые строки)                   -> как есть
+        - chunks[0].rows (как в chunk.rle.json)                  -> раскодируем
+        Возвращает (grid_kind_names, size), где grid_kind_names — имена тайлов ('ground' и т.п.).
+        """
+        size = data.get("size")
+        layers = data.get("layers", {})
+        kind_payload = layers.get("kind")
+
+        # Вариант 1: RLE в layers.kind
+        if isinstance(kind_payload, dict) and kind_payload.get("encoding") == "rle_rows_v1":
+            grid_ids = self._decode_rle_rows(kind_payload.get("rows", []))
+            size = size or (len(grid_ids) if grid_ids else 0)
+            grid_names = [
+                [ID_TO_KIND.get(v, "ground") if not isinstance(v, str) else v for v in row]
+                for row in grid_ids
+            ]
+            return grid_names, size
+
+        # Вариант 2: сырые строки в layers.kind (могут быть int или str)
+        if isinstance(kind_payload, list):
+            if kind_payload and kind_payload[0] and isinstance(kind_payload[0][0], int):
+                grid_names = [[ID_TO_KIND.get(v, "ground") for v in row] for row in kind_payload]
+            else:
+                grid_names = kind_payload
+            size = size or (len(grid_names) if grid_names else 0)
+            return grid_names, size
+
+        # Вариант 3: формат как в chunk.rle.json -> data["chunks"][0]["rows"]
+        chunks = data.get("chunks", [])
+        if chunks:
+            ch = chunks[0]
+            grid_ids = self._decode_rle_rows(ch.get("rows", []))
+            size = ch.get("h") or size or (len(grid_ids) if grid_ids else 0)
+            grid_names = [[ID_TO_KIND.get(v, "ground") for v in row] for row in grid_ids]
+            return grid_names, size
+
+        # Фоллбэк: пустой чанк
+        n = size or 128
+        return [["ground"] * n for _ in range(n)], n
