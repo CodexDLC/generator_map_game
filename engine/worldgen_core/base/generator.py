@@ -6,12 +6,11 @@ import time
 from typing import Any, Dict, List
 
 from .types import IGenerator, GenResult
-# --- Импорты ---
 from .utils import init_rng, make_empty_layers
 from .validate import compute_metrics
+# <<< УБРАНЫ ЛИШНИЕ ИМПОРТЫ из features.py >>>
 from ..grid_alg.terrain import classify_terrain, generate_elevation
 from ..grid_alg.topology.metrics import compute_hint_and_halo, edges_tiles_and_pass_from_kind
-# <<< ИЗМЕНЕНО: inner_point_for_side больше не нужен для рамки >>>
 from ..grid_alg.topology.border import inner_point_for_side
 from ..grid_alg.topology.connectivity import choose_ports
 from ..grid_alg.topology.pathfinding import find_path_network, ensure_connectivity, apply_paths_to_grid
@@ -30,30 +29,37 @@ class BaseGenerator(IGenerator):
         cz = int(params.get("cz", 0))
         size = int(getattr(self.preset, "size", 128))
 
-        # --- Инициализация метрик времени ---
         gen_timings_ms = {}
         t_start = time.perf_counter()
 
-        # --- ЭТАП 1: Генерация "сырого" ландшафта (elevation) ---
         stage_seeds = init_rng(seed, cx, cz)
         layers = make_empty_layers(size)
+
+        # <<< =============== УПРОЩЕННАЯ И ПРАВИЛЬНАЯ ЛОГИКА =============== >>>
+
+        # ШАГ 1: Создаем бесшовную карту высот. Это ЕДИНСТВЕННЫЙ источник данных о рельефе.
         elevation_grid = generate_elevation(stage_seeds["elevation"], cx, cz, size, self.preset)
-        classify_terrain(elevation_grid, layers["kind"], self.preset)
         layers["height_q"]["grid"] = elevation_grid
+
+        # ШАГ 2: Классифицируем тайлы, основываясь ИСКЛЮЧИТЕЛЬНО на карте высот.
+        # Это создает единый, цельный ландшафт без швов.
+        classify_terrain(elevation_grid, layers["kind"], self.preset)
+
+        # ШАГ 3 (УДАЛЕН): Мы больше не вызываем features.py, который все портил.
+
+        # <<< ======================= КОНЕЦ ИЗМЕНЕНИЙ ======================= >>>
 
         t_elevation_end = time.perf_counter()
         gen_timings_ms['elevation'] = (t_elevation_end - t_start) * 1000
 
-        # --- Создаем объект результата ПОСЛЕ генерации ландшафта ---
         result = GenResult(
             version=self.VERSION, type=self.TYPE,
             seed=seed, cx=cx, cz=cz, size=size, cell_size=1.0,
             layers=layers, stage_seeds=stage_seeds
         )
-        # Сразу добавляем тайминги в метрики
         result.metrics["gen_timings_ms"] = gen_timings_ms
 
-        # --- ЭТАП 2: Создание структуры для связного мира (connectivity) ---
+        # --- Далее идет логика прокладки дорог, она остается без изменений ---
         t_connectivity_start = time.perf_counter()
         ports = self._place_ports(result, params)
         result.ports = ports
@@ -62,16 +68,12 @@ class BaseGenerator(IGenerator):
         t_connectivity_end = time.perf_counter()
         result.metrics["gen_timings_ms"]['connectivity'] = (t_connectivity_end - t_connectivity_start) * 1000
 
-        # --- ЭТАП 3: Финальный расчет метрик ---
         metrics: Dict[str, Any] = compute_metrics(layers["kind"])
         distance = math.sqrt(cx ** 2 + cz ** 2)
         metrics["difficulty"] = {"value": distance / 10.0, "dist": distance}
-        # Старая метрика gen_ms больше не нужна, так как есть детализация
         result.metrics = {**metrics, **result.metrics}
 
         return result
-
-    # --- Методы ---
 
     def _place_ports(self, result: GenResult, params: Dict[str, Any]) -> Dict[str, List[int]]:
         size = result.size
@@ -88,15 +90,12 @@ class BaseGenerator(IGenerator):
         for side, arr in ports.items():
             if arr:
                 idx = arr[0]
-                # Точка для старта пути теперь прямо на границе чанка
                 inner_points.append(inner_point_for_side(side, idx, size, 0))
 
         if len(inner_points) >= 2:
             paths = find_path_network(kind, height_grid, inner_points)
             ensure_connectivity(kind, height_grid, inner_points, paths)
-
             apply_paths_to_grid(kind, paths)
-
             result.layers["roads"] = paths
 
         return ports

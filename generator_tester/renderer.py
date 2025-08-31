@@ -1,8 +1,10 @@
+# generator_tester/renderer.py
+# ... (импорты и классы Camera, Minimap без изменений) ...
 import pygame
 import pathlib
 from typing import List, Tuple, Dict
 from .config import (
-    TILE_SIZE, SCREEN_HEIGHT, PLAYER_COLOR, PATH_COLOR, ERROR_COLOR, GATEWAY_COLOR,
+    TILE_SIZE, SCREEN_HEIGHT, SCREEN_WIDTH, PLAYER_COLOR, PATH_COLOR, ERROR_COLOR, GATEWAY_COLOR,
     VIEWPORT_WIDTH_TILES, VIEWPORT_HEIGHT_TILES, ARTIFACTS_ROOT, CHUNK_SIZE
 )
 from engine.worldgen_core.base.constants import DEFAULT_PALETTE
@@ -19,7 +21,6 @@ class Camera:
 
 
 class Minimap:
-    # ... (Код класса Minimap без изменений)
     def __init__(self, screen):
         self.screen = screen
         self.map_size_chunks = 5
@@ -60,10 +61,10 @@ class Minimap:
 class Renderer:
     def __init__(self, screen):
         self.screen = screen
-        self.font = pygame.font.SysFont("consolas", 16)
+        self.font = pygame.font.SysFont("consolas", 12)
         self.colors = {k: self._hex_to_rgb(v) for k, v in DEFAULT_PALETTE.items()}
         self.colors['road'] = self._hex_to_rgb("#d2b48c")
-        self.colors['void'] = (10, 10, 15)  # Сделаем "пустоту" темно-синей
+        self.colors['void'] = (10, 10, 15)
         self.minimap = Minimap(screen)
 
     def _hex_to_rgb(self, s: str) -> Tuple[int, int, int]:
@@ -71,19 +72,25 @@ class Renderer:
         return int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16)
 
     def draw_world(self, camera: Camera, game_world):
-        """Новая быстрая отрисовка из рендер-сетки GameWorld."""
         for screen_y in range(VIEWPORT_HEIGHT_TILES):
             for screen_x in range(VIEWPORT_WIDTH_TILES):
                 wx = camera.top_left_wx + screen_x
                 wz = camera.top_left_wz + screen_y
 
-                # --- БОЛЬШЕ НИКАКИХ get_tile_at ИЗ WORLD_MANAGER ---
                 tile_info = game_world.get_tile_at(wx, wz)
                 kind_name = tile_info.get("kind", "void")
+                height_val = tile_info.get("height", 0)
 
                 color = self.colors.get(kind_name, ERROR_COLOR)
-                rect = (screen_x * TILE_SIZE, screen_y * TILE_SIZE, TILE_SIZE, TILE_SIZE)
-                pygame.draw.rect(self.screen, color, rect)
+
+                rect_obj = pygame.Rect(screen_x * TILE_SIZE, screen_y * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+
+                pygame.draw.rect(self.screen, color, rect_obj)
+
+                if TILE_SIZE > 15:
+                    text_surface = self.font.render(f"{height_val:.0f}", True, (255, 255, 255))
+                    text_rect = text_surface.get_rect(center=rect_obj.center)
+                    self.screen.blit(text_surface, text_rect)
 
     def draw_path(self, path: List[Tuple[int, int]], camera: Camera):
         for wx, wz in path:
@@ -98,6 +105,7 @@ class Renderer:
         rect = (screen_x, screen_y, TILE_SIZE, TILE_SIZE)
         pygame.draw.rect(self.screen, PLAYER_COLOR, rect)
 
+    # <<< =============== ИСПРАВЛЕНИЕ ИНТЕРФЕЙСА =============== >>>
     def draw_status(self, world_manager, player_wx, player_wz):
         current_cx = player_wx // CHUNK_SIZE
         current_cz = player_wz // CHUNK_SIZE
@@ -105,8 +113,22 @@ class Renderer:
                        f"Seed: {world_manager.current_seed} | "
                        f"Chunk: ({current_cx}, {current_cz}) | "
                        f"Player: ({player_wx}, {player_wz})")
-        text_surface = self.font.render(status_text, True, (255, 255, 255))
-        self.screen.blit(text_surface, (5, SCREEN_HEIGHT - 20))
+
+        status_font = pygame.font.SysFont("consolas", 16)
+        text_surface = status_font.render(status_text, True, (255, 255, 255))
+
+        # Создаем фон для текста
+        bar_height = text_surface.get_height() + 8
+        bar_rect = pygame.Rect(0, SCREEN_HEIGHT - bar_height, SCREEN_WIDTH, bar_height)
+
+        # Рисуем полупрозрачную плашку
+        s = pygame.Surface((SCREEN_WIDTH, bar_height), pygame.SRCALPHA)
+        s.fill((0, 0, 0, 180))  # Черный, 180/255 прозрачность
+        self.screen.blit(s, (0, SCREEN_HEIGHT - bar_height))
+
+        # Рисуем текст поверх плашки
+        text_rect = text_surface.get_rect(centery=bar_rect.centery, x=5)
+        self.screen.blit(text_surface, text_rect)
 
     def draw_minimap(self, world_manager, player_cx: int, player_cz: int):
         self.minimap.draw(world_manager, player_cx, player_cz)

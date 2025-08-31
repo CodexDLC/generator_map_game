@@ -9,7 +9,6 @@ ROOT = pathlib.Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# --- ВОТ БЛОК, ГДЕ БЫЛА ПРОПУЩЕНА СТРОКА ---
 from game_logic.world import GameWorld
 from game_logic.generation_worker import worker_main
 from generator_tester.renderer import Renderer, Camera
@@ -17,7 +16,6 @@ from generator_tester.config import SCREEN_WIDTH, SCREEN_HEIGHT, BACKGROUND_COLO
 
 
 def main():
-    # В Windows для multiprocessing это обязательное условие
     mp.freeze_support()
 
     pygame.init()
@@ -32,7 +30,6 @@ def main():
         print("Invalid seed, using 123.")
         city_seed = 123
 
-    # --- Создаем очередь и запускаем воркер ---
     task_queue = mp.Queue()
     worker_process = mp.Process(
         target=worker_main,
@@ -42,7 +39,6 @@ def main():
     worker_process.start()
 
     print("Initializing Game World...")
-    # Передаем очередь в GameWorld, чтобы он мог ставить задачи
     game_world = GameWorld(city_seed, task_queue)
 
     renderer = Renderer(screen)
@@ -58,8 +54,15 @@ def main():
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 screen_x, screen_y = event.pos
                 target_wx = camera.top_left_wx + screen_x // TILE_SIZE
-                target_wz = camera.top_left_wx + screen_y // TILE_SIZE
+
+                # <<< =============== ВОТ ЗДЕСЬ БЫЛА ОШИБКА =============== >>>
+                # Было: target_wz = camera.top_left_wx + screen_y // TILE_SIZE
+                # Стало:
+                target_wz = camera.top_left_wz + screen_y // TILE_SIZE
+                # <<< ===================================================== >>>
+
                 game_world.set_player_target(target_wx, target_wz)
+
         keys = pygame.key.get_pressed()
         if keys[pygame.K_w]: game_world.move_player_by(0, -1)
         if keys[pygame.K_s]: game_world.move_player_by(0, 1)
@@ -68,7 +71,6 @@ def main():
 
         game_world.update(dt)
 
-        # 3. Слой отображения: Получаем свежие данные и рисуем
         state = game_world.get_render_state()
         player_wx = state["player_wx"]
         player_wz = state["player_wz"]
@@ -77,16 +79,12 @@ def main():
 
         screen.fill(BACKGROUND_COLOR)
 
-        # ---> ИЗМЕНЕНИЯ ЗДЕСЬ <---
-        # Для отрисовки мира используем game_world с быстрой рендер-сеткой
         renderer.draw_world(camera, state["game_world"])
 
         if state["path"]:
             renderer.draw_path(state["path"], camera)
 
         renderer.draw_player(player_wx, player_wz, camera)
-
-        # Для статуса и миникарты используем world_manager
         renderer.draw_status(state["world_manager"], player_wx, player_wz)
 
         current_cx = player_wx // CHUNK_SIZE
@@ -95,7 +93,6 @@ def main():
 
         pygame.display.flip()
 
-    # --- Корректно завершаем работу воркера ---
     print("Main loop finished. Shutting down worker...")
     task_queue.put(None)
     worker_process.join(timeout=5)

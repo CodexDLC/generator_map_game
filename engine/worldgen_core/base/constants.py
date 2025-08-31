@@ -5,6 +5,7 @@ KIND_OBSTACLE = "obstacle"
 KIND_WATER = "water"
 KIND_ROAD = "road"
 KIND_VOID = "void"
+KIND_SLOPE = "slope"
 KIND_VALUES = (KIND_GROUND, KIND_OBSTACLE, KIND_WATER, KIND_VOID)
 
 # <<< НОВЫЙ БЛОК: Централизованные маппинги >>>
@@ -15,6 +16,7 @@ KIND_TO_ID: Dict[str, int] = {
     KIND_WATER: 2,
     KIND_ROAD: 3,
     KIND_VOID: 4,
+    KIND_SLOPE: 5
 }
 
 ID_TO_KIND: Dict[int, str] = {v: k for k, v in KIND_TO_ID.items()}
@@ -25,6 +27,7 @@ DEFAULT_PALETTE: Dict[str, str] = {
     KIND_OBSTACLE: "#444444",
     KIND_WATER: "#3573b8",
     KIND_VOID: "#00000000",
+
 }
 
 
