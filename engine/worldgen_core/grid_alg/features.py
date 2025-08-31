@@ -1,9 +1,12 @@
 # engine/worldgen_core/grid_alg/features.py
 from __future__ import annotations
 from typing import List, Dict
+import math
+from opensimplex import OpenSimplex
 
 from ..base.constants import KIND_WATER, KIND_OBSTACLE, KIND_GROUND
 from ..base.rng import RNG, hash64
+
 
 # --------------------------- мировые шумы ---------------------------
 
@@ -20,8 +23,8 @@ def _smoothstep(t: float) -> float:
 def value_noise2d(seed: int, x: float, z: float, freq: float) -> float:
     sx = x * freq
     sz = z * freq
-    x0 = int(sx)
-    z0 = int(sz)
+    x0 = math.floor(sx) # <--- ИЗМЕНЕНО
+    z0 = math.floor(sz) # <--- ИЗМENEНО
     tx = _smoothstep(sx - x0)
     tz = _smoothstep(sz - z0)
     a = _val_at(seed, x0, z0)
@@ -30,18 +33,24 @@ def value_noise2d(seed: int, x: float, z: float, freq: float) -> float:
     d = _val_at(seed, x0 + 1, z0 + 1)
     return _lerp(_lerp(a, b, tx), _lerp(c, d, tx), tz)
 
-def fbm2d(seed: int, x: float, z: float, base_freq: float,
+
+def fbm2d(noise: OpenSimplex, x: float, z: float, base_freq: float,
           octaves: int = 3, lacunarity: float = 2.0, gain: float = 0.5) -> float:
+    """Быстрый фрактальный шум на базе OpenSimplex."""
+    # УДАЛЕНО: noise = OpenSimplex(seed)
     amp = 1.0
     freq = base_freq
     total = 0.0
     norm = 0.0
+
     for _ in range(max(1, octaves)):
-        total += value_noise2d(seed, x, z, freq) * amp
+        sample = (noise.noise2(x * freq, z * freq) + 1.0) / 2.0
+        total += sample * amp
         norm += amp
         amp *= gain
         freq *= lacunarity
-    return total / max(1e-9, norm)  # ~[0,1]
+
+    return total / max(1e-9, norm)
 
 # --------------------------- маски ---------------------------
 
@@ -110,19 +119,26 @@ def merge_masks_into_kind(kind_grid: List[List[str]], obstacles: List[List[int]]
             else:
                 kind_grid[z][x] = KIND_GROUND
 
+
 def make_height_for_impassables(seed: int, cx: int, cz: int,
                                 kind_grid: List[List[str]], scale: float,
                                 base_freq: float = 1.0 / 16.0) -> List[List[int]]:
     """Высота только для непроходимых: мировая fbm, швов нет."""
-    h = len(kind_grid); w = len(kind_grid[0]) if h else 0
+    h = len(kind_grid);
+    w = len(kind_grid[0]) if h else 0
     grid = [[0 for _ in range(w)] for _ in range(h)]
+
+    # ---> ИЗМЕНЕНИЕ 1: Создаем экземпляр OpenSimplex здесь <---
+    noise_gen = OpenSimplex(seed)
+
     for z in range(h):
         wz = cz * h + z
         row = grid[z]
         for x in range(w):
             if kind_grid[z][x] in (KIND_OBSTACLE, KIND_WATER):
                 wx = cx * w + x
-                n = fbm2d(seed, float(wx), float(wz), base_freq, octaves=4)
+                # ---> ИЗМЕНЕНИЕ 2: Передаем в fbm2d объект, а не число <---
+                n = fbm2d(noise_gen, float(wx), float(wz), base_freq, octaves=4)
                 row[x] = int(n * 65535)  # u16
             else:
                 row[x] = 0

@@ -18,14 +18,27 @@ class WorldManager:
         self.preset = self._load_preset()
         self.generator = WorldGenerator(self.preset)
         self.cache: Dict[Tuple, Dict | None] = {}
-        self.preload_radius = 2
+        self.preload_radius = 1 # <-- ИЗМЕНИТЕ ЗНАЧЕНИЕ ЗДЕСЬ
 
         self.world_id = "city"
         self.current_seed = city_seed
         self.player_chunk_cx = 0
         self.player_chunk_cz = 0
 
-        # <<< УДАЛЕНО: self.city_gateways больше не нужно >>>
+
+    def _branch_domain(self, bid: str) -> dict:
+        """Читает domain из пресета для выбранной ветви."""
+        branches_cfg = self.preset.to_dict().get("branches", {})
+        return dict(branches_cfg.get(bid, {}).get("domain", {}))
+
+    @staticmethod
+    def _in_domain(cx: int, cz: int, dom: dict) -> bool:
+        """Проверяет, находятся ли координаты в пределах домена."""
+        if "x_min" in dom and cx < int(dom["x_min"]): return False
+        if "x_max" in dom and cx > int(dom["x_max"]): return False
+        if "z_min" in dom and cz < int(dom["z_min"]): return False
+        if "z_max" in dom and cz > int(dom["z_max"]): return False
+        return True
 
     def _load_preset(self) -> Preset:
         with open(PRESET_PATH, "r", encoding="utf-8") as f:
@@ -45,9 +58,24 @@ class WorldManager:
 
     def preload_chunks_around(self, center_cx: int, center_cz: int):
         print(f"--- Preloading grid around ({center_cx}, {center_cz}) ---")
+
+        # Получаем домен, если мы в ветке
+        domain = {}
+        is_branch = self.world_id.startswith("branch/")
+        if is_branch:
+            branch_id = self.world_id.split('/', 1)[1]
+            domain = self._branch_domain(branch_id)
+
         for dz in range(-self.preload_radius, self.preload_radius + 1):
             for dx in range(-self.preload_radius, self.preload_radius + 1):
-                self.get_chunk_data(center_cx + dx, center_cz + dz)
+                cx, cz = center_cx + dx, center_cz + dz
+
+                # ---> НОВАЯ ПРОВЕРКА ДОМЕНА ПЕРЕД ГЕНЕРАЦИЕЙ <---
+                if is_branch and not self._in_domain(cx, cz, domain):
+                    print(f"--- Skipping preload for ({cx}, {cz}): out of domain.")
+                    continue
+
+                self.get_chunk_data(cx, cz)
 
     def get_tile_at(self, wx: int, wz: int) -> Dict:
         """Возвращает информацию о тайле, включая, является ли он частью шлюза."""
@@ -82,14 +110,25 @@ class WorldManager:
             return None
 
         kind_payload = raw_data.get("layers", {}).get("kind", {})
-        grid_ids = decode_rle_rows(kind_payload.get("rows", []))
-        kind_grid = [[ID_TO_KIND.get(v, "ground") for v in row] for row in grid_ids]
+
+        # ---> ОБНОВЛЕННАЯ ЛОГИКА ДЛЯ ОБРАБОТКИ ДВУХ ФОРМАТОВ <---
+        kind_grid = []
+        if isinstance(kind_payload, dict):
+            # Случай 1: Данные загружены из RLE-файла (словарь)
+            grid_ids = decode_rle_rows(kind_payload.get("rows", []))
+            kind_grid = [[ID_TO_KIND.get(v, "ground") for v in row] for row in grid_ids]
+        elif isinstance(kind_payload, list):
+            # Случай 2: Данные только что сгенерированы (уже список списков)
+            kind_grid = kind_payload  # Просто используем как есть
 
         height_grid = raw_data.get("layers", {}).get("height_q", {}).get("grid", [])
 
         decoded_chunk = {"kind": kind_grid, "height": height_grid}
         self.cache[key] = decoded_chunk
         return decoded_chunk
+
+
+
 
     def _load_or_generate_chunk(self, cx: int, cz: int) -> Dict | None:
         if self.world_id == "city":
@@ -117,7 +156,8 @@ class WorldManager:
                              cz)
         write_preview_png(str(chunk_path / "preview.png"), result.layers["kind"], self.preset.export["palette"])
 
-        return result.layers
+        # Оборачиваем результат в ту же структуру, что и при загрузке с диска
+        return {"layers": result.layers}
 
     def check_and_trigger_transition(self, wx: int, wz: int) -> Tuple[int, int] | None:
         """Проверяет, не наступил ли игрок на ШЛЮЗОВУЮ ЗОНУ, и выполняет переход."""

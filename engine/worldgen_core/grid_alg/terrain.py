@@ -4,6 +4,8 @@ from __future__ import annotations
 from typing import Any, List
 import math
 
+from opensimplex import OpenSimplex
+
 from .features import fbm2d
 from ..base.constants import KIND_OBSTACLE, KIND_WATER, KIND_GROUND
 
@@ -52,33 +54,31 @@ def _quantize_heights(grid: List[List[float]], step: float):
 def generate_elevation(seed: int, cx: int, cz: int, size: int, preset: Any) -> List[List[float]]:
     """Создает продвинутую карту высот для всего чанка, используя пресет."""
 
-    # --- Шаг 1: Получаем настройки из пресета ---
+    # ---> ИЗМЕНЕНИЕ 1: Создаем ЕДИНЫЙ экземпляр OpenSimplex для этого чанка <---
+    noise_gen = OpenSimplex(seed)
+
     cfg = getattr(preset, "elevation", {})
     is_enabled = cfg.get("enabled", False)
 
     if not is_enabled:
-        # ... (старая логика без изменений) ...
         grid = [[0.0 for _ in range(size)] for _ in range(size)]
         freq = 1.0 / 32.0
         for z in range(size):
             for x in range(size):
                 wx, wz = cx * size + x, cz * size + z
-                grid[z][x] = fbm2d(seed, float(wx), float(wz), freq, octaves=4, gain=0.5)
+                # ---> ИЗМЕНЕНИЕ 2: Передаем noise_gen в fbm2d <---
+                grid[z][x] = fbm2d(noise_gen, float(wx), float(wz), freq, octaves=4, gain=0.5)
         return grid
 
-    # --- Шаг 2: Генерация базового шума ---
     grid = [[0.0 for _ in range(size)] for _ in range(size)]
     freq = 1.0 / 32.0
     for z in range(size):
         for x in range(size):
             wx, wz = cx * size + x, cz * size + z
-            noise_val = fbm2d(seed, float(wx), float(wz), freq, octaves=4, gain=0.5)
-
-            # <<< ВОТ РЕШЕНИЕ: Принудительно ограничиваем значение в диапазоне [0, 1] >>>
+            # ---> ИЗМЕНЕНИЕ 2 (повтор): Передаем noise_gen в fbm2d <---
+            noise_val = fbm2d(noise_gen, float(wx), float(wz), freq, octaves=4, gain=0.5)
             grid[z][x] = max(0.0, min(1.0, noise_val))
 
-    # --- Шаг 3: Последовательная обработка ---
-    # (остальной код функции без изменений)
     _apply_shaping_curve(grid, float(cfg.get("shaping_power", 1.0)))
 
     max_h = float(cfg.get("max_height_m", 50.0))
@@ -90,6 +90,7 @@ def generate_elevation(seed: int, cx: int, cz: int, size: int, preset: Any) -> L
     _quantize_heights(grid, float(cfg.get("quantization_step_m", 0.0)))
 
     return grid
+
 
 def classify_terrain(
         elevation_grid: List[List[float]],

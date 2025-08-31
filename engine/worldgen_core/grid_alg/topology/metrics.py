@@ -2,6 +2,8 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 
+from opensimplex import OpenSimplex
+
 from engine.worldgen_core.grid_alg.features import fbm2d
 from engine.worldgen_core.utils.rle import encode_rle_rows, encode_rle_line
 
@@ -55,8 +57,9 @@ def _prepare_sampler_configs(obs_cfg: Dict[str, Any], wat_cfg: Dict[str, Any]) -
 
 
 def _sample_terrain_kind(
+        obs_noise: OpenSimplex,  # <--- ИЗМЕНЕНИЕ: принимаем готовые объекты
+        wat_noise: OpenSimplex,  # <--- ИЗМЕНЕНИЕ: принимаем готовые объекты
         wx: int, wz: int,
-        stage_seeds: Dict[str, int],
         obs_params: Tuple[float, float, int],
         wat_params: Tuple[float, float, int]
 ) -> int:
@@ -64,12 +67,12 @@ def _sample_terrain_kind(
     od, ofreq, ooct = obs_params
     wd, wfreq, woct = wat_params
 
-    n_obs = fbm2d(stage_seeds["obstacles"], float(wx), float(wz), ofreq, octaves=ooct)
-    n_w = fbm2d(stage_seeds["water"], float(wx), float(wz), wfreq, octaves=woct)
+    # ---> ИЗМЕНЕНИЕ: Вызываем fbm2d с готовыми noise-объектами <---
+    n_obs = fbm2d(obs_noise, float(wx), float(wz), ofreq, octaves=ooct)
+    n_w = fbm2d(wat_noise, float(wx), float(wz), wfreq, octaves=woct)
 
     if n_w < wd: return 2
     return 1 if n_obs < od else 0
-
 
 def _generate_for_side(
         side: str,
@@ -111,8 +114,13 @@ def compute_hint_and_halo(
     """Рассчитывает hint и halo, вызывая универсальный генератор для каждой стороны."""
     obs_params, wat_params = _prepare_sampler_configs(obs_cfg, wat_cfg)
 
+    # ---> ИЗМЕНЕНИЕ: Создаем изолированные объекты шума ЗДЕСЬ <---
+    obs_noise = OpenSimplex(stage_seeds["obstacles"])
+    wat_noise = OpenSimplex(stage_seeds["water"])
+
     def sampler(wx: int, wz: int) -> int:
-        return _sample_terrain_kind(wx, wz, stage_seeds, obs_params, wat_params)
+        # Передаем созданные объекты в сэмплер
+        return _sample_terrain_kind(obs_noise, wat_noise, wx, wz, obs_params, wat_params)
 
     hint: Dict[str, Any] = {}
     halo: Dict[str, Any] = {}
@@ -143,8 +151,13 @@ def sample_neighbor_border(
     """ "Сканирует" границу соседнего чанка, не генерируя его целиком."""
     obs_params, wat_params = _prepare_sampler_configs(obs_cfg, wat_cfg)
 
+    # ---> ИЗМЕНЕНИЕ 1: Создаем изолированные объекты шума здесь <---
+    obs_noise = OpenSimplex(stage_seeds["obstacles"])
+    wat_noise = OpenSimplex(stage_seeds["water"])
+
     def sampler(wx: int, wz: int) -> int:
-        return _sample_terrain_kind(wx, wz, stage_seeds, obs_params, wat_params)
+        # ---> ИЗМЕНЕНИЕ 2: Передаем в сэмплер правильные аргументы <---
+        return _sample_terrain_kind(obs_noise, wat_noise, wx, wz, obs_params, wat_params)
 
     border_tiles: List[int] = []
     if side == "N":
