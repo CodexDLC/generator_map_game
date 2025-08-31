@@ -29,14 +29,20 @@ class BaseGenerator(IGenerator):
         cx = int(params.get("cx", 0))
         cz = int(params.get("cz", 0))
         size = int(getattr(self.preset, "size", 128))
-        t0 = time.perf_counter()
 
-        # --- ЭТАП 1: Генерация "сырого" ландшафта ---
+        # --- Инициализация метрик времени ---
+        gen_timings_ms = {}
+        t_start = time.perf_counter()
+
+        # --- ЭТАП 1: Генерация "сырого" ландшафта (elevation) ---
         stage_seeds = init_rng(seed, cx, cz)
         layers = make_empty_layers(size)
         elevation_grid = generate_elevation(stage_seeds["elevation"], cx, cz, size, self.preset)
         classify_terrain(elevation_grid, layers["kind"], self.preset)
         layers["height_q"]["grid"] = elevation_grid
+
+        t_elevation_end = time.perf_counter()
+        gen_timings_ms['elevation'] = (t_elevation_end - t_start) * 1000
 
         # --- Создаем объект результата ПОСЛЕ генерации ландшафта ---
         result = GenResult(
@@ -44,18 +50,23 @@ class BaseGenerator(IGenerator):
             seed=seed, cx=cx, cz=cz, size=size, cell_size=1.0,
             layers=layers, stage_seeds=stage_seeds
         )
+        # Сразу добавляем тайминги в метрики
+        result.metrics["gen_timings_ms"] = gen_timings_ms
 
-        # --- ЭТАП 2: Создание структуры для связного мира ---
-        # <<< УДАЛЕНО: apply_border_ring(result.layers["kind"], 2) >>>
+        # --- ЭТАП 2: Создание структуры для связного мира (connectivity) ---
+        t_connectivity_start = time.perf_counter()
         ports = self._place_ports(result, params)
         result.ports = ports
         self._add_edge_meta(result)
+
+        t_connectivity_end = time.perf_counter()
+        result.metrics["gen_timings_ms"]['connectivity'] = (t_connectivity_end - t_connectivity_start) * 1000
 
         # --- ЭТАП 3: Финальный расчет метрик ---
         metrics: Dict[str, Any] = compute_metrics(layers["kind"])
         distance = math.sqrt(cx ** 2 + cz ** 2)
         metrics["difficulty"] = {"value": distance / 10.0, "dist": distance}
-        metrics["gen_ms"] = int((time.perf_counter() - t0) * 1000)
+        # Старая метрика gen_ms больше не нужна, так как есть детализация
         result.metrics = {**metrics, **result.metrics}
 
         return result
@@ -77,7 +88,6 @@ class BaseGenerator(IGenerator):
         for side, arr in ports.items():
             if arr:
                 idx = arr[0]
-                # <<< УДАЛЕНО: carve_port_window(kind, side, idx, 2, 3) >>>
                 # Точка для старта пути теперь прямо на границе чанка
                 inner_points.append(inner_point_for_side(side, idx, size, 0))
 
@@ -85,7 +95,6 @@ class BaseGenerator(IGenerator):
             paths = find_path_network(kind, height_grid, inner_points)
             ensure_connectivity(kind, height_grid, inner_points, paths)
 
-            # <<< ВОТ РЕШЕНИЕ: Вызываем отрисовку дорог >>>
             apply_paths_to_grid(kind, paths)
 
             result.layers["roads"] = paths
@@ -93,7 +102,6 @@ class BaseGenerator(IGenerator):
         return ports
 
     def _add_edge_meta(self, result: GenResult):
-        # (Этот метод без изменений)
         obs_cfg = getattr(self.preset, "obstacles", {})
         wat_cfg = getattr(self.preset, "water", {})
         hint, halo = compute_hint_and_halo(result.stage_seeds, result.cx, result.cz, result.size, obs_cfg, wat_cfg, 2)

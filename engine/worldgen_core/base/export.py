@@ -1,7 +1,7 @@
 # engine/worldgen_core/base/export.py
 from __future__ import annotations
 import json
-
+import os
 from typing import Any, Dict, List, Tuple, Union
 from pathlib import Path
 
@@ -10,73 +10,56 @@ from ..utils.rle import encode_rle_rows, decode_rle_rows
 
 try:
     from PIL import Image
+
     PIL_OK = True
 except ImportError:
     PIL_OK = False
 
 PREVIEW_TILE_PX = 2
 
-# --------- main IO: chunk / meta / preview ---------
+
+def _atomic_write_json(path: str, data: Dict[str, Any]):
+    """Атомарная запись JSON через временный файл."""
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.rename(tmp_path, path)
+
 
 def write_chunk_rle_json(path: str,
                          kind_payload: Union[Dict[str, Any], List[List[Any]]],
                          size: int, seed: int, cx: int, cz: int) -> None:
-    """
-    Записывает chunk.rle.json.
-    kind_payload может быть:
-      - уже RLE: {"encoding":"rle_rows_v1","rows":[...]}
-      - сырым гридом size×size (строки "ground"/"obstacle"/"water" или id).
-    """
-    # нормализуем в RLE
+    """Записывает chunk.rle.json атомарно."""
     if isinstance(kind_payload, dict) and kind_payload.get("encoding") == "rle_rows_v1":
         payload = kind_payload
     else:
-        # считаем, что это сырая решётка
         if not isinstance(kind_payload, list):
             raise TypeError("kind_payload must be RLE dict or 2D list grid")
         payload = encode_rle_rows(kind_payload)
 
-    chunk = {
-        "encoding": "rle_rows_v1",
-        "rows": payload.get("rows", []),
-        "w": int(size),
-        "h": int(size),
-        "cx": int(cx),
-        "cz": int(cz),
+    chunk_data = {
+        "encoding": "rle_rows_v1", "rows": payload.get("rows", []),
+        "w": int(size), "h": int(size), "cx": int(cx), "cz": int(cz),
     }
-
     doc = {
-        "version": "1.0",
-        "type": "chunk",
-        "seed": int(seed),
-        "size": int(size),
-        "chunk_size": int(size),
-        "chunks": [chunk],
+        "version": "1.0", "type": "chunk", "seed": int(seed),
+        "size": int(size), "chunk_size": int(size), "chunks": [chunk_data],
     }
-
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(doc, f, ensure_ascii=False, indent=2)
-
-
+    _atomic_write_json(path, doc)
 
 
 def write_chunk_meta_json(path: str, meta: Dict[str, Any]) -> None:
-    # ... (код этой функции без изменений) ...
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(meta, f, ensure_ascii=False, indent=2)
+    """Записывает chunk.meta.json атомарно."""
+    _atomic_write_json(path, meta)
+
 
 def write_preview_png(path: str,
                       kind_payload: Union[Dict[str, Any], List[List[Any]]],
                       palette: Dict[str, str],
-                      ports: Dict[str, List[int]] | Dict[str, Any] | None = None) -> None:
-    """
-    Рисуем превью PNG.
-    """
-    print(f"--- EXPORT: Попытка записи превью в: {path}")
+                      ports: Dict[str, Any] | None = None) -> None:
+    """Рисуем и сохраняем превью PNG атомарно."""
     if not PIL_OK:
-        print("!!! LOG: Библиотека Pillow не найдена, генерация превью пропущена.")
         return
 
     try:
@@ -88,23 +71,17 @@ def write_preview_png(path: str,
         h = len(grid)
         w = len(grid[0]) if h else 0
         if w == 0 or h == 0:
-            print("--- EXPORT: Предупреждение: пустая сетка для превью.")
             return
 
-        ID2NAME = {0: "ground", 1: "obstacle", 2: "water", 3: "border", 4: "road"}
-
-        # <<< ЗАМЕНЕН БЛОК to_rgb >>>
         def hex_to_rgb(s: str) -> Tuple[int, int, int]:
             s = s.lstrip("#")
-            if len(s) == 3: s = "".join(c*2 for c in s)
-            if len(s) != 6: return 0,0,0
+            if len(s) == 3: s = "".join(c * 2 for c in s)
+            if len(s) != 6: return 0, 0, 0
             return int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16)
 
         def to_rgb(v: Any) -> Tuple[int, int, int]:
-            # Теперь логика едина: если это строка - берем ее, если число - ищем в ID_TO_KIND
             name = v if isinstance(v, str) else ID_TO_KIND.get(int(v), "ground")
             return hex_to_rgb(palette.get(name, "#000000"))
-        # <<< КОНЕЦ ЗАМЕНЕННОГО БЛОКА >>>
 
         img = Image.new("RGB", (w * PREVIEW_TILE_PX, h * PREVIEW_TILE_PX))
         px = img.load()
@@ -116,8 +93,11 @@ def write_preview_png(path: str,
                     for dy in range(PREVIEW_TILE_PX):
                         px[x * PREVIEW_TILE_PX + dx, z * PREVIEW_TILE_PX + dy] = color
 
+        # Атомарное сохранение изображения
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        img.save(path, format="PNG")
+        tmp_path = path + ".tmp"
+        img.save(tmp_path, format="PNG")
+        os.rename(tmp_path, path)
         print(f"--- EXPORT: Превью успешно сохранено: {path}")
 
     except Exception as e:
