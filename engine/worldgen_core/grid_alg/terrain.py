@@ -56,8 +56,8 @@ def generate_elevation(seed: int, cx: int, cz: int, size: int, preset: Any) -> L
     cfg = getattr(preset, "elevation", {})
     is_enabled = cfg.get("enabled", False)
 
-    # Если в пресете нет настроек, работаем по-старому
     if not is_enabled:
+        # ... (старая логика без изменений) ...
         grid = [[0.0 for _ in range(size)] for _ in range(size)]
         freq = 1.0 / 32.0
         for z in range(size):
@@ -68,30 +68,28 @@ def generate_elevation(seed: int, cx: int, cz: int, size: int, preset: Any) -> L
 
     # --- Шаг 2: Генерация базового шума ---
     grid = [[0.0 for _ in range(size)] for _ in range(size)]
-    freq = 1.0 / 32.0  # Масштаб холмов (можно тоже вынести в пресет)
+    freq = 1.0 / 32.0
     for z in range(size):
         for x in range(size):
             wx, wz = cx * size + x, cz * size + z
-            grid[z][x] = fbm2d(seed, float(wx), float(wz), freq, octaves=4, gain=0.5)
+            noise_val = fbm2d(seed, float(wx), float(wz), freq, octaves=4, gain=0.5)
+
+            # <<< ВОТ РЕШЕНИЕ: Принудительно ограничиваем значение в диапазоне [0, 1] >>>
+            grid[z][x] = max(0.0, min(1.0, noise_val))
 
     # --- Шаг 3: Последовательная обработка ---
-    # Применяем кривую для изменения "характера" мира
+    # (остальной код функции без изменений)
     _apply_shaping_curve(grid, float(cfg.get("shaping_power", 1.0)))
 
-    # Масштабируем до реальных метров
     max_h = float(cfg.get("max_height_m", 50.0))
     for z in range(size):
         for x in range(size):
             grid[z][x] *= max_h
 
-    # Сглаживаем, чтобы убрать "иголки"
     _smooth_grid(grid, int(cfg.get("smoothing_passes", 0)))
-
-    # Квантуем для создания плато и террас
     _quantize_heights(grid, float(cfg.get("quantization_step_m", 0.0)))
 
     return grid
-
 
 def classify_terrain(
         elevation_grid: List[List[float]],

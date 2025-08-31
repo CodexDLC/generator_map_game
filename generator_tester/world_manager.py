@@ -6,8 +6,10 @@ from typing import Dict, Tuple, Any, List
 
 from engine.worldgen_core.base.preset import Preset
 from engine.worldgen_core.world.world_generator import WorldGenerator
-from engine.worldgen_core.base.export import write_chunk_rle_json, write_chunk_meta_json, write_preview_png
-from generator_tester.config import PRESET_PATH, ARTIFACTS_ROOT, CHUNK_SIZE
+from engine.worldgen_core.base.export import write_preview_png, write_chunk_rle_json
+from engine.worldgen_core.utils.rle import decode_rle_rows
+from engine.worldgen_core.base.constants import ID_TO_KIND, DEFAULT_PALETTE, KIND_GROUND
+from .config import CHUNK_SIZE, PRESET_PATH, ARTIFACTS_ROOT
 
 
 class WorldManager:
@@ -15,13 +17,15 @@ class WorldManager:
         self.city_seed = city_seed
         self.preset = self._load_preset()
         self.generator = WorldGenerator(self.preset)
-        self.cache: Dict[Tuple, Dict] = {}  # Кэш чанков в памяти
+        self.cache: Dict[Tuple, Dict | None] = {}
+        self.preload_radius = 2
 
-        # Текущее состояние
         self.world_id = "city"
         self.current_seed = city_seed
-        self.cx = 0
-        self.cz = 0
+        self.player_chunk_cx = 0
+        self.player_chunk_cz = 0
+
+        # <<< УДАЛЕНО: self.city_gateways больше не нужно >>>
 
     def _load_preset(self) -> Preset:
         with open(PRESET_PATH, "r", encoding="utf-8") as f:
@@ -39,77 +43,131 @@ class WorldManager:
         h.update(side.encode("utf-8"))
         return int.from_bytes(h.digest(), "little", signed=False)
 
-    def get_chunk(self, cx: int, cz: int) -> Dict:
-        """Главный метод: получает чанк из кэша, с диска или генерирует новый."""
+    def preload_chunks_around(self, center_cx: int, center_cz: int):
+        print(f"--- Preloading grid around ({center_cx}, {center_cz}) ---")
+        for dz in range(-self.preload_radius, self.preload_radius + 1):
+            for dx in range(-self.preload_radius, self.preload_radius + 1):
+                self.get_chunk_data(center_cx + dx, center_cz + dz)
+
+    def get_tile_at(self, wx: int, wz: int) -> Dict:
+        """Возвращает информацию о тайле, включая, является ли он частью шлюза."""
+        cx, cz = wx // CHUNK_SIZE, wz // CHUNK_SIZE
+        lx, lz = wx % CHUNK_SIZE, wz % CHUNK_SIZE
+
+        chunk_data = self.get_chunk_data(cx, cz)
+        if not chunk_data or not chunk_data.get("kind"):
+            return {"kind": "void"}
+
+        kind_grid = chunk_data["kind"]
+        kind = kind_grid[lz][lx] if (0 <= lz < len(kind_grid) and 0 <= lx < len(kind_grid[0])) else "void"
+
+        tile_info = {"kind": kind}
+
+        # <<< НОВАЯ ЛОГИКА: Определяем, является ли тайл шлюзом "на лету" >>>
+        if self.world_id == "city" and cx == 0 and cz == 0 and kind == KIND_GROUND:
+            is_border = lx == 0 or lx == CHUNK_SIZE - 1 or lz == 0 or lz == CHUNK_SIZE - 1
+            if is_border:
+                tile_info["is_gateway"] = True
+
+        return tile_info
+
+    def get_chunk_data(self, cx: int, cz: int) -> Dict | None:
         key = (self.world_id, self.current_seed, cx, cz)
         if key in self.cache:
             return self.cache[key]
 
-        # Особый случай для центра города
-        if self.world_id == "city" and cx == 0 and cz == 0:
-            chunk_data = self._load_static_city()
-            self.cache[key] = chunk_data
-            return chunk_data
+        raw_data = self._load_or_generate_chunk(cx, cz)
+        if not raw_data:
+            self.cache[key] = None
+            return None
+
+        kind_payload = raw_data.get("layers", {}).get("kind", {})
+        grid_ids = decode_rle_rows(kind_payload.get("rows", []))
+        kind_grid = [[ID_TO_KIND.get(v, "ground") for v in row] for row in grid_ids]
+
+        height_grid = raw_data.get("layers", {}).get("height_q", {}).get("grid", [])
+
+        decoded_chunk = {"kind": kind_grid, "height": height_grid}
+        self.cache[key] = decoded_chunk
+        return decoded_chunk
+
+    def _load_or_generate_chunk(self, cx: int, cz: int) -> Dict | None:
+        if self.world_id == "city":
+            if cx == 0 and cz == 0:
+                city_path = pathlib.Path(ARTIFACTS_ROOT, "world", "city", "static", "0_0", "chunk.rle.json")
+                if not city_path.exists(): return None
+                with open(city_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                return {"layers": {"kind": data}}
+            else:
+                return None
 
         chunk_path = self._get_chunk_path(self.world_id, self.current_seed, cx, cz)
 
-        # Попытка загрузить с диска
         if (chunk_path / "chunk.rle.json").exists():
-            with open(chunk_path / "chunk.rle.json", "r", encoding="utf-8") as f:
-                chunk_data = json.load(f)
-            self.cache[key] = chunk_data
-            return chunk_data
+            with open(chunk_path / "chunk.rle.json", "r", encoding="utf-8") as f: data = json.load(f)
+            return {"layers": {"kind": data}}
 
-        # Генерация нового чанка
-        print(f"Генерация нового чанка: {key}")
+        print(f"Generating new chunk: {(self.world_id, self.current_seed, cx, cz)}")
         gen_params = {"seed": self.current_seed, "cx": cx, "cz": cz, "world_id": self.world_id}
         result = self.generator.generate(gen_params)
 
-        # Сохранение на диск
         chunk_path.mkdir(parents=True, exist_ok=True)
         write_chunk_rle_json(str(chunk_path / "chunk.rle.json"), result.layers["kind"], result.size, result.seed, cx,
                              cz)
-        # ... (можно добавить сохранение meta и preview) ...
+        write_preview_png(str(chunk_path / "preview.png"), result.layers["kind"], self.preset.export["palette"])
 
-        # Конвертируем для использования
-        chunk_data = {"layers": result.layers, "ports": result.ports}
-        self.cache[key] = chunk_data
-        return chunk_data
+        return result.layers
 
-    def move(self, dx: int, dz: int) -> bool:
-        """Пытается переместиться в соседний чанк."""
-        # Упрощенная логика перехода для тестера
-        if self.world_id == "city" and self.cx == 0 and self.cz == 0 and dx == 1:  # Выход из города на восток
-            self.world_id = "branch/E"
-            self.current_seed = self._branch_seed("E")
+    def check_and_trigger_transition(self, wx: int, wz: int) -> Tuple[int, int] | None:
+        """Проверяет, не наступил ли игрок на ШЛЮЗОВУЮ ЗОНУ, и выполняет переход."""
+        if self.world_id != "city":
+            return None
 
-        self.cx += dx
-        self.cz += dz
-        return True  # В тестере всегда разрешаем переход
+        cx, cz = wx // CHUNK_SIZE, wz // CHUNK_SIZE
+        lx, lz = wx % CHUNK_SIZE, wz % CHUNK_SIZE
 
-    def get_current_chunk_data(self) -> Tuple[List[List[str]], List[List[float]]]:
-        """Возвращает данные о текущем чанке (kind и height)."""
-        data = self.get_chunk(self.cx, self.cz)
+        if cx != 0 or cz != 0:
+            return None
 
-        # Раскодируем RLE, если нужно
-        kind_payload = data.get("layers", {}).get("kind", {})
-        if isinstance(kind_payload, dict):
-            rows = kind_payload.get("rows", [])
-            grid_ids = [val for r in rows for val, run in r for _ in range(run)]  # Упрощенное декодирование
-            # Эта часть требует более надежного декодера
-            # ВРЕМЕННАЯ ЗАГЛУШКА
-            n = CHUNK_SIZE
-            grid_names = [["ground"] * n for _ in range(n)]
+        # <<< НОВАЯ ЛОГИКА: Определяем сторону и проверяем, что это земля >>>
+        side = None
+        if lx == CHUNK_SIZE - 1:
+            side = "E"
+        elif lx == 0:
+            side = "W"
+        elif lz == CHUNK_SIZE - 1:
+            side = "S"
+        elif lz == 0:
+            side = "N"
 
-        else:  # Если уже раскодировано
-            grid_names = kind_payload
+        if side:
+            chunk_data = self.get_chunk_data(0, 0)
+            is_walkable_ground = chunk_data and chunk_data["kind"][lz][lx] == KIND_GROUND
 
-        height_grid = data.get("layers", {}).get("height_q", {}).get("grid", [])
-        return grid_names, height_grid
+            if is_walkable_ground:
+                print(f"--- Entering Gateway to Branch: {side} ---")
 
-    def _load_static_city(self) -> Dict:
-        """Загружает статичный чанк города."""
-        city_path = pathlib.Path(ARTIFACTS_ROOT, "world", "city", "static", "0_0", "chunk.rle.json")
-        with open(city_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return {"layers": {"kind": data}}  # Упрощенная структура
+                self.world_id = f"branch/{side}"
+                self.current_seed = self._branch_seed(side)
+                self.cache.clear()
+
+                if side == "N":
+                    new_cx, new_cz = 0, -1
+                elif side == "S":
+                    new_cx, new_cz = 0, 1
+                elif side == "W":
+                    new_cx, new_cz = -1, 0
+                else:
+                    new_cx, new_cz = 1, 0
+
+                self.player_chunk_cx = new_cx
+                self.player_chunk_cz = new_cz
+
+                # Возвращаем новые мировые координаты для игрока
+                # Помещаем игрока на противоположную сторону нового чанка
+                new_wx = new_cx * CHUNK_SIZE + (CHUNK_SIZE - 1 - lx)
+                new_wz = new_cz * CHUNK_SIZE + (CHUNK_SIZE - 1 - lz)
+                return (new_wx, new_wz)
+
+        return None
