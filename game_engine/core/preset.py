@@ -3,7 +3,9 @@
 from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, Mapping
-from engine.worldgen_core.base.constants import KIND_VALUES, DEFAULT_PALETTE
+
+from game_engine.core.constants import KIND_VALUES, DEFAULT_PALETTE
+
 
 
 @dataclass(frozen=True)

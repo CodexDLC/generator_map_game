@@ -6,8 +6,7 @@ import math
 from opensimplex import OpenSimplex
 
 from .features import fbm2d
-from ..base.constants import KIND_OBSTACLE, KIND_WATER, KIND_GROUND, KIND_SLOPE
-
+from game_engine.core.constants import KIND_GROUND, KIND_OBSTACLE, KIND_WATER, KIND_SLOPE
 
 # --- Вспомогательные функции (без изменений) ---
 

@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import List
 
 from opensimplex import OpenSimplex
-from ..base.rng import RNG, hash64
+
+from game_engine.core.utils.rng import hash64, RNG
 
 
 # --------------------------- мировые шумы (без изменений) ---------------------------

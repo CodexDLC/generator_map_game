@@ -7,7 +7,7 @@ Coord = Tuple[int, int]
 
 # Пытаемся брать типы террейна из движка; если модуль недоступен — используем fallback.
 try:
-    from engine.worldgen_core.base.constants import (
+    from game_engine.core.constants import (
         KIND_GROUND, KIND_OBSTACLE, KIND_WATER, KIND_ROAD, KIND_VOID, KIND_SLOPE
     )
 except Exception:
