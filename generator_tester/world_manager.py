@@ -1,3 +1,5 @@
+# generator_tester/world_manager.py
+# ... (импорты и большая часть класса без изменений) ...
 import hashlib
 import json
 import pathlib
@@ -8,8 +10,9 @@ from engine.worldgen_core.base.preset import Preset
 from engine.worldgen_core.world.world_generator import WorldGenerator
 from engine.worldgen_core.base.export import write_preview_png, write_chunk_rle_json, write_chunk_meta_json
 from engine.worldgen_core.utils.rle import decode_rle_rows
-from engine.worldgen_core.base.constants import ID_TO_KIND, KIND_GROUND
+from engine.worldgen_core.base.constants import ID_TO_KIND, KIND_GROUND, DEFAULT_PALETTE
 from .config import CHUNK_SIZE, PRESET_PATH, ARTIFACTS_ROOT
+from game_logic.transition_manager import WorldTransitionManager
 
 
 class WorldManager:
@@ -24,6 +27,51 @@ class WorldManager:
         self.current_seed = city_seed
         self.player_chunk_cx = 0
         self.player_chunk_cz = 0
+
+        self.transition_manager = WorldTransitionManager(self)
+
+    def get_chunk_data(self, cx: int, cz: int) -> Dict | None:
+        key = (self.world_id, self.current_seed, cx, cz)
+        if key in self.cache:
+            return self.cache[key]
+
+        # --- Определяем путь к RLE-файлу ---
+        if self.world_id == "city":
+            if cx != 0 or cz != 0:
+                return None
+
+            rle_path = ARTIFACTS_ROOT / "world" / "city" / "static" / "0_0" / "chunk.rle.json"
+        else:
+            chunk_path = self._get_chunk_path(self.world_id, self.current_seed, cx, cz)
+            rle_path = chunk_path / "chunk.rle.json"
+
+        if not rle_path.exists():
+            return None
+
+        try:
+            with open(rle_path, "r", encoding="utf-8") as f:
+                doc = json.load(f)
+
+            # Гибкая распаковка
+            if "layers" in doc:
+                layers = doc["layers"]
+                kind_grid = decode_rle_rows(layers.get("kind", {}).get("rows", []))
+                height_grid = decode_rle_rows(layers.get("height_q", {}).get("rows", []))
+            else:
+                # старый/особый формат города
+                kind_grid = decode_rle_rows(doc.get("rows", []))
+                height_grid = [[0] * len(kind_grid[0]) for _ in range(len(kind_grid))] if kind_grid else []
+
+            # Если пришли числа — маппим в строки
+            if kind_grid and kind_grid[0] and isinstance(kind_grid[0][0], int):
+                kind_grid = [[ID_TO_KIND.get(v, "ground") for v in row] for row in kind_grid]
+
+            decoded = {"kind": kind_grid, "height": height_grid}
+            self.cache[key] = decoded
+            return decoded
+
+        except Exception as e:
+            return None
 
     def _load_preset(self) -> Preset:
         with open(PRESET_PATH, "r", encoding="utf-8") as f:
@@ -53,43 +101,6 @@ class WorldManager:
         if "z_max" in dom and cz > int(dom["z_max"]): return False
         return True
 
-    def get_chunk_data(self, cx: int, cz: int) -> Dict | None:
-        key = (self.world_id, self.current_seed, cx, cz)
-        if key in self.cache:
-            return self.cache[key]
-
-        # Определяем путь к файлу
-        if self.world_id == "city" and cx == 0 and cz == 0:
-            rle_path = ARTIFACTS_ROOT / "world" / "city" / "static" / "0_0" / "chunk.rle.json"
-        else:
-            chunk_path = self._get_chunk_path(self.world_id, self.current_seed, cx, cz)
-            rle_path = chunk_path / "chunk.rle.json"
-
-        # --- ИСПРАВЛЕНИЕ ЛОГИКИ КЭШИРОВАНИЯ ---
-        # Если файла нет, просто возвращаем None, НЕ КЭШИРУЯ результат
-        if not rle_path.exists():
-            return None
-
-        # Если файл есть, загружаем, обрабатываем и ТОЛЬКО ТОГДА кэшируем
-        try:
-            with open(rle_path, "r", encoding="utf-8") as f:
-                rle_data = json.load(f)
-
-            raw_data = {"layers": {"kind": rle_data}}
-            kind_payload = raw_data.get("layers", {}).get("kind", {})
-
-            grid_ids = decode_rle_rows(kind_payload.get("rows", []))
-            kind_grid = [[ID_TO_KIND.get(v, "ground") for v in row] for row in grid_ids]
-
-            height_grid = []  # Высоты пока не загружаем для простоты
-
-            decoded_chunk = {"kind": kind_grid, "height": height_grid}
-            self.cache[key] = decoded_chunk  # <-- Кэшируем только УСПЕШНЫЙ результат
-            return decoded_chunk
-        except json.JSONDecodeError:
-            print(f"Warning: Could not decode JSON for chunk at {cx}, {cz}. File might be incomplete.")
-            return None  # Не кэшируем, если файл битый или недописан
-
     def get_chunks_for_preloading(self, center_cx: int, center_cz: int) -> list:
         tasks = []
         domain = {}
@@ -109,8 +120,8 @@ class WorldManager:
                     tasks.append((self.world_id, self.current_seed, cx, cz))
         return tasks
 
+    # <<< =============== ИСПРАВЛЕНИЕ ОШИБКИ ВОРКЕРА =============== >>>
     def _load_or_generate_chunk(self, cx: int, cz: int):
-        """Метод для ВОРКЕРА. Генерирует чанк и сохраняет его."""
         chunk_path = self._get_chunk_path(self.world_id, self.current_seed, cx, cz)
         if (chunk_path / "chunk.rle.json").exists():
             return
@@ -124,8 +135,13 @@ class WorldManager:
         rle_path = str(chunk_path / "chunk.rle.json")
         preview_path = str(chunk_path / "preview.png")
 
-        write_chunk_rle_json(rle_path, result.layers["kind"], result.size, result.seed, cx, cz)
-        write_preview_png(preview_path, result.layers["kind"], self.preset.export["palette"])
+
+        write_chunk_rle_json(str(chunk_path / "chunk.rle.json"),
+                             result.layers, result.size, result.seed, cx, cz)
+
+        palette = dict(DEFAULT_PALETTE)
+        palette.update(self.preset.export.get("palette", {}))
+        write_preview_png(str(chunk_path / "preview.png"), result.layers["kind"], palette)
 
         export_duration = (time.perf_counter() - t_export_start) * 1000
         total_duration = (time.perf_counter() - t_total_start) * 1000
@@ -151,41 +167,3 @@ class WorldManager:
             f"------------------------------------\n"
             f"  - TOTAL          : {timings.get('total', 0):8.2f} ms"
         )
-
-    def check_and_trigger_transition(self, wx: int, wz: int) -> Tuple[int, int] | None:
-        if self.world_id != "city":
-            return None
-
-        lx, lz = wx % CHUNK_SIZE, wz % CHUNK_SIZE
-        side = None
-
-        if wx == CHUNK_SIZE - 1 and (0 <= wz < CHUNK_SIZE):
-            side = "E"
-        elif wx == 0 and (0 <= wz < CHUNK_SIZE):
-            side = "W"
-        elif wz == CHUNK_SIZE - 1 and (0 <= wx < CHUNK_SIZE):
-            side = "S"
-        elif wz == 0 and (0 <= wx < CHUNK_SIZE):
-            side = "N"
-
-        if side:
-            chunk_data = self.get_chunk_data(0, 0)
-            if chunk_data and chunk_data["kind"][lz][lx] == KIND_GROUND:
-                print(f"--- Entering Gateway to Branch: {side} ---")
-                self.world_id = f"branch/{side}"
-                self.current_seed = self._branch_seed(side)
-                self.cache.clear()
-                if side == "N":
-                    new_cx, new_cz = 0, -1
-                elif side == "S":
-                    new_cx, new_cz = 0, 1
-                elif side == "W":
-                    new_cx, new_cz = -1, 0
-                else:
-                    new_cx, new_cz = 1, 0
-                self.player_chunk_cx = new_cx
-                self.player_chunk_cz = new_cz
-                new_wx = new_cx * CHUNK_SIZE + (CHUNK_SIZE - 1 - lx)
-                new_wz = new_cz * CHUNK_SIZE + (CHUNK_SIZE - 1 - lz)
-                return (new_wx, new_wz)
-        return None

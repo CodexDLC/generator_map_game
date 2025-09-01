@@ -19,7 +19,6 @@ PREVIEW_TILE_PX = 2
 
 
 def _atomic_write_json(path: str, data: Dict[str, Any]):
-    """Атомарная запись JSON через временный файл."""
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path + ".tmp"
     with open(tmp_path, "w", encoding="utf-8") as f:
@@ -27,24 +26,31 @@ def _atomic_write_json(path: str, data: Dict[str, Any]):
     os.rename(tmp_path, path)
 
 
+# <<< КЛЮЧЕВЫЕ ИЗМЕНЕНИЯ ЗДЕСЬ: Функция теперь принимает и сохраняет ОБА слоя >>>
 def write_chunk_rle_json(path: str,
-                         kind_payload: Union[Dict[str, Any], List[List[Any]]],
+                         layers: Dict[str, Any],  # Принимаем весь словарь layers
                          size: int, seed: int, cx: int, cz: int) -> None:
-    """Записывает chunk.rle.json атомарно."""
-    if isinstance(kind_payload, dict) and kind_payload.get("encoding") == "rle_rows_v1":
-        payload = kind_payload
-    else:
-        if not isinstance(kind_payload, list):
-            raise TypeError("kind_payload must be RLE dict or 2D list grid")
-        payload = encode_rle_rows(kind_payload)
+    """Записывает chunk.rle.json, содержащий все необходимые слои (kind, height_q)."""
 
-    chunk_data = {
-        "encoding": "rle_rows_v1", "rows": payload.get("rows", []),
-        "w": int(size), "h": int(size), "cx": int(cx), "cz": int(cz),
-    }
+    # Кодируем слой 'kind'
+    kind_payload = layers.get("kind", [])
+    if isinstance(kind_payload, dict) and kind_payload.get("encoding") == "rle_rows_v1":
+        encoded_kind = kind_payload
+    else:
+        encoded_kind = encode_rle_rows(kind_payload)
+
+    # Кодируем слой 'height_q'
+    height_payload = layers.get("height_q", {}).get("grid", [])
+    encoded_height = encode_rle_rows(height_payload)
+
+    # Собираем финальный документ
     doc = {
-        "version": "1.0", "type": "chunk", "seed": int(seed),
-        "size": int(size), "chunk_size": int(size), "chunks": [chunk_data],
+        "version": "1.1", "type": "chunk_layers", "seed": int(seed),
+        "size": int(size), "cx": int(cx), "cz": int(cz),
+        "layers": {
+            "kind": encoded_kind,
+            "height_q": encoded_height,
+        }
     }
     _atomic_write_json(path, doc)
 
@@ -93,7 +99,6 @@ def write_preview_png(path: str,
                     for dy in range(PREVIEW_TILE_PX):
                         px[x * PREVIEW_TILE_PX + dx, z * PREVIEW_TILE_PX + dy] = color
 
-        # Атомарное сохранение изображения
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path + ".tmp"
         img.save(tmp_path, format="PNG")

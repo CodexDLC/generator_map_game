@@ -12,6 +12,8 @@ class Preset:
     size: int = 64
     cell_size: float = 1.0
 
+    start_gate: Dict[str, Any] = field(default_factory=dict)  # <<< ДОБАВЬ ЭТО
+
     # <<< НОВЫЙ БЛОК: Добавляем секцию elevation в сам класс >>>
     elevation: Dict[str, Any] = field(default_factory=lambda: {
         "enabled": True,
@@ -22,6 +24,16 @@ class Preset:
         "quantization_step_m": 1.0,
         "smoothing_passes": 1
     })
+
+    slope_obstacles: Dict[str, Any] = field(default_factory=lambda: {
+        "enabled": False,
+        "delta_h_threshold_m": 3.0,
+        "band_cells": 2,
+        "use_diagonals": False,
+        "ignore_water_edges": True,
+    })
+
+
     # <<< КОНЕЦ НОВОГО БЛОКА >>>
 
     obstacles: Dict[str, Any] = field(default_factory=lambda: {"density": 0.12, "min_blob": 8, "max_blob": 64})
@@ -59,7 +71,9 @@ class Preset:
         # <<< ИЗМЕНЕНО: Создаем объект, включая новую секцию elevation >>>
         obj = cls(
             id=merged["id"], size=int(merged["size"]), cell_size=float(merged["cell_size"]),
-            elevation=dict(merged["elevation"]),  # <-- Добавлено
+            elevation=dict(merged["elevation"]),
+            slope_obstacles=dict(merged.get("slope_obstacles", {})),
+            start_gate=dict(merged.get("start_gate", {})),  # <<< ДОБАВЬ ЭТО
             obstacles=dict(merged["obstacles"]), water=dict(merged["water"]),
             height_q=dict(merged["height_q"]), ports=dict(merged["ports"]),
             fields=dict(merged["fields"]), export=dict(merged["export"]),

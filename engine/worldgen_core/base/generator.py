@@ -1,23 +1,26 @@
-# engine/worldgen_core/base/generator.py
 from __future__ import annotations
 import math
 import time
-
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from .types import IGenerator, GenResult
-# --- Импорты ---
 from .utils import init_rng, make_empty_layers
 from .validate import compute_metrics
-from ..grid_alg.terrain import classify_terrain, generate_elevation
-from ..grid_alg.topology.metrics import compute_hint_and_halo, edges_tiles_and_pass_from_kind
-# <<< ИЗМЕНЕНО: inner_point_for_side больше не нужен для рамки >>>
-from ..grid_alg.topology.border import inner_point_for_side
-from ..grid_alg.topology.connectivity import choose_ports
-from ..grid_alg.topology.pathfinding import find_path_network, ensure_connectivity, apply_paths_to_grid
+from ..grid_alg.terrain import generate_elevation, classify_terrain, apply_slope_obstacles
+from ..base.constants import KIND_ROAD
+from ..base.start_gate import apply_start_gate_shapes, paint_start_gate_road
 
 
 class BaseGenerator(IGenerator):
+    """
+    Базовый генератор чанка:
+      1) генерирует высоты (бесшовно по миру);
+      2) опционально формирует «площадку хаба» (центр чанка);
+      3) классифицирует тайлы (water/ground/obstacle);
+      4) помечает «склоны» (slope) по перепаду высот.
+    НИКАКИХ дорог, портов и сетей в этой базовой версии нет.
+    """
+
     VERSION = "chunk_v1"
     TYPE = "world_chunk_base"
 
@@ -30,85 +33,62 @@ class BaseGenerator(IGenerator):
         cz = int(params.get("cz", 0))
         size = int(getattr(self.preset, "size", 128))
 
-        # --- Инициализация метрик времени ---
-        gen_timings_ms = {}
-        t_start = time.perf_counter()
+        timings: Dict[str, float] = {}
+        t0 = time.perf_counter()
 
-        # --- ЭТАП 1: Генерация "сырого" ландшафта (elevation) ---
         stage_seeds = init_rng(seed, cx, cz)
         layers = make_empty_layers(size)
+
+        # --- 1) Высоты ---
+        t = time.perf_counter()
         elevation_grid = generate_elevation(stage_seeds["elevation"], cx, cz, size, self.preset)
+        timings["elevation"] = (time.perf_counter() - t) * 1000.0
+
+        # --- 1.1) Хаб-площадка (если включена в пресете) ---
+        t = time.perf_counter()
+        # Стартовая площадка/стена (вынесено в модуль)
+        start_gate_info = apply_start_gate_shapes(elevation_grid, self.preset, cx, cz)
+        if cx == 1 and cz == 0:
+            print("[DBG] start_gate_info =", start_gate_info)
+            print("[DBG] preset.start_gate =", getattr(self.preset, "start_gate", None))
+
+        if start_gate_info and "stats" in start_gate_info:
+            # чтобы видеть эффект в дампе метрик (даже если твой принтер их не выводит)
+            layers_stats = start_gate_info["stats"]
+        else:
+            layers_stats = {"pad_cells": 0, "wall_cells": 0}
+        timings["start_gate_shapes"] = (time.perf_counter() - t) * 1000.0
+
+        # --- 2) Классификация + склоны ---
+        t = time.perf_counter()
         classify_terrain(elevation_grid, layers["kind"], self.preset)
+        apply_slope_obstacles(elevation_grid, layers["kind"], self.preset)
+        timings["classify+slope"] = (time.perf_counter() - t) * 1000.0
+
+        # --- 2.1) Дорожная вставка на площадке (если это базовый чанк) ---
+        t = time.perf_counter()
+        paint_start_gate_road(layers["kind"], start_gate_info)
+        timings["start_gate_paint"] = (time.perf_counter() - t) * 1000.0
+
+        # --- 3) Слои/метрики ---
         layers["height_q"]["grid"] = elevation_grid
+        total_ms = (time.perf_counter() - t0) * 1000.0
+        timings["total_ms"] = total_ms
 
-        t_elevation_end = time.perf_counter()
-        gen_timings_ms['elevation'] = (t_elevation_end - t_start) * 1000
+        # BACK-COMPAT для твоего принтера: ключ 'connectivity' должен существовать
+        timings.setdefault("connectivity", 0.0)
 
-        # --- Создаем объект результата ПОСЛЕ генерации ландшафта ---
         result = GenResult(
             version=self.VERSION, type=self.TYPE,
             seed=seed, cx=cx, cz=cz, size=size, cell_size=1.0,
             layers=layers, stage_seeds=stage_seeds
         )
-        # Сразу добавляем тайминги в метрики
-        result.metrics["gen_timings_ms"] = gen_timings_ms
+        result.metrics["gen_timings_ms"] = timings
 
-        # --- ЭТАП 2: Создание структуры для связного мира (connectivity) ---
-        t_connectivity_start = time.perf_counter()
-        ports = self._place_ports(result, params)
-        result.ports = ports
-        self._add_edge_meta(result)
-
-        t_connectivity_end = time.perf_counter()
-        result.metrics["gen_timings_ms"]['connectivity'] = (t_connectivity_end - t_connectivity_start) * 1000
-
-        # --- ЭТАП 3: Финальный расчет метрик ---
-        metrics: Dict[str, Any] = compute_metrics(layers["kind"])
-        distance = math.sqrt(cx ** 2 + cz ** 2)
-        metrics["difficulty"] = {"value": distance / 10.0, "dist": distance}
-        # Старая метрика gen_ms больше не нужна, так как есть детализация
-        result.metrics = {**metrics, **result.metrics}
-
+        metrics_cover: Dict[str, Any] = compute_metrics(layers["kind"])
+        result.metrics["start_gate"] = (start_gate_info.get("stats") if start_gate_info else {"pad_cells":0,"wall_cells":0})
+        dist = float(math.hypot(cx, cz))
+        metrics_cover["difficulty"] = {"value": dist / 10.0, "dist": dist}
+        result.metrics = {**metrics_cover, **result.metrics}
         return result
 
-    # --- Методы ---
-
-    def _place_ports(self, result: GenResult, params: Dict[str, Any]) -> Dict[str, List[int]]:
-        size = result.size
-        kind = result.layers["kind"]
-        height_grid = result.layers["height_q"]["grid"]
-
-        ports_cfg = getattr(self.preset, "ports", {})
-        obs_cfg = getattr(self.preset, "obstacles", {})
-        wat_cfg = getattr(self.preset, "water", {})
-
-        ports = choose_ports(result, ports_cfg, params, obs_cfg, wat_cfg)
-
-        inner_points = []
-        for side, arr in ports.items():
-            if arr:
-                idx = arr[0]
-                # Точка для старта пути теперь прямо на границе чанка
-                inner_points.append(inner_point_for_side(side, idx, size, 0))
-
-        if len(inner_points) >= 2:
-            paths = find_path_network(kind, height_grid, inner_points)
-            ensure_connectivity(kind, height_grid, inner_points, paths)
-
-            apply_paths_to_grid(kind, paths)
-
-            result.layers["roads"] = paths
-
-        return ports
-
-    def _add_edge_meta(self, result: GenResult):
-        obs_cfg = getattr(self.preset, "obstacles", {})
-        wat_cfg = getattr(self.preset, "water", {})
-        hint, halo = compute_hint_and_halo(result.stage_seeds, result.cx, result.cz, result.size, obs_cfg, wat_cfg, 2)
-        tiles_pass = edges_tiles_and_pass_from_kind(result.layers["kind"])
-        result.metrics["edges"] = {
-            "N": {**tiles_pass["N"], "hint": hint["N"], "halo": halo["N"]},
-            "E": {**tiles_pass["E"], "hint": hint["E"], "halo": halo["E"]},
-            "S": {**tiles_pass["S"], "hint": hint["S"], "halo": halo["S"]},
-            "W": {**tiles_pass["W"], "hint": hint["W"], "halo": halo["W"]},
-        }
