@@ -16,8 +16,10 @@ class WorldTransitionManager:
         if self.world_manager.world_id != "city":
             return None
 
-        lx, lz = wx % CHUNK_SIZE, wz % CHUNK_SIZE
+        lx = wx % CHUNK_SIZE
+        lz = wz % CHUNK_SIZE
         side = None
+
 
         # Определяем, на какой границе находится игрок
         if wx == CHUNK_SIZE - 1 and (0 <= wz < CHUNK_SIZE):
@@ -32,6 +34,11 @@ class WorldTransitionManager:
         if side:
             # Проверяем, что тайл на границе - это проходимая земля
             chunk_data = self.world_manager.get_chunk_data(0, 0)
+            kind = chunk_data["kind"]
+            h = len(kind);
+            w = len(kind[0]) if h else 0
+            if not (0 <= lz < h and 0 <= lx < w):
+                return None
             if chunk_data and chunk_data["kind"][lz][lx] == KIND_GROUND:
                 print(f"--- Entering Gateway to Branch: {side} ---")
 

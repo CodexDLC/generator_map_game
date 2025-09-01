@@ -10,7 +10,7 @@ from engine.worldgen_core.base.preset import Preset
 from engine.worldgen_core.world.world_generator import WorldGenerator
 from engine.worldgen_core.base.export import write_preview_png, write_chunk_rle_json, write_chunk_meta_json
 from engine.worldgen_core.utils.rle import decode_rle_rows
-from engine.worldgen_core.base.constants import ID_TO_KIND, KIND_GROUND
+from engine.worldgen_core.base.constants import ID_TO_KIND, KIND_GROUND, DEFAULT_PALETTE
 from .config import CHUNK_SIZE, PRESET_PATH, ARTIFACTS_ROOT
 from game_logic.transition_manager import WorldTransitionManager
 
@@ -35,24 +35,12 @@ class WorldManager:
         if key in self.cache:
             return self.cache[key]
 
-        rle_path: pathlib.Path
-
+        # --- Определяем путь к RLE-файлу ---
         if self.world_id == "city":
-            if cx == 0 and cz == 0:
-                rle_path = ARTIFACTS_ROOT / "world" / "city" / "static" / "0_0" / "chunk.rle.json"
-                try:
-                    with open(rle_path, "r") as f:
-                        city_data = json.load(f)
-                    kind_grid_ids = decode_rle_rows(city_data.get("rows", []))
-                    kind_grid = [[ID_TO_KIND.get(v, "ground") for v in row] for row in kind_grid_ids]
-                    height_grid = [[0] * len(kind_grid) for _ in range(len(kind_grid))]
-                    decoded_chunk = {"kind": kind_grid, "height": height_grid}
-                    self.cache[key] = decoded_chunk
-                    return decoded_chunk
-                except (json.JSONDecodeError, FileNotFoundError):
-                    return None
-            else:
+            if cx != 0 or cz != 0:
                 return None
+
+            rle_path = ARTIFACTS_ROOT / "world" / "city" / "static" / "0_0" / "chunk.rle.json"
         else:
             chunk_path = self._get_chunk_path(self.world_id, self.current_seed, cx, cz)
             rle_path = chunk_path / "chunk.rle.json"
@@ -62,22 +50,27 @@ class WorldManager:
 
         try:
             with open(rle_path, "r", encoding="utf-8") as f:
-                rle_doc = json.load(f)
+                doc = json.load(f)
 
-            layers_data = rle_doc.get("layers", {})
-            kind_payload = layers_data.get("kind", {})
-            height_payload = layers_data.get("height_q", {})
+            # Гибкая распаковка
+            if "layers" in doc:
+                layers = doc["layers"]
+                kind_grid = decode_rle_rows(layers.get("kind", {}).get("rows", []))
+                height_grid = decode_rle_rows(layers.get("height_q", {}).get("rows", []))
+            else:
+                # старый/особый формат города
+                kind_grid = decode_rle_rows(doc.get("rows", []))
+                height_grid = [[0] * len(kind_grid[0]) for _ in range(len(kind_grid))] if kind_grid else []
 
-            kind_grid = decode_rle_rows(kind_payload.get("rows", []))
-            height_grid = decode_rle_rows(height_payload.get("rows", []))
+            # Если пришли числа — маппим в строки
+            if kind_grid and kind_grid[0] and isinstance(kind_grid[0][0], int):
+                kind_grid = [[ID_TO_KIND.get(v, "ground") for v in row] for row in kind_grid]
 
-            decoded_chunk = {"kind": kind_grid, "height": height_grid}
+            decoded = {"kind": kind_grid, "height": height_grid}
+            self.cache[key] = decoded
+            return decoded
 
-            self.cache[key] = decoded_chunk
-            return decoded_chunk
-
-        except (json.JSONDecodeError, IndexError, KeyError) as e:
-            print(f"Warning: Could not decode chunk at {rle_path}. Error: {e}")
+        except Exception as e:
             return None
 
     def _load_preset(self) -> Preset:
@@ -142,10 +135,13 @@ class WorldManager:
         rle_path = str(chunk_path / "chunk.rle.json")
         preview_path = str(chunk_path / "preview.png")
 
-        # Здесь была ошибка: в write_chunk_rle_json нужно было передавать result.layers (словарь),
-        # а не result.layers['kind'] (список).
-        write_chunk_rle_json(rle_path, result.layers, result.size, result.seed, cx, cz)
-        write_preview_png(preview_path, result.layers["kind"], self.preset.export["palette"])
+
+        write_chunk_rle_json(str(chunk_path / "chunk.rle.json"),
+                             result.layers, result.size, result.seed, cx, cz)
+
+        palette = dict(DEFAULT_PALETTE)
+        palette.update(self.preset.export.get("palette", {}))
+        write_preview_png(str(chunk_path / "preview.png"), result.layers["kind"], palette)
 
         export_duration = (time.perf_counter() - t_export_start) * 1000
         total_duration = (time.perf_counter() - t_total_start) * 1000

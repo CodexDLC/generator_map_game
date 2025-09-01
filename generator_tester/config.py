@@ -2,7 +2,7 @@
 import pathlib
 
 # --- Основные настройки мира ---
-CHUNK_SIZE = 128
+CHUNK_SIZE = 96
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
 PRESET_PATH = PROJECT_ROOT / "engine" / "presets" / "world" / "base_default.json"
 ARTIFACTS_ROOT = PROJECT_ROOT / "artifacts"
@@ -11,8 +11,8 @@ ARTIFACTS_ROOT = PROJECT_ROOT / "artifacts"
 # <<< ИЗМЕНЕНИЕ: Увеличиваем тайлы для читаемости текста >>>
 TILE_SIZE = 20
 # <<< ИЗМЕНЕНИЕ: Уменьшаем количество тайлов на экране для "зума" >>>
-VIEWPORT_WIDTH_TILES = 40
-VIEWPORT_HEIGHT_TILES = 30
+VIEWPORT_WIDTH_TILES = 64
+VIEWPORT_HEIGHT_TILES = 64
 SCREEN_WIDTH = VIEWPORT_WIDTH_TILES * TILE_SIZE
 SCREEN_HEIGHT = VIEWPORT_HEIGHT_TILES * TILE_SIZE
 

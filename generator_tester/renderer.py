@@ -65,6 +65,7 @@ class Renderer:
         self.colors = {k: self._hex_to_rgb(v) for k, v in DEFAULT_PALETTE.items()}
         self.colors['road'] = self._hex_to_rgb("#d2b48c")
         self.colors['void'] = (10, 10, 15)
+        self.colors['slope'] = self._hex_to_rgb("#9aa0a6")
         self.minimap = Minimap(screen)
 
     def _hex_to_rgb(self, s: str) -> Tuple[int, int, int]:
