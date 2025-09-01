@@ -2,15 +2,13 @@
   "id": "world/base_default",
   "size": 96,
   "cell_size": 1.0,
-  "start_gate": {
+
+  "city_wall": {
     "enabled": true,
-    "only_on": { "cx": 1, "cz": 0 },
-    "side": "W",
-    "pad_w": 12,
-    "pad_h": 16,
-    "road_th": 3,
-    "wall": { "enabled": true, "side": "W", "thick": 3 }
+    "thickness": 3,
+    "gate_width": 3
   },
+
   "elevation": {
     "enabled": true,
     "max_height_m": 45.0,
@@ -37,19 +35,10 @@
     "use_diagonals": true,
     "ignore_water_edges": true
   },
-    "roads": { "ramp_step_m": 1.0 },
+  "roads": { "ramp_step_m": 1.0 },
   "obstacles": { "density": 0.12, "min_blob": 8, "max_blob": 64 },
-
-  "branches": {
-    "E": { "enabled": true,  "display_name": "Восточный эпицентр", "domain": { "x_min": 1 },  "bias_forward": 0.15, "branch_seed": "derived" },
-    "W": { "enabled": true,  "display_name": "Западный эпицентр",  "domain": { "x_max": -1 }, "bias_forward": 0.15, "branch_seed": "derived" },
-    "N": { "enabled": false, "display_name": "Северный эпицентр",  "domain": { "z_max": 1 },  "bias_forward": 0.15, "branch_seed": "derived" },
-    "S": { "enabled": false, "display_name": "Южный эпицентр",    "domain": { "z_min": -1 }, "bias_forward": 0.15, "branch_seed": "derived" }
-  },
-
   "water":   { "density": 0.05, "lake_chance": 0.2 },
   "height_q":{ "scale": 0.1 },
-
   "ports": { "min": 2, "max": 4, "edge_margin": 3 },
 
   "fields": {
@@ -64,7 +53,8 @@
       "water": "#3573b8",
       "road": "#d2b48c",
       "slope": "#9aa0a6",
-      "void": "#00000000"
+      "void": "#00000000",
+      "wall": "#808080"
     },
     "thick": true
   }

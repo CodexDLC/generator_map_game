@@ -1,53 +1,58 @@
 # game_logic/transition_manager.py
-from typing import Tuple
+from typing import Tuple, TYPE_CHECKING
 from generator_tester.config import CHUNK_SIZE
 from engine.worldgen_core.base.constants import KIND_GROUND
+
+if TYPE_CHECKING:
+    from .world import GameWorld
 
 
 class WorldTransitionManager:
     def __init__(self, world_manager):
         self.world_manager = world_manager
 
-    def check_and_trigger_transition(self, wx: int, wz: int) -> Tuple[int, int] | None:
+    def check_and_trigger_transition(self, wx: int, wz: int, game_world: "GameWorld") -> Tuple[int, int] | None:
         """
-        Проверяет, не находится ли игрок на границе мира (например, города),
-        и инициирует переход в новый мир (ветку), если это необходимо.
+        Проверяет переход из города, но только если предгенерация завершена.
         """
+        # <<< НОВОЕ УСЛОВИЕ БЛОКИРОВКИ >>>
+        if not game_world.pre_generation_complete:
+            # Если предгенерация не завершена, выходы из города закрыты
+            return None
+
         if self.world_manager.world_id != "city":
+            return None
+
+        # ... (остальная логика метода без изменений) ...
+
+        current_cx = wx // CHUNK_SIZE
+        current_cz = wz // CHUNK_SIZE
+        if current_cx != 0 or current_cz != 0:
             return None
 
         lx = wx % CHUNK_SIZE
         lz = wz % CHUNK_SIZE
         side = None
 
-
-        # Определяем, на какой границе находится игрок
-        if wx == CHUNK_SIZE - 1 and (0 <= wz < CHUNK_SIZE):
+        if lx == CHUNK_SIZE - 1:
             side = "E"
-        elif wx == 0 and (0 <= wz < CHUNK_SIZE):
+        elif lx == 0:
             side = "W"
-        elif wz == CHUNK_SIZE - 1 and (0 <= wx < CHUNK_SIZE):
+        elif lz == CHUNK_SIZE - 1:
             side = "S"
-        elif wz == 0 and (0 <= wx < CHUNK_SIZE):
+        elif lz == 0:
             side = "N"
 
         if side:
-            # Проверяем, что тайл на границе - это проходимая земля
             chunk_data = self.world_manager.get_chunk_data(0, 0)
-            kind = chunk_data["kind"]
-            h = len(kind);
-            w = len(kind[0]) if h else 0
-            if not (0 <= lz < h and 0 <= lx < w):
-                return None
-            if chunk_data and chunk_data["kind"][lz][lx] == KIND_GROUND:
-                print(f"--- Entering Gateway to Branch: {side} ---")
+            if not chunk_data: return None
 
-                # Обновляем состояние WorldManager для нового мира
-                self.world_manager.world_id = f"branch/{side}"
-                self.world_manager.current_seed = self.world_manager._branch_seed(side)
+            if chunk_data["kind"][lz][lx] == KIND_GROUND:
+                print(f"--- Leaving city, entering world_location via gateway: {side} ---")
+
+                self.world_manager.world_id = "world_location"
                 self.world_manager.cache.clear()
 
-                # Рассчитываем новые координаты чанка и игрока
                 if side == "N":
                     new_cx, new_cz = 0, -1
                 elif side == "S":
@@ -60,7 +65,6 @@ class WorldTransitionManager:
                 self.world_manager.player_chunk_cx = new_cx
                 self.world_manager.player_chunk_cz = new_cz
 
-                # Помещаем игрока у противоположной границы нового чанка
                 new_wx = new_cx * CHUNK_SIZE + (CHUNK_SIZE - 1 - lx)
                 new_wz = new_cz * CHUNK_SIZE + (CHUNK_SIZE - 1 - lz)
 

@@ -12,9 +12,11 @@ class Preset:
     size: int = 64
     cell_size: float = 1.0
 
-    start_gate: Dict[str, Any] = field(default_factory=dict)  # <<< ДОБАВЬ ЭТО
+    # <<< НАЧАЛО ИЗМЕНЕНИЙ >>>
+    # Добавляем новое поле для настроек стены, как и для других секций
+    city_wall: Dict[str, Any] = field(default_factory=dict)
+    # <<< КОНЕЦ ИЗМЕНЕНИЙ >>>
 
-    # <<< НОВЫЙ БЛОК: Добавляем секцию elevation в сам класс >>>
     elevation: Dict[str, Any] = field(default_factory=lambda: {
         "enabled": True,
         "max_height_m": 60.0,
@@ -32,9 +34,6 @@ class Preset:
         "use_diagonals": False,
         "ignore_water_edges": True,
     })
-
-
-    # <<< КОНЕЦ НОВОГО БЛОКА >>>
 
     obstacles: Dict[str, Any] = field(default_factory=lambda: {"density": 0.12, "min_blob": 8, "max_blob": 64})
     water: Dict[str, Any] = field(default_factory=lambda: {"density": 0.05, "lake_chance": 0.2})
@@ -68,12 +67,16 @@ class Preset:
         default = cls().to_dict()
         merged = cls._deep_merge(default, dict(data))
 
-        # <<< ИЗМЕНЕНО: Создаем объект, включая новую секцию elevation >>>
         obj = cls(
             id=merged["id"], size=int(merged["size"]), cell_size=float(merged["cell_size"]),
+
+            # <<< НАЧАЛО ИЗМЕНЕНИЙ >>>
+            # Теперь мы явно загружаем секцию city_wall в объект
+            city_wall=dict(merged.get("city_wall", {})),
+            # <<< КОНЕЦ ИЗМЕНЕНИЙ >>>
+
             elevation=dict(merged["elevation"]),
             slope_obstacles=dict(merged.get("slope_obstacles", {})),
-            start_gate=dict(merged.get("start_gate", {})),  # <<< ДОБАВЬ ЭТО
             obstacles=dict(merged["obstacles"]), water=dict(merged["water"]),
             height_q=dict(merged["height_q"]), ports=dict(merged["ports"]),
             fields=dict(merged["fields"]), export=dict(merged["export"]),

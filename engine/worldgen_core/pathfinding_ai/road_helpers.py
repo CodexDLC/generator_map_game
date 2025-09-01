@@ -28,7 +28,9 @@ def make_local_road_policy(base: PathPolicy = ROAD_POLICY,
     tf = dict(base.terrain_factor)
     tf[KIND_SLOPE] = slope_cost
     tf[KIND_WATER] = water_cost
-    return base.with_overrides(terrain_factor=tf, slope_penalty_per_meter=0.0)
+    # небольшой штраф за перепад высот — дорога чаще «переезжает» террасы вместо
+    # зигзагов по одной высоте
+    return base.with_overrides(terrain_factor=tf, slope_penalty_per_meter=0.05)
 
 
 # ------------------------- площадка/якорь «хаба» -------------------------
@@ -135,16 +137,25 @@ def _rng_from_key(seed: int, orient: str, ex: int, ez: int) -> random.Random:
 
 def find_edge_gate(kind_grid: List[List[str]], side: str,
                    seed: int, cx: int, cz: int, size: int) -> Optional[Coord]:
-    """Выбрать точку «врезки» на грани чанка.
-    1) Сперва ищем УЖЕ НАРИСОВАННУЮ ДОРОГУ на этой грани (стыковка со старт-гейтом).
-    2) Если нет — берём первую проходимую клетку (ground/slope/water).
     """
+    Выбрать точку «врезки» на грани чанка.
+    - Особое правило: для стартового чанка (1,0) на стороне 'W' возвращает центр ворот.
+    - Сперва ищем УЖЕ НАРИСОВАННУЮ ДОРОГУ на этой грани.
+    - Если нет — берём первую проходимую клетку (ground/slope/water).
+    """
+    # <<< НОВОЕ ПРАВИЛО ДЛЯ СТАРТОВЫХ ВОРОТ >>>
+    # Если это стартовый чанк и мы ищем выход на запад, принудительно
+    # указываем на центр ворот, чтобы дорога подключилась именно туда.
+    if cx == 1 and cz == 0 and side == 'W':
+        # Координата X=1 (внутри карты, у самого края), Z - середина карты.
+        return (1, size // 2)
+
     h = len(kind_grid)
     w = len(kind_grid[0]) if h else 0
     if not (w and h):
         return None
 
-    # 1) приоритет: уже существующая дорога на грани
+    # 1) приоритет: уже существующая дорога на грани (остается для других чанков)
     for (x, z) in _scan_edge_from_center(side, w, h, inset=1):
         if kind_grid[z][x] == KIND_ROAD:
             return (x, z)
