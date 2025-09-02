@@ -9,16 +9,12 @@ from ..core.constants import (
 )
 
 
-# --- НАЧАЛО ИЗМЕНЕНИЯ: Создаем специальный класс для хранения параметров ---
 @dataclass
 class CityParams:
     """Хранит все рассчитанные параметры для строительства города."""
-    # Основные параметры из пресета
     sea_level: float
     step: float
     mountain_level: float
-
-    # Геометрия
     gate_w: int
     wall_th: int
     r_moat_end: int
@@ -26,8 +22,6 @@ class CityParams:
     r_slope2: int
     r_wall_start: int
     r_wall_end: int
-
-    # Рассчитанные высоты
     base_h: float
     water_h: float
     slope1_h: float
@@ -70,10 +64,7 @@ class CityParams:
         )
 
 
-# --- КОНЕЦ ИЗМЕНЕНИЯ ---
-
-
-def build_city_base_and_walls(result: GenResult, p: CityParams):  # <-- Принимает CityParams
+def build_city_base_and_walls(result: GenResult, p: CityParams):
     """Этап 1: Строит основу города, стены, рвы, адаптируясь к скалам."""
     size = result.size
     h_grid = result.layers["height_q"]["grid"]
@@ -113,7 +104,7 @@ def build_city_base_and_walls(result: GenResult, p: CityParams):  # <-- Прин
 
 
 def create_fortress_slopes(result: GenResult) -> None:
-    # ... (код этой функции не меняется) ...
+    """Этап 2: Добавляет склоны к искусственным стенам."""
     size = result.size
     kind = result.layers["kind"]
     original = [row[:] for row in kind]
@@ -127,7 +118,7 @@ def create_fortress_slopes(result: GenResult) -> None:
                 kind[z][x] = KIND_SLOPE
 
 
-def carve_city_entrances(result: GenResult, p: CityParams):  # <-- Принимает CityParams
+def carve_city_entrances(result: GenResult, p: CityParams):
     """Этап 3: Прорезает ворота и дороги поверх готового рельефа."""
     size = result.size
     h_grid = result.layers["height_q"]["grid"]
@@ -161,21 +152,12 @@ def carve_city_entrances(result: GenResult, p: CityParams):  # <-- Приним�
                 k_grid[z][x_e] = KIND_BRIDGE if (size - 1 - x_e) <= p.r_moat_end else KIND_GROUND
 
 
-# ==== Главная управляющая функция (оркестратор) ====
-
 def apply_starting_zone_rules(result: GenResult, preset: Any) -> None:
+    """Оркестратор: вызывает этапы генерации города в правильном порядке."""
     if not (result.cx == 0 and result.cz == 0):
         return
 
-    # --- НАЧАЛО ИЗМЕНЕНИЯ: Создаем параметры ОДИН РАЗ ---
     city_params = CityParams.from_preset(preset)
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-
-    # 1. Строим базу и стены, передавая готовые параметры
     build_city_base_and_walls(result, city_params)
-
-    # 2. Создаем склоны у стен
     create_fortress_slopes(result)
-
-    # 3. Прорезаем въезды, передавая те же самые параметры
     carve_city_entrances(result, city_params)

@@ -6,6 +6,9 @@ from .._base.generator import BaseGenerator
 from ...core.types import GenResult
 from ...story_features import starting_zone_rules
 from ...algorithms.terrain.terrain import apply_slope_obstacles
+# --- НАЧАЛО ИЗМЕНЕНИЯ: Добавлен недостающий импорт ---
+from ...core.constants import KIND_BRIDGE
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 
 class WorldGenerator(BaseGenerator):
