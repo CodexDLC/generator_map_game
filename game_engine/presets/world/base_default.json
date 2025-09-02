@@ -1,0 +1,56 @@
+{
+  "id": "world/base_default",
+  "size": 96,
+  "cell_size": 1.0,
+
+  "elevation": {
+  "enabled": true,
+  "shaping_power": 1.8,
+  "quantization_step_m": 2.0,
+  "smoothing_passes": 1,
+  "noise_scale_tiles": 128.0,
+  "noise_snap_k": 1,
+  "max_height_m": 60.0,
+  "sea_level_m": 12.0,
+  "mountain_level_m": 28.0,
+  "terracing": { "enabled": true, "steps_m": [3.0, 6.0], "mask": { "noise_scale_tiles": 2048, "octaves": 2, "gain": 0.5, "snap_k": 1 }, "bins": [0.5], "smooth_cells": 1 }
+}
+,
+  "slope_obstacles": { "enabled": true, "angle_threshold_deg": 55, "band_cells": 1, "use_diagonals": true, "ignore_water_edges": true },
+
+  "roads": { "ramp_step_m": 1.0 },
+  "obstacles": { "density": 0.12, "min_blob": 8, "max_blob": 64 },
+  "water":   { "density": 0.05, "lake_chance": 0.2 },
+  "height_q":{ "scale": 0.1 },
+  "ports": { "min": 2, "max": 4, "edge_margin": 3 },
+
+  "fields": {
+    "temperature": { "enabled": true, "noise_scale_tiles": 4096, "octaves": 4, "gain": 0.5, "snap_k": 1, "downsample": 4, "scale": 0.5 },
+    "humidity":    { "enabled": true, "noise_scale_tiles": 2048, "octaves": 4, "gain": 0.5, "snap_k": 1, "downsample": 4, "scale": 0.5 }
+  },
+
+  "export": {
+    "palette": {
+      "ground": "#7a9e7a",
+      "obstacle": "#444444",
+      "water": "#3573b8",
+      "road": "#d2b48c",
+      "slope": "#9aa0a6",
+      "void": "#00000000",
+      "wall": "#808080",
+      "bridge": "#b8b8b8"
+    },
+    "thick": true,
+
+    "pre_rules": {
+      "south_ocean": {
+        "cz_min_ocean": 1
+      },
+      "cz0_coast": {
+        "depth_min_tiles": 4,
+        "depth_max_tiles": 7,
+        "smooth_passes": 4 }
+    }
+  }
+}
+

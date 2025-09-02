@@ -1,12 +1,13 @@
-# game_logic/world.py
+# game_engine/game_logic/world.py
 from typing import Dict, Any, Tuple, Optional
 from multiprocessing import Queue
 from enum import Enum, auto
 
-from game_logic.player import Player
-from generator_tester.world_manager import WorldManager
-from engine.worldgen_core.pathfinding_ai.a_star import find_path
-from generator_tester.config import CHUNK_SIZE, PLAYER_MOVE_SPEED
+# --- ИЗМЕНЕНИЯ: Все импорты обновлены ---
+from .player import Player
+from pygame_tester.world_manager import WorldManager
+from ..algorithms.pathfinding.a_star import find_path
+from pygame_tester.config import CHUNK_SIZE, PLAYER_MOVE_SPEED
 
 
 class LoadingState(Enum):
@@ -84,8 +85,6 @@ class GameWorld:
         player_cx = self.player.wx // CHUNK_SIZE
         player_cz = self.player.wz // CHUNK_SIZE
 
-        # Обновляем сетку вокруг игрока, только если мы не в городе
-        # или если предгенерация уже завершена
         if self.world_manager.world_id != "city" or self.pre_generation_complete:
             grid_needs_update = ((player_cx, player_cz) != self.last_player_chunk_pos or self.pending_chunks)
             if grid_needs_update:
@@ -133,7 +132,6 @@ class GameWorld:
                 self.pending_chunks.add(pos)
 
     def _try_to_load_primary_chunk(self):
-        """Пытается загрузить основной чанк после перехода между мирами."""
         if self.primary_chunk_to_load is None:
             self.loading_state = LoadingState.IDLE
             return
@@ -157,50 +155,38 @@ class GameWorld:
         if transition_result:
             self.player.wx, self.player.wz = transition_result
             self.player.path = []
-
             self.render_grid.clear()
             self.pending_chunks.clear()
-
             new_cx = self.player.wx // CHUNK_SIZE
             new_cz = self.player.wz // CHUNK_SIZE
             self.primary_chunk_to_load = (new_cx, new_cz)
-
             self.loading_state = LoadingState.WAITING_FOR_PRIMARY_CHUNK
             self._load_and_render_chunk_at(self.primary_chunk_to_load)
             print(f"Transition triggered. New primary target: {self.primary_chunk_to_load}")
 
     def get_tile_at(self, wx: int, wz: int) -> Dict:
-        """Возвращает данные о тайле по мировым координатам."""
         cx, cz = wx // CHUNK_SIZE, wz // CHUNK_SIZE
         if (cx, cz) not in self.render_grid:
             return {"kind": "void", "height": 0}
-
         chunk_data = self.render_grid[(cx, cz)]
         lx, lz = wx % CHUNK_SIZE, wz % CHUNK_SIZE
-
         kind_grid = chunk_data.get("kind", [])
         height_grid = chunk_data.get("height", [])
-
         is_in_bounds = (0 <= lz < len(kind_grid) and 0 <= lx < len(kind_grid[0]))
         if not is_in_bounds:
             return {"kind": "void", "height": 0}
-
         kind = kind_grid[lz][lx]
         height = height_grid[lz][lx] if (0 <= lz < len(height_grid) and 0 <= lx < len(height_grid[0])) else 0
-
         return {"kind": kind, "height": height}
 
     def set_player_target(self, target_wx: int, target_wz: int):
         player_cx, player_cz = self.player.wx // CHUNK_SIZE, self.player.wz // CHUNK_SIZE
-
         if (player_cx, player_cz) not in self.render_grid:
             self._update_surrounding_grid(player_cx, player_cz)
-
         chunk_data = self.render_grid.get((player_cx, player_cz))
         if chunk_data:
             target_cx, target_cz = target_wx // CHUNK_SIZE, target_wz // CHUNK_SIZE
             start_lx, start_lz = self.player.wx % CHUNK_SIZE, self.player.wz % CHUNK_SIZE
-
             if (player_cx, player_cz) == (target_cx, target_cz):
                 end_lx, end_lz = target_wx % CHUNK_SIZE, target_wz % CHUNK_SIZE
             else:
@@ -212,7 +198,6 @@ class GameWorld:
                 else:
                     end_lz = CHUNK_SIZE - 1 if dz > 0 else 0
                     end_lx = target_wx % CHUNK_SIZE
-
             local_path = find_path(
                 chunk_data.get('kind', []), chunk_data.get('height', []),
                 (start_lx, start_lz), (end_lx, end_lz)

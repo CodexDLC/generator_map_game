@@ -1,20 +1,16 @@
-# engine/worldgen_core/pathfinding_ai/local_roads.py
+# game_engine/generators/world/local_roads.py
 from __future__ import annotations
 from typing import List, Optional, Dict, Tuple
 import random
 
-from .routers import BaseRoadRouter
-from .policies import ROAD_POLICY
+# --- ИЗМЕНЕНИЯ: Все импорты обновлены ---
+from game_engine.algorithms.pathfinding.routers import BaseRoadRouter
+from game_engine.algorithms.pathfinding.policies import ROAD_POLICY
+from game_engine.algorithms.pathfinding.network import apply_paths_to_grid
 from .road_helpers import (
     Coord, hub_anchor, find_edge_gate, make_local_road_policy,
 )
-from .network import apply_paths_to_grid
-
-# константа типа клетки дороги (для выборочного «реза» высоты)
-try:
-    from engine.worldgen_core.base.constants import KIND_ROAD
-except Exception:
-    KIND_ROAD = "road"
+from game_engine.core.constants import KIND_ROAD
 
 
 # ----------------------- выбор сторон-гейтов по правилам -----------------------
@@ -42,7 +38,6 @@ def _choose_gate_sides(seed: int, cx: int, cz: int) -> List[str]:
 def _prime_cross(kind, anchor: Tuple[int, int], dirs: List[str], width: int = 2) -> None:
     """
     Короткие «усики» из якоря в указанных направлениях, чтобы A* цеплялся за центр.
-    НИКАКИХ других побочек: anchor и dirs передаём СЮДА, а не вычисляем внутри.
     """
     x, z = anchor
     arms: List[List[Coord]] = []
@@ -74,10 +69,7 @@ def _carve_ramp_along_path(
     kind: Optional[list[list[str]]] = None
 ) -> None:
     """
-    Подрезаем только резкие перепады: если |Δh| > step_m,
-    сдвигаем текущую клетку на ±step_m к исходному рельефу.
-    Поперечник (ширина width) выставляем ТОЛЬКО в изменённых точках.
-    Ровные участки не трогаем.
+    Подрезаем только резкие перепады высот вдоль дороги.
     """
     if not path or step_m <= 0:
         return
@@ -94,34 +86,26 @@ def _carve_ramp_along_path(
             return True
         return kind[z][x] == KIND_ROAD
 
-    # опорная высота — как в рельефе в стартовой точке
     x0, z0 = path[0]
     prev_h = float(elev[z0][x0])
 
-    # ВНИМАНИЕ: стартовый поперечник НЕ рисуем — чтобы не «гладить» всю дорогу
     for (x, z) in path[1:]:
         orig = float(elev[z][x])
         dh = orig - prev_h
 
         if abs(dh) <= step_m + eps:
-            # участок и так достаточно «пологий» — ничего не меняем
             prev_h = orig
             continue
 
-        # нужно подрезать скачок ровно на step_m в сторону исходной высоты
         target = prev_h + (step_m if dh > 0 else -step_m)
 
-        # правим ТОЛЬКО саму дорогу и её поперечник в этой точке
         if is_road(x, z):
             elev[z][x] = target
         for dz in range(-r, r + 1):
             for dx in range(-r, r + 1):
                 if max(abs(dx), abs(dz)) <= r and is_road(x + dx, z + dz):
                     elev[z + dz][x + dx] = target
-
-        # новая опорная высота — уже «подрезанная»
         prev_h = target
-
 
 
 # ------------------------------ основная функция ------------------------------
@@ -136,39 +120,31 @@ def build_local_roads(
     width: int = 1,
 ) -> List[List[Coord]]:
     """
-    Прокладка дорог ВНУТРИ одного чанка:
-      - anchor = лучшая клетка внутри площадки (hub_pad) или центрального блока 1/3;
-      - стороны-гейты задаются правилами (_choose_gate_sides);
-      - политика: ground < slope << water; obstacle/void — непроходимо;
-                  штраф за уклон небольшой, чтобы не «залипать» на одной террасе.
+    Прокладка дорог ВНУТРИ одного чанка.
     """
     cx = int(params.get("cx", 0))
     cz = int(params.get("cz", 0))
     world_seed = int(params.get("seed", 0))
 
-    # 1) якорь и стороны
     anchor = hub_anchor(kind, preset)
     sides = _choose_gate_sides(world_seed, cx, cz)
     if not sides:
         return []
 
-    # короткая «звёздочка» из центра сразу, чтобы следующие пути цеплялись
     _prime_cross(kind, anchor, sides, width=max(1, int(width)))
 
-    # 2) гейты на выбранных сторонах
     gates: List[Coord] = []
     for s in sides:
-        p = find_edge_gate(kind, s, world_seed, cx, cz, size)
+        # <<< ИЗМЕНЕНИЕ: Убираем 'world_seed' из вызова >>>
+        p = find_edge_gate(kind, s, cx, cz, size)
         if p:
             gates.append(p)
     if not gates:
         return []
 
-    # 3) роутер: slope разрешён (дороже), вода — очень дорого.
     policy = make_local_road_policy(ROAD_POLICY, slope_cost=1.5, water_cost=12.0)
     router = BaseRoadRouter(policy=policy)
 
-    # порядок: сначала ближние к anchor, но внутри группы — согласно sides
     w = h = size
     order = {s: i for i, s in enumerate(sides)}
     def _l1(a: Tuple[int, int], b: Tuple[int, int]) -> int:
@@ -176,9 +152,7 @@ def build_local_roads(
 
     gates.sort(key=lambda p: (order.get(_side_of_gate(p, w, h), 999), _l1(p, anchor)))
 
-    # 4) тянем пути
     paths: List[List[Coord]] = []
-    # шаг лестницы: либо roads.ramp_step_m, либо берём из террасировки
     elev_cfg = getattr(preset, "elevation", {}) or {}
     default_step = float(elev_cfg.get("quantization_step_m", 1.0))
     ramp_step = float(getattr(getattr(preset, "roads", {}), "ramp_step_m", default_step))
@@ -188,21 +162,19 @@ def build_local_roads(
         if not path:
             continue
 
-        # рисуем дорогу сразу, чтобы следующая «прилипала»
         apply_paths_to_grid(
             kind, [path],
             width=max(1, int(width)),
-            allow_slope=True,   # по склонам можно
-            allow_water=False   # мосты пока не строим
+            allow_slope=True,
+            allow_water=False
         )
 
-        # вырезаем лестницу ТОЛЬКО под дорогой
         if height:
             _carve_ramp_along_path(
                 height, path,
                 step_m=ramp_step,
                 width=max(1, int(width)),
-                kind=kind,           # <<< ключевое — правим только клетки дороги
+                kind=kind,
             )
 
         paths.append(path)

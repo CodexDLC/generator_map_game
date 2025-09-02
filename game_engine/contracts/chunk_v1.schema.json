@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "chunk_v1",
+  "type": "object",
+  "additionalProperties": true,
+
+  "properties": {
+    "version": { "type": "string" },
+    "type":    { "type": "string" },
+    "map_id":  { "type": "string" },
+    "seed":    { "type": "integer" },
+    "size":    { "type": "integer" },
+    "chunk_size": { "type": "integer" },
+
+    "tileset_map": { "type": "object" },
+    "chunks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "encoding": { "type": "string" },
+          "rows": { "type": "array" },
+          "tiles": { "type": "array" },
+          "w": { "type": "integer" },
+          "h": { "type": "integer" },
+          "cx": { "type": "integer" },
+          "cz": { "type": "integer" }
+        },
+        "required": ["encoding", "w", "h"]
+      }
+    },
+
+    "_meta": { "$ref": "chunk_meta_v1.schema.json" }
+  },
+
+  "required": ["version", "type", "seed", "chunks"]
+}

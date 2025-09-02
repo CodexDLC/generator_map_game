@@ -1,8 +1,8 @@
-
+# game_engine/core/utils/rng.py
 from __future__ import annotations
-from typing import Union, List, Any
+from typing import Union, List, Any, Dict
 
- # golden ratio for 64-bit
+# golden ratio for 64-bit
 _DEF_CONST = 0x9E3779B97F4A7C15
 
 def _splitmix64(x: int) -> int:
@@ -65,10 +65,22 @@ class RNG:
         return seq[self.u64() % len(seq)]
 
     def shuffle(self, seq: List[Any]) -> None:
-        """
-        Перемешивает последовательность (list) на месте, используя
-        детерминированный алгоритм Fisher-Yates.
-        """
         for i in range(len(seq) - 1, 0, -1):
             j = self.u64() % (i + 1)
             seq[i], seq[j] = seq[j], seq[i]
+
+# <<< ВОТ ПРАВИЛЬНОЕ МЕСТО И ОТСТУП >>>
+# Функция находится в файле, но вне класса RNG
+def init_rng(seed: int, cx: int, cz: int) -> Dict[str, int]:
+    """
+    Создает детерминированные сиды для разных стадий генерации,
+    основанные на глобальном сиде и координатах чанка.
+    """
+    base = split_chunk_seed(seed, cx, cz)
+    return {
+        "elevation":   seed,
+        "temperature": seed ^ 0xA5A5A5A5,
+        "humidity":    seed ^ 0x5A5A5A5A,
+        "obstacles":   base ^ 0x55AA55AA,
+        "water":       base ^ 0x33CC33CC,
+    }

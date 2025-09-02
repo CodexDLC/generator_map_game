@@ -9,10 +9,78 @@ ROOT = pathlib.Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from game_logic.world import GameWorld
-from game_logic.generation_worker import worker_main
-from generator_tester.renderer import Renderer, Camera
-from generator_tester.config import SCREEN_WIDTH, SCREEN_HEIGHT, BACKGROUND_COLOR, TILE_SIZE, CHUNK_SIZE
+from game_engine.game_logic.world import GameWorld
+from game_engine.game_logic.generation_worker import worker_main
+from pygame_tester.renderer import Renderer, Camera
+from pygame_tester.config import SCREEN_WIDTH, SCREEN_HEIGHT, BACKGROUND_COLOR, TILE_SIZE, CHUNK_SIZE
+
+
+# <<< НАЧАЛО НОВОГО КОДА: Экран для ввода SEED >>>
+
+
+def get_seed_from_input_screen(screen: pygame.Surface) -> int | None:
+    """
+    Отображает экран для ввода сида и обрабатывает ввод.
+    Возвращает сид в виде числа или None, если пользователь закрыл окно.
+    """
+    font = pygame.font.Font(None, 50)
+    input_box = pygame.Rect(SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 - 25, 300, 50)
+    color_inactive = pygame.Color('lightskyblue3')
+    color_active = pygame.Color('dodgerblue2')
+    color = color_inactive
+    active = False
+    text = ''
+    clock = pygame.time.Clock()
+
+    prompt_surface = font.render("Enter Seed and Press Enter", True, (255, 255, 255))
+    prompt_rect = prompt_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 80))
+
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return None  # Сигнал для выхода из программы
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if input_box.collidepoint(event.pos):
+                    active = not active
+                else:
+                    active = False
+                color = color_active if active else color_inactive
+            if event.type == pygame.KEYDOWN:
+                if active:
+                    if event.key == pygame.K_RETURN:
+                        try:
+                            # Если текст пустой, используем сид по умолчанию
+                            seed_value = int(text) if text else 123
+                            print(f"Seed entered: {seed_value}")
+                            return seed_value
+                        except ValueError:
+                            print(f"Invalid input '{text}', using default seed 123.")
+                            return 123
+                    elif event.key == pygame.K_BACKSPACE:
+                        text = text[:-1]
+                    else:
+                        # Принимаем только цифры
+                        if event.unicode.isdigit():
+                            text += event.unicode
+
+        screen.fill(BACKGROUND_COLOR)
+
+        # Отрисовка текста-подсказки
+        screen.blit(prompt_surface, prompt_rect)
+
+        # Отрисовка поля для ввода
+        txt_surface = font.render(text, True, (255, 255, 255))
+        input_box.w = max(300, txt_surface.get_width() + 20)
+        input_box.x = SCREEN_WIDTH // 2 - input_box.w // 2  # Центрируем поле
+
+        screen.blit(txt_surface, (input_box.x + 10, input_box.y + 10))
+        pygame.draw.rect(screen, color, input_box, 2)
+
+        pygame.display.flip()
+        clock.tick(30)
+
+
+# <<< КОНЕЦ НОВОГО КОДА >>>
 
 
 def main():
@@ -23,12 +91,13 @@ def main():
     pygame.display.set_caption("Pygame World Tester")
     clock = pygame.time.Clock()
 
-    try:
-        city_seed_str = input("Enter city seed (default 123): ")
-        city_seed = int(city_seed_str) if city_seed_str.strip() else 123
-    except ValueError:
-        print("Invalid seed, using 123.")
-        city_seed = 123
+    # --- ИЗМЕНЕНИЕ: Получаем сид через новый UI, а не через консоль ---
+    city_seed = get_seed_from_input_screen(screen)
+    if city_seed is None:
+        print("Window closed. Exiting.")
+        pygame.quit()
+        sys.exit()
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     task_queue = mp.Queue()
     worker_process = mp.Process(
@@ -44,6 +113,24 @@ def main():
     renderer = Renderer(screen)
     camera = Camera()
 
+    def restart_world(new_seed: int):
+        nonlocal task_queue, worker_process, game_world
+        # закрыть старый воркер
+        try:
+            task_queue.put(None)
+        except Exception:
+            pass
+        if worker_process.is_alive():
+            worker_process.join(timeout=2)
+            if worker_process.is_alive():
+                worker_process.terminate()
+        # запустить новый воркер и мир
+        task_queue = mp.Queue()
+        worker_process = mp.Process(target=worker_main, args=(task_queue, new_seed), daemon=True)
+        worker_process.start()
+        print(f"Restart with seed {new_seed}")
+        game_world = GameWorld(new_seed, task_queue)
+
     running = True
     while running:
         dt = clock.tick(60) / 1000.0
@@ -54,13 +141,7 @@ def main():
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 screen_x, screen_y = event.pos
                 target_wx = camera.top_left_wx + screen_x // TILE_SIZE
-
-                # <<< =============== ВОТ ЗДЕСЬ БЫЛА ОШИБКА =============== >>>
-                # Было: target_wz = camera.top_left_wx + screen_y // TILE_SIZE
-                # Стало:
                 target_wz = camera.top_left_wz + screen_y // TILE_SIZE
-                # <<< ===================================================== >>>
-
                 game_world.set_player_target(target_wx, target_wz)
 
         keys = pygame.key.get_pressed()
@@ -76,9 +157,7 @@ def main():
         player_wz = state["player_wz"]
 
         camera.center_on_player(player_wx, player_wz)
-
         screen.fill(BACKGROUND_COLOR)
-
         renderer.draw_world(camera, state["game_world"])
 
         if state["path"]:

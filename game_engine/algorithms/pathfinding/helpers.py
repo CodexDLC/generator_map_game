@@ -1,3 +1,4 @@
+# game_engine/algorithms/pathfinding/helpers.py
 from __future__ import annotations
 from typing import Dict, Tuple, Optional
 import math
@@ -5,33 +6,12 @@ import math
 # Координата клетки (x, z)
 Coord = Tuple[int, int]
 
-# Пытаемся брать типы террейна из движка; если модуль недоступен — используем fallback.
-try:
-    from game_engine.core.constants import (
-        KIND_GROUND, KIND_OBSTACLE, KIND_WATER, KIND_ROAD, KIND_VOID, KIND_SLOPE
-    )
-except Exception:
-    KIND_GROUND = "ground"
-    KIND_OBSTACLE = "obstacle"
-    KIND_WATER = "water"
-    KIND_ROAD = "road"
-    KIND_VOID = "void"
-    KIND_SLOPE = "slope"
+# --- ИЗМЕНЕНИЕ: Импортируем все из единого центра ---
+from game_engine.core.constants import DEFAULT_TERRAIN_FACTOR
 
 # Наборы соседей
 NEI4: Tuple[Coord, ...] = ((-1, 0), (1, 0), (0, -1), (0, 1))
 NEI8: Tuple[Coord, ...] = NEI4 + ((-1, -1), (1, -1), (-1, 1), (1, 1))
-
-# Базовые коэффициенты стоимости для типов (можно переопределять политикой поиска)
-DEFAULT_TERRAIN_FACTOR: Dict[str, float] = {
-    KIND_GROUND:   1.0,
-    KIND_ROAD:     0.6,         # дорога дешевле
-    KIND_OBSTACLE: math.inf,    # непроходимо
-    KIND_WATER:    math.inf,    # по умолчанию непроходимо (для ИИ); для дорог можно ставить 25.0
-    KIND_SLOPE:    math.inf,    # склоны непроходимы
-    KIND_VOID:     math.inf,
-}
-
 
 # ------------------------- УТИЛИТЫ ЯЧЕЕК/СОСЕДЕЙ -------------------------
 

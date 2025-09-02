@@ -1,13 +1,12 @@
-# engine/worldgen_core/grid_alg/features.py
+# game_engine/algorithms/terrain/features.py
 from __future__ import annotations
 from typing import List
 
 from opensimplex import OpenSimplex
 
-from game_engine.core.utils.rng import hash64, RNG
+# --- ИЗМЕНЕНИЯ: Правильные пути ---
+from ...core.utils.rng import hash64, RNG
 
-
-# --------------------------- мировые шумы (без изменений) ---------------------------
 
 def _val_at(seed: int, xi: int, zi: int) -> float:
     h = hash64(seed, xi, zi) & 0xFFFFFFFF
@@ -37,28 +36,16 @@ def fbm2d(noise: OpenSimplex, x: float, z: float, base_freq: float,
 
     return total / max(1e-9, norm)
 
-
-# --------------------------- маски ---------------------------
-
-# <<< КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ >>>
 def _mask_from_noise(seed: int, cx: int, cz: int, size: int,
                      density: float, base_freq: float, octaves: int) -> List[List[int]]:
-    """
-    Создает бинарную маску на основе непрерывного шума OpenSimplex,
-    чтобы гарантировать отсутствие швов.
-    """
     grid = [[0 for _ in range(size)] for _ in range(size)]
     d = max(0.0, min(1.0, float(density)))
-
-    # Создаем ОДИН экземпляр генератора шума для всего чанка
     noise_gen = OpenSimplex(seed)
-
     for z in range(size):
         wz = cz * size + z
         row = grid[z]
         for x in range(size):
             wx = cx * size + x
-            # Передаем в fbm2d объект генератора, а не число-сид
             n = fbm2d(noise_gen, float(wx), float(wz), base_freq, octaves=octaves)
             row[x] = 1 if n < d else 0
     return grid

@@ -4,11 +4,10 @@ import pygame
 import pathlib
 from typing import List, Tuple, Dict
 from .config import (
-    TILE_SIZE, SCREEN_HEIGHT, SCREEN_WIDTH, PLAYER_COLOR, PATH_COLOR, ERROR_COLOR, GATEWAY_COLOR,
-    VIEWPORT_WIDTH_TILES, VIEWPORT_HEIGHT_TILES, ARTIFACTS_ROOT, CHUNK_SIZE
+    TILE_SIZE, SCREEN_HEIGHT, SCREEN_WIDTH, PLAYER_COLOR, PATH_COLOR, ERROR_COLOR,
+    VIEWPORT_WIDTH_TILES, VIEWPORT_HEIGHT_TILES, CHUNK_SIZE
 )
-from engine.worldgen_core.base.constants import DEFAULT_PALETTE
-
+from game_engine.core.constants import DEFAULT_PALETTE
 
 class Camera:
     def __init__(self):

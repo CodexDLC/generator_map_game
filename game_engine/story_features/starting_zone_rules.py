@@ -1,98 +1,168 @@
-# engine/worldgen_core/story_features/starting_zone_rules.py
+# game_engine/story_features/starting_zone_rules.py
 from __future__ import annotations
 from typing import Any
 
-from ..base.types import GenResult
-from ..base.constants import KIND_WATER, KIND_WALL, KIND_GROUND
+from ..core.types import GenResult
+from ..core.constants import KIND_WATER, KIND_WALL, KIND_GROUND, KIND_SLOPE, KIND_BRIDGE
 
 
-def apply_starting_zone_rules(result: GenResult, preset: Any):
+# ==== utils ====
+
+def _ring_no_south(x: int, z: int, size: int) -> int:
+    """Радиус от ближайшей кромки, КРОМЕ южной (юг не трогаем)."""
+    return min(x, z, size - 1 - x)
+
+def _city_params(preset):
+    elev = getattr(preset, "elevation", {})
+    sea = float(elev.get("sea_level_m", 7.0))
+    step = float(elev.get("quantization_step_m", 1.0))
+    mount = float(elev.get("mountain_level_m", 22.0))
+    base = round((sea + (mount - sea) / 2) / step) * step
+    return sea, step, base
+
+def flatten_city_base(result: GenResult, base_h: float) -> None:
+    """(0,0) выровнять всё в базу как GROUND. Юг будет сохранён логикой колец."""
+    if not (result.cx == 0 and result.cz == 0):
+        return
+    size = result.size
+    h = result.layers["height_q"]["grid"]
+    k = result.layers["kind"]
+    for z in range(size):
+        for x in range(size):
+            h[z][x] = base_h
+            k[z][x] = KIND_GROUND
+
+
+# ==== геометрия города: вода → банки → стена, мосты только W/E ====
+
+def apply_city_rings(result: GenResult, preset: Any) -> None:
     """
-    Накладывает на сгенерированный чанк специальные правила для стартовой зоны.
-    - Строит стену вокруг чанка (0,0) с башнями и воротами.
-    - Соседние чанки достраивают свои сегменты стены.
-    - Южные чанки превращаются в воду для порта.
+    (0,0):
+      r=0..2 → вода
+      r=3     → «скала» (+1 шаг от воды)
+      r=4     → «скала» (+2 шага)
+      r=5..(5+th-1) → стена (+3 шага), с воротами W/E/N
+    Южную сторону игнорируем (радиус без южной кромки). Мосты только W/E через воду.
+    """
+    if not (result.cx == 0 and result.cz == 0):
+        return
+
+    size = result.size
+    h = result.layers["height_q"]["grid"]
+    k = result.layers["kind"]
+
+    sea, step, _base = _city_params(preset)
+    water_h = sea - 0.1
+    bank1_h = sea + step
+    bank2_h = sea + 2 * step
+    wall_h  = bank2_h + 3 * step
+
+    wall_cfg = getattr(preset, "city_wall", {}) or {}
+    gate_w   = max(1, int(wall_cfg.get("gate_width", 3)))
+    wall_th  = max(1, int(wall_cfg.get("thickness", 4)))
+
+    c = size // 2
+    a = max(0, c - gate_w // 2)
+    b = min(size, a + gate_w)
+
+    # 0..2 вода, 3 и 4 — банки, 5.. — стена
+    for z in range(size):
+        for x in range(size):
+            r = _ring_no_south(x, z, size)
+
+            if 0 <= r <= 2:
+                h[z][x] = water_h
+                if k[z][x] != KIND_BRIDGE:
+                    k[z][x] = KIND_WATER
+            elif r == 3:
+                h[z][x] = bank1_h
+                if k[z][x] == KIND_WATER:
+                    k[z][x] = KIND_GROUND
+            elif r == 4:
+                h[z][x] = bank2_h
+                if k[z][x] == KIND_WATER:
+                    k[z][x] = KIND_GROUND
+            elif 5 <= r < 5 + wall_th:
+                h[z][x] = wall_h
+                k[z][x] = KIND_WALL
+            # r ≥ 5+wall_th остаётся как база из flatten_city_base
+
+    # Ворота W/E/N через всю толщину стены
+    r0 = 5
+    for d in range(wall_th):
+        x_w = r0 + d                   # запад
+        x_e = size - 1 - (r0 + d)      # восток
+        z_n = r0 + d                   # север
+        if 0 <= x_w < size:
+            for z in range(a, b):
+                k[z][x_w] = KIND_GROUND
+        if 0 <= x_e < size:
+            for z in range(a, b):
+                k[z][x_e] = KIND_GROUND
+        if 0 <= z_n < size:
+            for x in range(a, b):
+                k[z_n][x] = KIND_GROUND
+
+    # Мосты только на воде и только W/E
+    slope_cfg = getattr(preset, "slope_obstacles", {}) or {}
+    dh = float(slope_cfg.get("delta_h_threshold_m", 3.0))
+    bridge_h = water_h + dh
+
+    for d in range(3):  # три внешних радиуса воды
+        x_w = 0 + d
+        if 0 <= x_w < size:
+            for z in range(a, b):
+                k[z][x_w] = KIND_BRIDGE
+                h[z][x_w] = bridge_h
+        x_e = size - 1 - d
+        if 0 <= x_e < size:
+            for z in range(a, b):
+                k[z][x_e] = KIND_BRIDGE
+                h[z][x_e] = bridge_h
+
+def create_fortress_slopes(result: GenResult) -> None:
+    """Добавить склоны вокруг стены, не трогая остальные склоны базы."""
+    size = result.size
+    kind = result.layers["kind"]
+    original = [row[:] for row in kind]
+    for z in range(size):
+        for x in range(size):
+            if original[z][x] != KIND_GROUND:
+                continue
+            if (
+                (x > 0 and original[z][x-1] == KIND_WALL) or
+                (x+1 < size and original[z][x+1] == KIND_WALL) or
+                (z > 0 and original[z-1][x] == KIND_WALL) or
+                (z+1 < size and original[z+1][x] == KIND_WALL)
+            ):
+                kind[z][x] = KIND_SLOPE
+
+
+# ==== оркестратор ====
+
+def apply_starting_zone_rules(result: GenResult, preset: Any) -> None:
+    """
+    Оркестратор стартовой зоны.
+      а) cz==1 и cx∈[-1..1] → сплошная вода (южный океан).
+      б) (0,0) → выравнивание базы → кольца/ворота/мосты → склоны у стены.
+    Остальные чанки не трогаем.
     """
     cx, cz, size = result.cx, result.cz, result.size
-    kind_grid = result.layers["kind"]
-    height_grid = result.layers["height_q"]["grid"]
+    h = result.layers["height_q"]["grid"]
+    k = result.layers["kind"]
 
-    # 1. Загружаем настройки стены из пресета
-    city_wall_cfg = getattr(preset, "city_wall", {})
-    if not city_wall_cfg.get("enabled", False):
-        return  # Если стена выключена, выходим
+    # a) южный океан
+    sea, _, base = _city_params(preset)
 
-    wall_thickness = int(city_wall_cfg.get("thickness", 2))  # По умолчанию 2
-    gate_width = int(city_wall_cfg.get("gate_width", 3))  # По умолчанию 3
-    tower_size = int(city_wall_cfg.get("tower_size", 4))  # По умолчанию 4
-    wall_height = float(preset.elevation.get("mountain_level_m", 22.0))
+    # б) только центральный город
+    if not (cx == 0 and cz == 0):
+        return
 
-    mid = size // 2
-    gate_half = gate_width // 2
+    # база
+    flatten_city_base(result, base_h=base)
 
-    def build_wall_segment(x_range, z_range):
-        for z in z_range:
-            for x in x_range:
-                if 0 <= x < size and 0 <= z < size:
-                    kind_grid[z][x] = KIND_WALL
-                    height_grid[z][x] = wall_height
+    # кольца + ворота + мосты
+    apply_city_rings(result, preset)
 
-    def carve_gate_segment(x_range, z_range):
-        # Используем исходные высоты для ворот, чтобы не создавать обрывы
-        original_heights = [row[:] for row in result.layers["height_q"]["grid"]]
-        for z in z_range:
-            for x in x_range:
-                if 0 <= x < size and 0 <= z < size:
-                    kind_grid[z][x] = KIND_GROUND
-                    height_grid[z][x] = original_heights[z][x]
-
-    # --- Правило 1: Южный Океан ---
-    if cz == 1 and -1 <= cx <= 1:
-        sea_level = float(preset.elevation.get("sea_level_m", 7.0))
-        for z in range(size):
-            for x in range(size):
-                height_grid[z][x] = sea_level - 1.0
-                kind_grid[z][x] = KIND_WATER
-        return  # Этот чанк - вода, стена тут не нужна
-
-    # --- Правило 2: Строительство стены по частям ---
-
-    # Центральный чанк (0, 0) - строит 3 стены, 2 башни и 3 ворот
-    if cx == 0 and cz == 0:
-        # Северная стена
-        build_wall_segment(range(0, size), range(0, wall_thickness))
-        # Западная стена
-        build_wall_segment(range(0, wall_thickness), range(wall_thickness, size))
-        # Восточная стена
-        build_wall_segment(range(size - wall_thickness, size), range(wall_thickness, size))
-
-        # Башни
-        build_wall_segment(range(0, tower_size), range(0, tower_size))  # Северо-западная
-        build_wall_segment(range(size - tower_size, size), range(0, tower_size))  # Северо-восточная
-
-        # Ворота
-        carve_gate_segment(range(mid - gate_half, mid + gate_half + 1), range(0, wall_thickness))  # Северные
-        carve_gate_segment(range(0, wall_thickness), range(mid - gate_half, mid + gate_half + 1))  # Западные
-        carve_gate_segment(range(size - wall_thickness, size), range(mid - gate_half, mid + gate_half + 1))  # Восточные
-
-    # Северный чанк (0, -1) - достраивает северную стену
-    elif cx == 0 and cz == -1:
-        build_wall_segment(range(0, size), range(size - wall_thickness, size))
-
-    # Западный чанк (-1, 0) - достраивает западную стену
-    elif cx == -1 and cz == 0:
-        build_wall_segment(range(size - wall_thickness, size), range(0, size))
-
-    # Восточный чанк (1, 0) - достраивает восточную стену
-    elif cx == 1 and cz == 0:
-        build_wall_segment(range(0, wall_thickness), range(0, size))
-
-    # Северо-западный чанк (-1, -1) - строит угол
-    elif cx == -1 and cz == -1:
-        build_wall_segment(range(size - wall_thickness, size), range(0, size))  # Восточный сегмент
-        build_wall_segment(range(0, size - wall_thickness), range(size - wall_thickness, size))  # Южный сегмент
-
-    # Северо-восточный чанк (1, -1) - строит угол
-    elif cx == 1 and cz == -1:
-        build_wall_segment(range(0, wall_thickness), range(0, size))  # Западный сегмент
-        build_wall_segment(range(wall_thickness, size), range(size - wall_thickness, size))  # Южный сегмент
+    # склоны у стены
+    create_fortress_slopes(result)

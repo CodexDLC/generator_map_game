@@ -1,17 +1,18 @@
-# generator_tester/world_manager.py
+# pygame_tester/world_manager.py
 import json
 import pathlib
 import time
-from typing import Dict, Tuple, Any
+from typing import Dict, Tuple
 
-from engine.worldgen_core.base.preset import Preset
-from engine.worldgen_core.world.world_generator import WorldGenerator
-from engine.worldgen_core.base.export import write_preview_png, write_chunk_rle_json, write_chunk_meta_json
-from engine.worldgen_core.utils.rle import decode_rle_rows
-from engine.worldgen_core.base.constants import ID_TO_KIND, DEFAULT_PALETTE
+# --- ИЗМЕНЕНИЯ: Все импорты теперь ведут в game_engine ---
+from game_engine.core.preset import Preset
+from game_engine.generators.world.world_generator import WorldGenerator
+from game_engine.core.export import write_preview_png, write_chunk_rle_json, write_chunk_meta_json
+from game_engine.core.utils.rle import decode_rle_rows
+from game_engine.core.constants import ID_TO_KIND, DEFAULT_PALETTE
+from game_engine.game_logic.transition_manager import WorldTransitionManager
+
 from .config import CHUNK_SIZE, PRESET_PATH, ARTIFACTS_ROOT
-from game_logic.transition_manager import WorldTransitionManager
-
 
 class WorldManager:
     def __init__(self, city_seed: int):

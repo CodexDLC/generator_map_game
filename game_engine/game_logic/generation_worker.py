@@ -1,6 +1,5 @@
 # Этот файл будет выполняться в отдельном процессе
-
-from generator_tester.world_manager import WorldManager
+from pygame_tester.world_manager import WorldManager
 
 
 def worker_main(task_queue, city_seed: int):

@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "chunk_meta_v1",
+  "type": "object",
+  "additionalProperties": true,
+
+  "properties": {
+    "version": { "type": "string" },
+    "type":    { "type": "string" },
+    "seed":    { "type": "integer" },
+    "size":    { "type": "integer" },
+    "cx":      { "type": "integer" },
+    "cz":      { "type": "integer" },
+    "edges":   { "type": "object" },
+    "ports": {
+      "type": "object",
+      "properties": {
+        "N": { "$ref": "#/definitions/ports_arr" },
+        "E": { "$ref": "#/definitions/ports_arr" },
+        "S": { "$ref": "#/definitions/ports_arr" },
+        "W": { "$ref": "#/definitions/ports_arr" }
+      },
+      "additionalProperties": false
+    },
+    "metrics": { "type": "object" },
+    "world_id": {
+      "oneOf": [
+        { "const": "city" },
+        { "type": "string", "pattern": "^branch/[A-Za-z0-9_-]+$" }
+      ]
+    }
+  },
+  "required": ["version", "type", "seed", "size", "cx", "cz", "edges", "ports"],
+  "definitions": {
+    "ports_arr": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "idx":  { "type": "integer", "minimum": 0 }
+        },
+        "required": ["idx"]
+      }
+    }
+  }
+}

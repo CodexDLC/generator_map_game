@@ -1,11 +1,10 @@
-# engine/worldgen_core/base/preset.py
-
+# game_engine/core/preset.py
 from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, Mapping
 
-from game_engine.core.constants import KIND_VALUES, DEFAULT_PALETTE
-
+# --- ИЗМЕНЕНИЕ: Правильный путь к константам ---
+from .constants import KIND_VALUES, DEFAULT_PALETTE
 
 
 @dataclass(frozen=True)
@@ -14,10 +13,7 @@ class Preset:
     size: int = 64
     cell_size: float = 1.0
 
-    # <<< НАЧАЛО ИЗМЕНЕНИЙ >>>
-    # Добавляем новое поле для настроек стены, как и для других секций
     city_wall: Dict[str, Any] = field(default_factory=dict)
-    # <<< КОНЕЦ ИЗМЕНЕНИЙ >>>
 
     elevation: Dict[str, Any] = field(default_factory=lambda: {
         "enabled": True,
@@ -46,6 +42,7 @@ class Preset:
         "humidity": {"enabled": True, "downsample": 4, "scale": 0.5},
     })
     export: Dict[str, Any] = field(default_factory=lambda: {"palette": DEFAULT_PALETTE.copy(), "thick": True})
+    pre_rules: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -71,23 +68,18 @@ class Preset:
 
         obj = cls(
             id=merged["id"], size=int(merged["size"]), cell_size=float(merged["cell_size"]),
-
-            # <<< НАЧАЛО ИЗМЕНЕНИЙ >>>
-            # Теперь мы явно загружаем секцию city_wall в объект
             city_wall=dict(merged.get("city_wall", {})),
-            # <<< КОНЕЦ ИЗМЕНЕНИЙ >>>
-
             elevation=dict(merged["elevation"]),
             slope_obstacles=dict(merged.get("slope_obstacles", {})),
             obstacles=dict(merged["obstacles"]), water=dict(merged["water"]),
             height_q=dict(merged["height_q"]), ports=dict(merged["ports"]),
             fields=dict(merged["fields"]), export=dict(merged["export"]),
+            pre_rules=dict(merged.get("pre_rules", {}))  # ← ДОБАВЬ ЭТО
         )
         obj.validate()
         return obj
 
     def validate(self) -> None:
-        # (Этот метод без изменений, валидация для elevation пока не нужна)
         if not isinstance(self.id, str) or not self.id:
             raise ValueError("Preset.id must be non-empty string")
         if self.size < 8:
