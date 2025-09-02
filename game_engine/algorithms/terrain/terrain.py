@@ -162,10 +162,10 @@ def apply_slope_obstacles(elevation_grid, kind_grid, preset) -> None:
         for x in range(size):
             h0 = elevation_grid[z][x]
             if x + 1 < size and abs(h0 - elevation_grid[z][x + 1]) >= thr_ratio:
-                mark_land(x, z);
+                mark_land(x, z)
                 mark_land(x + 1, z)
             if z + 1 < size and abs(h0 - elevation_grid[z + 1][x]) >= thr_ratio:
-                mark_land(x, z);
+                mark_land(x, z)
                 mark_land(x, z + 1)
 
 
