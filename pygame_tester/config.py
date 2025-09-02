@@ -4,16 +4,20 @@ import pathlib
 # --- Основные настройки мира ---
 CHUNK_SIZE = 96
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
-
-# <<< ВОТ ИСПРАВЛЕНИЕ: меняем "engine" на "game_engine" >>>
 PRESET_PATH = PROJECT_ROOT / "game_engine" / "presets" / "world" / "base_default.json"
 ARTIFACTS_ROOT = PROJECT_ROOT / "artifacts"
+
+# --- НАЧАЛО ИЗМЕНЕНИЯ: Добавляем ширину меню ---
+MENU_WIDTH = 220
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 # --- Настройки отображения (Viewport) ---
 TILE_SIZE = 20
 VIEWPORT_WIDTH_TILES = 64
 VIEWPORT_HEIGHT_TILES = 64
-SCREEN_WIDTH = VIEWPORT_WIDTH_TILES * TILE_SIZE
+# --- НАЧАЛО ИЗМЕНЕНИЯ: Увеличиваем общую ширину экрана ---
+SCREEN_WIDTH = VIEWPORT_WIDTH_TILES * TILE_SIZE + MENU_WIDTH
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 SCREEN_HEIGHT = VIEWPORT_HEIGHT_TILES * TILE_SIZE
 
 # --- Настройки управления ---

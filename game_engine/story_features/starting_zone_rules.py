@@ -1,168 +1,181 @@
 # game_engine/story_features/starting_zone_rules.py
 from __future__ import annotations
 from typing import Any
+from dataclasses import dataclass
 
 from ..core.types import GenResult
-from ..core.constants import KIND_WATER, KIND_WALL, KIND_GROUND, KIND_SLOPE, KIND_BRIDGE
+from ..core.constants import (
+    KIND_WATER, KIND_WALL, KIND_GROUND, KIND_SLOPE, KIND_BRIDGE, KIND_OBSTACLE
+)
 
 
-# ==== utils ====
+# --- НАЧАЛО ИЗМЕНЕНИЯ: Создаем специальный класс для хранения параметров ---
+@dataclass
+class CityParams:
+    """Хранит все рассчитанные параметры для строительства города."""
+    # Основные параметры из пресета
+    sea_level: float
+    step: float
+    mountain_level: float
 
-def _ring_no_south(x: int, z: int, size: int) -> int:
-    """Радиус от ближайшей кромки, КРОМЕ южной (юг не трогаем)."""
-    return min(x, z, size - 1 - x)
+    # Геометрия
+    gate_w: int
+    wall_th: int
+    r_moat_end: int
+    r_slope1: int
+    r_slope2: int
+    r_wall_start: int
+    r_wall_end: int
 
-def _city_params(preset):
-    elev = getattr(preset, "elevation", {})
-    sea = float(elev.get("sea_level_m", 7.0))
-    step = float(elev.get("quantization_step_m", 1.0))
-    mount = float(elev.get("mountain_level_m", 22.0))
-    base = round((sea + (mount - sea) / 2) / step) * step
-    return sea, step, base
+    # Рассчитанные высоты
+    base_h: float
+    water_h: float
+    slope1_h: float
+    slope2_h: float
+    wall_h: float
 
-def flatten_city_base(result: GenResult, base_h: float) -> None:
-    """(0,0) выровнять всё в базу как GROUND. Юг будет сохранён логикой колец."""
-    if not (result.cx == 0 and result.cz == 0):
-        return
+    @classmethod
+    def from_preset(cls, preset: Any) -> "CityParams":
+        """Фабричный метод для создания параметров из пресета."""
+        elev = getattr(preset, "elevation", {})
+        sea_level = float(elev.get("sea_level_m", 7.0))
+        step = float(elev.get("quantization_step_m", 1.0))
+        mountain_level = float(elev.get("mountain_level_m", 22.0))
+        base_h = round((sea_level + (mountain_level - sea_level) / 2) / step) * step
+
+        wall_cfg = getattr(preset, "city_wall", {}) or {}
+        wall_th = max(1, int(wall_cfg.get("thickness", 4)))
+
+        r_moat_end = 2
+        r_slope1 = 3
+        r_slope2 = 4
+        r_wall_start = 5
+
+        return cls(
+            sea_level=sea_level,
+            step=step,
+            mountain_level=mountain_level,
+            gate_w=max(1, int(wall_cfg.get("gate_width", 3))),
+            wall_th=wall_th,
+            r_moat_end=r_moat_end,
+            r_slope1=r_slope1,
+            r_slope2=r_slope2,
+            r_wall_start=r_wall_start,
+            r_wall_end=r_wall_start + wall_th - 1,
+            base_h=base_h,
+            water_h=sea_level - 0.1,
+            slope1_h=sea_level + step,
+            slope2_h=sea_level + 2 * step,
+            wall_h=mountain_level - step
+        )
+
+
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+
+def build_city_base_and_walls(result: GenResult, p: CityParams):  # <-- Принимает CityParams
+    """Этап 1: Строит основу города, стены, рвы, адаптируясь к скалам."""
     size = result.size
-    h = result.layers["height_q"]["grid"]
-    k = result.layers["kind"]
+    h_grid = result.layers["height_q"]["grid"]
+    k_grid = result.layers["kind"]
+    original_h = [row[:] for row in h_grid]
+
     for z in range(size):
         for x in range(size):
-            h[z][x] = base_h
-            k[z][x] = KIND_GROUND
+            r = min(x, z, size - 1 - x)
+            is_natural_cliff = original_h[z][x] >= p.mountain_level
 
+            if 0 <= r <= p.r_moat_end:
+                if is_natural_cliff:
+                    k_grid[z][x] = KIND_OBSTACLE
+                else:
+                    k_grid[z][x] = KIND_WATER; h_grid[z][x] = p.water_h
+            elif r == p.r_slope1:
+                if is_natural_cliff:
+                    k_grid[z][x] = KIND_OBSTACLE
+                else:
+                    k_grid[z][x] = KIND_SLOPE; h_grid[z][x] = p.slope1_h
+            elif r == p.r_slope2:
+                if is_natural_cliff:
+                    k_grid[z][x] = KIND_OBSTACLE
+                else:
+                    k_grid[z][x] = KIND_SLOPE; h_grid[z][x] = p.slope2_h
+            elif p.r_wall_start <= r <= p.r_wall_end:
+                if is_natural_cliff:
+                    k_grid[z][x] = KIND_OBSTACLE
+                else:
+                    k_grid[z][x] = KIND_WALL; h_grid[z][x] = p.wall_h
+            else:
+                k_grid[z][x] = KIND_GROUND;
+                h_grid[z][x] = p.base_h
 
-# ==== геометрия города: вода → банки → стена, мосты только W/E ====
+    result.metrics["temp_original_h"] = original_h
 
-def apply_city_rings(result: GenResult, preset: Any) -> None:
-    """
-    (0,0):
-      r=0..2 → вода
-      r=3     → «скала» (+1 шаг от воды)
-      r=4     → «скала» (+2 шага)
-      r=5..(5+th-1) → стена (+3 шага), с воротами W/E/N
-    Южную сторону игнорируем (радиус без южной кромки). Мосты только W/E через воду.
-    """
-    if not (result.cx == 0 and result.cz == 0):
-        return
-
-    size = result.size
-    h = result.layers["height_q"]["grid"]
-    k = result.layers["kind"]
-
-    sea, step, _base = _city_params(preset)
-    water_h = sea - 0.1
-    bank1_h = sea + step
-    bank2_h = sea + 2 * step
-    wall_h  = bank2_h + 3 * step
-
-    wall_cfg = getattr(preset, "city_wall", {}) or {}
-    gate_w   = max(1, int(wall_cfg.get("gate_width", 3)))
-    wall_th  = max(1, int(wall_cfg.get("thickness", 4)))
-
-    c = size // 2
-    a = max(0, c - gate_w // 2)
-    b = min(size, a + gate_w)
-
-    # 0..2 вода, 3 и 4 — банки, 5.. — стена
-    for z in range(size):
-        for x in range(size):
-            r = _ring_no_south(x, z, size)
-
-            if 0 <= r <= 2:
-                h[z][x] = water_h
-                if k[z][x] != KIND_BRIDGE:
-                    k[z][x] = KIND_WATER
-            elif r == 3:
-                h[z][x] = bank1_h
-                if k[z][x] == KIND_WATER:
-                    k[z][x] = KIND_GROUND
-            elif r == 4:
-                h[z][x] = bank2_h
-                if k[z][x] == KIND_WATER:
-                    k[z][x] = KIND_GROUND
-            elif 5 <= r < 5 + wall_th:
-                h[z][x] = wall_h
-                k[z][x] = KIND_WALL
-            # r ≥ 5+wall_th остаётся как база из flatten_city_base
-
-    # Ворота W/E/N через всю толщину стены
-    r0 = 5
-    for d in range(wall_th):
-        x_w = r0 + d                   # запад
-        x_e = size - 1 - (r0 + d)      # восток
-        z_n = r0 + d                   # север
-        if 0 <= x_w < size:
-            for z in range(a, b):
-                k[z][x_w] = KIND_GROUND
-        if 0 <= x_e < size:
-            for z in range(a, b):
-                k[z][x_e] = KIND_GROUND
-        if 0 <= z_n < size:
-            for x in range(a, b):
-                k[z_n][x] = KIND_GROUND
-
-    # Мосты только на воде и только W/E
-    slope_cfg = getattr(preset, "slope_obstacles", {}) or {}
-    dh = float(slope_cfg.get("delta_h_threshold_m", 3.0))
-    bridge_h = water_h + dh
-
-    for d in range(3):  # три внешних радиуса воды
-        x_w = 0 + d
-        if 0 <= x_w < size:
-            for z in range(a, b):
-                k[z][x_w] = KIND_BRIDGE
-                h[z][x_w] = bridge_h
-        x_e = size - 1 - d
-        if 0 <= x_e < size:
-            for z in range(a, b):
-                k[z][x_e] = KIND_BRIDGE
-                h[z][x_e] = bridge_h
 
 def create_fortress_slopes(result: GenResult) -> None:
-    """Добавить склоны вокруг стены, не трогая остальные склоны базы."""
+    # ... (код этой функции не меняется) ...
     size = result.size
     kind = result.layers["kind"]
     original = [row[:] for row in kind]
     for z in range(size):
         for x in range(size):
-            if original[z][x] != KIND_GROUND:
-                continue
-            if (
-                (x > 0 and original[z][x-1] == KIND_WALL) or
-                (x+1 < size and original[z][x+1] == KIND_WALL) or
-                (z > 0 and original[z-1][x] == KIND_WALL) or
-                (z+1 < size and original[z+1][x] == KIND_WALL)
-            ):
+            if original[z][x] != KIND_GROUND: continue
+            if ((x > 0 and original[z][x - 1] == KIND_WALL) or
+                    (x + 1 < size and original[z][x + 1] == KIND_WALL) or
+                    (z > 0 and original[z - 1][x] == KIND_WALL) or
+                    (z + 1 < size and original[z + 1][x] == KIND_WALL)):
                 kind[z][x] = KIND_SLOPE
 
 
-# ==== оркестратор ====
+def carve_city_entrances(result: GenResult, p: CityParams):  # <-- Принимает CityParams
+    """Этап 3: Прорезает ворота и дороги поверх готового рельефа."""
+    size = result.size
+    h_grid = result.layers["height_q"]["grid"]
+    k_grid = result.layers["kind"]
+    original_h = result.metrics.get("temp_original_h", [])
+
+    c = size // 2
+    gate_start = max(0, c - p.gate_w // 2)
+    gate_end = min(size, gate_start + p.gate_w)
+
+    if original_h:
+        is_north_gate_blocked = any(
+            original_h[r][x] >= p.mountain_level for r in range(p.r_wall_end + 1) for x in range(gate_start, gate_end))
+        if not is_north_gate_blocked:
+            for r in range(p.r_wall_end + 1):
+                for x in range(gate_start, gate_end):
+                    k_grid[r][x] = KIND_GROUND;
+                    h_grid[r][x] = p.base_h
+
+    road_extension_inner = 10
+    total_road_length = p.r_wall_end + 1 + road_extension_inner
+    for z in range(gate_start, gate_end):
+        for i in range(total_road_length):
+            x_w = i
+            if 0 <= x_w < size:
+                h_grid[z][x_w] = p.base_h
+                k_grid[z][x_w] = KIND_BRIDGE if x_w <= p.r_moat_end else KIND_GROUND
+            x_e = size - 1 - i
+            if 0 <= x_e < size:
+                h_grid[z][x_e] = p.base_h
+                k_grid[z][x_e] = KIND_BRIDGE if (size - 1 - x_e) <= p.r_moat_end else KIND_GROUND
+
+
+# ==== Главная управляющая функция (оркестратор) ====
 
 def apply_starting_zone_rules(result: GenResult, preset: Any) -> None:
-    """
-    Оркестратор стартовой зоны.
-      а) cz==1 и cx∈[-1..1] → сплошная вода (южный океан).
-      б) (0,0) → выравнивание базы → кольца/ворота/мосты → склоны у стены.
-    Остальные чанки не трогаем.
-    """
-    cx, cz, size = result.cx, result.cz, result.size
-    h = result.layers["height_q"]["grid"]
-    k = result.layers["kind"]
-
-    # a) южный океан
-    sea, _, base = _city_params(preset)
-
-    # б) только центральный город
-    if not (cx == 0 and cz == 0):
+    if not (result.cx == 0 and result.cz == 0):
         return
 
-    # база
-    flatten_city_base(result, base_h=base)
+    # --- НАЧАЛО ИЗМЕНЕНИЯ: Создаем параметры ОДИН РАЗ ---
+    city_params = CityParams.from_preset(preset)
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
-    # кольца + ворота + мосты
-    apply_city_rings(result, preset)
+    # 1. Строим базу и стены, передавая готовые параметры
+    build_city_base_and_walls(result, city_params)
 
-    # склоны у стены
+    # 2. Создаем склоны у стен
     create_fortress_slopes(result)
+
+    # 3. Прорезаем въезды, передавая те же самые параметры
+    carve_city_entrances(result, city_params)

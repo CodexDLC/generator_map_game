@@ -1,5 +1,7 @@
 # game_engine/generators/_base/pregen_rules.py
 from __future__ import annotations
+
+import math
 from typing import Any, Optional, Tuple, List
 import random
 
@@ -41,60 +43,47 @@ def early_fill_decision(cx: int, cz: int, size: int, preset: Any, seed: int) -> 
 def modify_elevation_inplace(elev_grid: List[List[float]],
                              cx: int, cz: int, size: int, preset: Any, seed: int) -> None:
     """
-    Берег рисуем только в ряду cz==0.
-    Вода: полоса глубиной 3..10 тайлов (сглаживание по X).
-    «Скала» ровно в 1 клетку: ставим её только если перепад с северным соседом >= 2*quantization_step_m.
-    Вторую береговую полосу НЕ делаем, чтобы не расширять скалы.
+    Создает плавный переход к океану на южной стороне чанков с cz=0.
+    Вместо рваного берега создается гладкий склон (пляж).
     """
+    # Это правило работает только для линии чанков cz=0
     if cz != 0:
         return
 
+    # Получаем настройки
     pre = getattr(preset, "pre_rules", {}) or {}
     cfg = pre.get("cz0_coast", {}) or {}
-    dmin = max(1, int(cfg.get("depth_min_tiles", 3)))
-    dmax = max(dmin, int(cfg.get("depth_max_tiles", 10)))
-    smooth_passes = int(cfg.get("smooth_passes", 1))
 
-    elev = getattr(preset, "elevation", {}) or {}
-    sea  = float(elev.get("sea_level_m", 20.0))
-    step = float(elev.get("quantization_step_m", 1.0))
+    # Определяем зону перехода (например, южная треть чанка)
+    transition_depth_tiles = max(1, int(cfg.get("depth_max_tiles", size // 3)))
 
-    water_h = sea - 0.1
-    cliff_h = sea + step              # высота клетки-скалы
-    gentle_h = sea + 0.3 * step       # мягкий берег, чтоб не триггерить скалу
+    elev_cfg = getattr(preset, "elevation", {}) or {}
+    sea_level = float(elev_cfg.get("sea_level_m", 20.0))
+    ocean_h = sea_level - 0.1  # Высота океана в чанках cz=1
 
-    rng = random.Random((seed << 16) ^ (cx << 8) ^ 0x7F4A7C15)
+    # Координата Z, с которой начинается плавный спуск
+    start_z = size - transition_depth_tiles
 
-    # случайная глубина воды по X
-    depth = [rng.randint(dmin, dmax) for _ in range(size)]
+    # Проходим по всем клеткам в зоне перехода
+    for z in range(start_z, size):
+        # Коэффициент перехода от 0 (начало спуска) до 1 (полный океан)
+        # Используем math.sin для более плавного, нелинейного изгиба пляжа
+        ratio = (z - start_z) / (transition_depth_tiles - 1)
+        smooth_ratio = math.sin(ratio * math.pi / 2)
 
-    # сглаживание по X
-    for _ in range(max(0, smooth_passes)):
-        new = depth[:]
         for x in range(size):
-            a = depth[x - 1] if x - 1 >= 0 else depth[x]
-            b = depth[x]
-            c = depth[x + 1] if x + 1 < size else depth[x]
-            new[x] = int(round((a + 2 * b + c) / 4.0))
-        depth = new
+            original_h = elev_grid[z][x]
 
-    H = size
-    for x in range(size):
-        dep = max(1, min(size, depth[x]))
-        z_water_from = max(0, H - dep)
-        z_cliff = z_water_from - 1     # ровно одна клетка у кромки
+            # Интерполируем высоту от оригинальной до высоты океана
+            # Чем ближе к южному краю (ratio -> 1), тем ближе высота к ocean_h
+            new_h = original_h * (1 - smooth_ratio) + ocean_h * smooth_ratio
 
-        # вода
-        for z in range(z_water_from, H):
-            elev_grid[z][x] = water_h
-
-        # решаем, скала это или мягкий берег
-        if 0 <= z_cliff < H:
-            north_z = z_cliff - 1
-            north_h = elev_grid[north_z][x] if north_z >= 0 else gentle_h
-            # скала только если перепад >= 2*step
-            if (north_h - cliff_h) >= (2.0 * step):
-                elev_grid[z_cliff][x] = cliff_h
-            else:
-                elev_grid[z_cliff][x] = max(elev_grid[z_cliff][x], gentle_h)
-
+            # Если новая высота ниже уровня моря, это точно вода
+            if new_h < sea_level:
+                elev_grid[z][x] = new_h
+            # Если она чуть выше, делаем ее равной уровню моря, чтобы избежать
+            # появления одиноких "холмиков" на пляже
+            elif new_h < sea_level + 0.5:  # Небольшой порог
+                elev_grid[z][x] = sea_level
+            # В остальных случаях оставляем как есть, чтобы не трогать высокие горы
+            # которые могут выходить к воде

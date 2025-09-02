@@ -7,7 +7,7 @@ from opensimplex import OpenSimplex
 
 # --- ИЗМЕНЕНИЯ: Правильные пути ---
 from .features import fbm2d
-from ...core.constants import KIND_GROUND, KIND_OBSTACLE, KIND_WATER, KIND_SLOPE, KIND_WALL, KIND_ROAD
+from ...core.constants import KIND_GROUND, KIND_OBSTACLE, KIND_WATER, KIND_SLOPE, KIND_WALL, KIND_ROAD, KIND_SAND
 
 
 # (весь остальной код в этом файле не требует изменений)
@@ -253,3 +253,54 @@ def apply_slope_obstacles(elevation_grid, kind_grid, preset) -> None:
                     dhd = abs(elevation_grid[z][x + 1] - elevation_grid[z + 1][x])
                     if dhd + eps >= max(min_dh, thr_ratio * run_d):
                         mark_land(x + 1, z); mark_land(x, z + 1)
+
+
+def apply_beaches(
+        elevation_grid: List[List[float]],
+        kind_grid: List[List[str]],
+        preset: Any
+) -> None:
+    """
+    Превращает землю, примыкающую к воде на том же уровне, в песок.
+    """
+    size = len(kind_grid)
+    if size == 0:
+        return
+
+    elev_cfg = getattr(preset, "elevation", {}) or {}
+    step = float(elev_cfg.get("quantization_step_m", 1.0))
+    # Порог разницы высот, чтобы считать землю и воду "на одном уровне"
+    height_threshold = step * 0.5
+
+    # Создаем копию kind_grid, чтобы изменения не влияли на соседей в той же итерации
+    new_kind_grid = [row[:] for row in kind_grid]
+
+    for z in range(size):
+        for x in range(size):
+            # Ищем только тайлы земли
+            if kind_grid[z][x] != KIND_GROUND:
+                continue
+
+            is_beach = False
+            # Проверяем 4-х соседей
+            for dx, dz in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                nx, nz = x + dx, z + dz
+
+                # Убеждаемся, что сосед в пределах карты
+                if 0 <= nx < size and 0 <= nz < size:
+                    # Если сосед - вода
+                    if kind_grid[nz][nx] == KIND_WATER:
+                        # Проверяем, что они почти на одном уровне
+                        h_ground = elevation_grid[z][x]
+                        h_water = elevation_grid[nz][nx]
+                        if abs(h_ground - h_water) < height_threshold:
+                            is_beach = True
+                            break  # Нашли соседа с водой, дальше можно не искать
+
+            if is_beach:
+                new_kind_grid[z][x] = KIND_SAND
+
+    # Применяем изменения обратно в оригинальный kind_grid
+    for z in range(size):
+        for x in range(size):
+            kind_grid[z][x] = new_kind_grid[z][x]
