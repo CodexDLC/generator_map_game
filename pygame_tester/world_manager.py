@@ -11,26 +11,34 @@ from game_engine.core.export import write_preview_png, write_chunk_rle_json, wri
 from game_engine.core.utils.rle import decode_rle_rows
 from game_engine.core.constants import ID_TO_KIND, DEFAULT_PALETTE
 from game_engine.game_logic.transition_manager import WorldTransitionManager
+from game_engine.world_structure.regions import RegionManager
 
-from .config import CHUNK_SIZE, PRESET_PATH, ARTIFACTS_ROOT
+from .config import PRESET_PATH, ARTIFACTS_ROOT
+
 
 class WorldManager:
     def __init__(self, city_seed: int):
         self.city_seed = city_seed
         self.preset = self._load_preset()
-        self.generator = WorldGenerator(self.preset)
+
+        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+        # 1. Создаем RegionManager с сидом мира
+        self.region_manager = RegionManager(world_seed=city_seed)
+        # 2. Передаем preset И region_manager в конструктор WorldGenerator
+        self.generator = WorldGenerator(self.preset, self.region_manager)
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
         self.cache: Dict[Tuple, Dict | None] = {}
         self.preload_radius = 1
 
-        # Теперь только два состояния: 'city' или 'world_location'
         self.world_id = "city"
-        # current_seed теперь всегда равен city_seed
         self.current_seed = city_seed
 
         self.player_chunk_cx = 0
         self.player_chunk_cz = 0
 
         self.transition_manager = WorldTransitionManager(self)
+
 
     def get_chunk_data(self, cx: int, cz: int) -> Dict | None:
         """

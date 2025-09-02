@@ -33,6 +33,13 @@ class Preset:
         "ignore_water_edges": True,
     })
 
+    scatter: Dict[str, Any] = field(default_factory=lambda: {
+        "enabled": False,
+        "groups": {"noise_scale_tiles": 64.0, "threshold": 0.5},
+        "details": {"noise_scale_tiles": 8.0, "threshold": 0.6},
+        "thinning": {"enabled": True, "min_distance": 2} # <-- Обновлено
+    })
+
     obstacles: Dict[str, Any] = field(default_factory=lambda: {"density": 0.12, "min_blob": 8, "max_blob": 64})
     water: Dict[str, Any] = field(default_factory=lambda: {"density": 0.05, "lake_chance": 0.2})
     height_q: Dict[str, Any] = field(default_factory=lambda: {"scale": 0.1})
@@ -71,6 +78,7 @@ class Preset:
             city_wall=dict(merged.get("city_wall", {})),
             elevation=dict(merged["elevation"]),
             slope_obstacles=dict(merged.get("slope_obstacles", {})),
+            scatter=dict(merged.get("scatter", {})),
             obstacles=dict(merged["obstacles"]), water=dict(merged["water"]),
             height_q=dict(merged["height_q"]), ports=dict(merged["ports"]),
             fields=dict(merged["fields"]), export=dict(merged["export"]),
@@ -131,6 +139,12 @@ class Preset:
             col = str(pal[k])
             if not col.startswith("#"):
                 raise ValueError(f"export.palette['{k}'] must be hex like '#RRGGBB' or '#AARRGGBB'")
+
+        sc_cfg = dict(self.scatter)
+        if sc_cfg.get("enabled", False):
+            sc_dens = float(sc_cfg.get("density_threshold", 0.0))
+            if not (0.0 <= sc_dens <= 1.0):
+                raise ValueError("scatter.density_threshold must be in [0,1]")
 
 
 DEFAULT_BASE_PRESET = Preset()

@@ -9,7 +9,7 @@ from ...core.utils.layers import make_empty_layers
 from ...core.utils.metrics import compute_metrics
 from ...algorithms.terrain.terrain import (
     generate_elevation, classify_terrain, apply_slope_obstacles,
-    apply_scatter
+    generate_scatter_mask
 )
 # --- ИЗМЕНЕНИЕ: Убираем лишнее, импортируем новую функцию ---
 from .pregen_rules import early_fill_decision, apply_ocean_coast_rules
@@ -34,6 +34,7 @@ class BaseGenerator:
         # --- Этап 1: Быстрая заливка океана ---
         pre_fill = early_fill_decision(cx, cz, size, self.preset, seed)
         if pre_fill:
+            # ... (эта часть остается без изменений) ...
             kind_name, height_value = pre_fill
             elevation_grid = [[float(height_value) for _ in range(size)] for _ in range(size)]
             layers["height_q"]["grid"] = elevation_grid
@@ -42,8 +43,13 @@ class BaseGenerator:
                                cell_size=getattr(self.preset, "cell_size", 1.0), layers=layers)
             return result
 
+        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+
         # --- Этап 2: Генерация базового рельефа ---
-        elevation_grid = generate_elevation(stage_seeds["elevation"], cx, cz, size, self.preset)
+        # Теперь получаем ДВЕ карты высот
+        elevation_grid, elevation_grid_with_margin = generate_elevation(
+            stage_seeds["elevation"], cx, cz, size, self.preset
+        )
         layers["height_q"]["grid"] = elevation_grid
 
         # --- Этап 3: Классификация и детализация (новый порядок) ---
@@ -53,17 +59,15 @@ class BaseGenerator:
             layers=layers, stage_seeds=stage_seeds
         )
 
-        # 3.1. Базовая классификация на воду и землю
+        # 3.1. Базовая классификация на воду и землю (используем ОБРЕЗАННУЮ карту)
         classify_terrain(elevation_grid, result.layers["kind"], self.preset)
 
-        # 3.2. Применяем ВАШИ особые правила для океанского побережья (cz=0)
+        # 3.2. Применяем особые правила для океанского побережья
         apply_ocean_coast_rules(result, self.preset)
 
-        # 3.3. Рассыпаем объекты для биомов (деревья/камни)
-        apply_scatter(stage_seeds["obstacles"], cx, cz, size, result.layers["kind"], self.preset)
+        # 3.3. Создаем склоны у резких обрывов
+        apply_slope_obstacles(elevation_grid_with_margin, result.layers["kind"], self.preset)
 
-        # 3.4. Создаем склоны у резких обрывов на остальной части карты
-        apply_slope_obstacles(elevation_grid, result.layers["kind"], self.preset)
 
         # --- Этап 4: Финализация ---
         result.metrics["gen_timings_ms"] = {"total_ms": (time.perf_counter() - t0) * 1000.0}

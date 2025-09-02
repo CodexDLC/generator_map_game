@@ -27,8 +27,18 @@
 
   "scatter": {
     "enabled": true,
-    "noise_scale_tiles": 16.0,
-    "density_threshold": 0.6
+    "groups": {
+      "noise_scale_tiles": 64.0,
+      "threshold": 0.45
+    },
+    "details": {
+      "noise_scale_tiles": 7.0,
+      "threshold": 0.55
+    },
+    "thinning": {
+      "enabled": true,
+      "min_distance": 2
+    }
   },
 
   "slope_obstacles": { "enabled": true, "angle_threshold_deg": 55 },

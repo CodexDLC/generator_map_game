@@ -81,6 +81,8 @@ def init_rng(seed: int, cx: int, cz: int) -> Dict[str, int]:
         "elevation":   seed,
         "temperature": seed ^ 0xA5A5A5A5,
         "humidity":    seed ^ 0x5A5A5A5A,
-        "obstacles":   base ^ 0x55AA55AA,
+        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+        "obstacles":   seed ^ 0x55AA55AA, # <-- Меняем 'base' на 'seed' и добавляем XOR, чтобы шум отличался от высот
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
         "water":       base ^ 0x33CC33CC,
     }
