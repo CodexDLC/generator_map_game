@@ -25,10 +25,10 @@ class WorldGenerator(BaseGenerator):
         )
         apply_biome_rules(result, self.preset, region)
 
-        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
-        # 3. Строим дороги. Этот шаг теперь ПОСЛЕДНИЙ перед финализацией.
-        build_local_roads(result, self.preset, params)
-        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+        # --- НАЧАЛО ИЗМЕНЕНИЯ ---
+        # 3. Строим дороги, передавая ВЕСЬ РЕГИОН с планом дорог
+        build_local_roads(result, self.preset, params, region)
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
         # 4. Применяем особые правила для стартовой зоны (например, город)
         is_starting_zone = (

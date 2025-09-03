@@ -8,6 +8,7 @@ from .player import Player
 from pygame_tester.world_manager import WorldManager
 from ..algorithms.pathfinding.a_star import find_path
 from pygame_tester.config import CHUNK_SIZE, PLAYER_MOVE_SPEED
+from ..core.constants import KIND_VOID
 
 
 class LoadingState(Enum):
@@ -180,42 +181,82 @@ class GameWorld:
         return {"kind": kind, "height": height}
 
     def set_player_target(self, target_wx: int, target_wz: int):
+        """
+        Ищет путь к цели, даже если она находится в другом чанке.
+        Для этого временно "сшивает" необходимые чанки в одну большую карту.
+        """
+        # 1. Определяем, какие чанки нам нужны для поиска пути
         player_cx, player_cz = self.player.wx // CHUNK_SIZE, self.player.wz // CHUNK_SIZE
-        if (player_cx, player_cz) not in self.render_grid:
-            self._update_surrounding_grid(player_cx, player_cz)
-        chunk_data = self.render_grid.get((player_cx, player_cz))
-        if chunk_data:
-            target_cx, target_cz = target_wx // CHUNK_SIZE, target_wz // CHUNK_SIZE
-            start_lx, start_lz = self.player.wx % CHUNK_SIZE, self.player.wz % CHUNK_SIZE
-            if (player_cx, player_cz) == (target_cx, target_cz):
-                end_lx, end_lz = target_wx % CHUNK_SIZE, target_wz % CHUNK_SIZE
-            else:
-                dx = target_cx - player_cx
-                dz = target_cz - player_cz
-                if abs(dx) > abs(dz):
-                    end_lx = CHUNK_SIZE - 1 if dx > 0 else 0
-                    end_lz = target_wz % CHUNK_SIZE
-                else:
-                    end_lz = CHUNK_SIZE - 1 if dz > 0 else 0
-                    end_lx = target_wx % CHUNK_SIZE
-            local_path = find_path(
-                chunk_data.get('kind', []), chunk_data.get('height', []),
-                (start_lx, start_lz), (end_lx, end_lz)
-            )
-            if local_path:
-                wx_offset = player_cx * CHUNK_SIZE
-                wz_offset = player_cz * CHUNK_SIZE
-                self.player.path = [(lx + wx_offset, lz + wz_offset) for lx, lz in local_path]
-                # --- ИЗМЕНЕНИЕ: СТРОКА НИЖЕ БЫЛА УДАЛЕНА ---
-                # if self.player.path: self.player.path.pop(0)
-            else:
-                self.player.path = []
-                print("Path not found!")
+        target_cx, target_cz = target_wx // CHUNK_SIZE, target_wz // CHUNK_SIZE
+
+        # Находим левую верхнюю и правую нижнюю границы области в чанках
+        min_cx = min(player_cx, target_cx)
+        max_cx = max(player_cx, target_cx)
+        min_cz = min(player_cz, target_cz)
+        max_cz = max(player_cz, target_cz)
+
+        # 2. Создаем большую "сшитую" карту из нескольких чанков
+        num_chunks_x = max_cx - min_cx + 1
+        num_chunks_z = max_cz - min_cz + 1
+
+        stitched_width = num_chunks_x * CHUNK_SIZE
+        stitched_height = num_chunks_z * CHUNK_SIZE
+
+        # Заполняем карту непроходимыми тайлами по умолчанию
+        stitched_kind_grid = [[KIND_VOID for _ in range(stitched_width)] for _ in range(stitched_height)]
+        stitched_height_grid = [[0.0 for _ in range(stitched_width)] for _ in range(stitched_height)]
+
+        # Копируем данные из загруженных чанков в большую карту
+        for cz_offset in range(num_chunks_z):
+            for cx_offset in range(num_chunks_x):
+                cx, cz = min_cx + cx_offset, min_cz + cz_offset
+                chunk_data = self.render_grid.get((cx, cz))
+
+                if chunk_data:
+                    # Рассчитываем, куда вставить данные этого чанка
+                    paste_x_start = cx_offset * CHUNK_SIZE
+                    paste_z_start = cz_offset * CHUNK_SIZE
+
+                    kind = chunk_data.get('kind', [])
+                    height = chunk_data.get('height', [])
+
+                    # Проверяем, что данные не пустые
+                    if not kind or not height: continue
+
+                    for z in range(CHUNK_SIZE):
+                        for x in range(CHUNK_SIZE):
+                            stitched_kind_grid[paste_z_start + z][paste_x_start + x] = kind[z][x]
+                            stitched_height_grid[paste_z_start + z][paste_x_start + x] = height[z][x]
+
+        # 3. Переводим мировые координаты в локальные для "сшитой" карты
+        start_stitched_x = self.player.wx - (min_cx * CHUNK_SIZE)
+        start_stitched_z = self.player.wz - (min_cz * CHUNK_SIZE)
+
+        goal_stitched_x = target_wx - (min_cx * CHUNK_SIZE)
+        goal_stitched_z = target_wz - (min_cz * CHUNK_SIZE)
+
+        # 4. Запускаем A* на большой "сшитой" карте
+        stitched_path = find_path(
+            stitched_kind_grid, stitched_height_grid,
+            (start_stitched_x, start_stitched_z),
+            (goal_stitched_x, goal_stitched_z)
+        )
+
+        # 5. Если путь найден, переводим его обратно в мировые координаты
+        if stitched_path:
+            wx_offset = min_cx * CHUNK_SIZE
+            wz_offset = min_cz * CHUNK_SIZE
+            self.player.path = [(lx + wx_offset, lz + wz_offset) for lx, lz in stitched_path]
+        else:
+            self.player.path = []
+            print("Path not found across chunks!")
 
     def move_player_by(self, dx: int, dz: int):
+        """Перемещает игрока на заданное смещение и отменяет текущий путь."""
         self.player.wx += dx
         self.player.wz += dz
         self.player.path = []
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     def get_render_state(self) -> Dict[str, Any]:
         return {
@@ -225,9 +266,14 @@ class GameWorld:
         }
 
     def _handle_path_movement(self, dt: float):
-        if not self.player.path: return
+        """Обрабатывает движение игрока по заранее рассчитанному пути."""
+        if not self.player.path:
+            return
+
         self.player.move_timer += dt
         if self.player.move_timer >= PLAYER_MOVE_SPEED:
             self.player.move_timer = 0
+            # Берем следующую точку из пути и перемещаем туда игрока
             next_pos = self.player.path.pop(0)
             self.player.wx, self.player.wz = next_pos
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---

@@ -7,7 +7,7 @@ import math
 from .routers import BaseRoadRouter
 from .helpers import Coord, in_bounds
 from ...core.constants import (
-    KIND_GROUND, KIND_ROAD, KIND_WATER, KIND_OBSTACLE, KIND_SLOPE, KIND_VOID
+    KIND_GROUND, KIND_ROAD, KIND_WATER, KIND_OBSTACLE, KIND_SLOPE, KIND_VOID, KIND_BRIDGE
 )
 
 def _l1(a: Coord, b: Coord) -> int:
@@ -67,31 +67,32 @@ def apply_paths_to_grid(
     allow_slope: bool = False,
     allow_water: bool = False,
 ) -> None:
-    if width < 1:
-        width = 1
-
+    """
+    Применяет пути к карте, создавая сплошную дорогу заданной ширины.
+    (Финальная, упрощенная версия).
+    """
     h = len(kind_grid)
     w = len(kind_grid[0]) if h else 0
+    original_kind = [row[:] for row in kind_grid]
 
     def can_paint(k: str) -> bool:
-        if k == KIND_VOID or k == KIND_OBSTACLE:
-            return False
-        if k == KIND_WATER and not allow_water:
-            return False
-        if k == KIND_SLOPE and not allow_slope:
-            return False
+        if k == KIND_VOID or k == KIND_OBSTACLE: return False
+        if k == KIND_WATER and not allow_water: return False
+        if k == KIND_SLOPE and not allow_slope: return False
         return True
 
     def paint(x: int, z: int):
-        if 0 <= x < w and 0 <= z < h and can_paint(kind_grid[z][x]):
-            kind_grid[z][x] = KIND_ROAD
+        if 0 <= x < w and 0 <= z < h and can_paint(original_kind[z][x]):
+            kind_grid[z][x] = KIND_BRIDGE if original_kind[z][x] == KIND_WATER else KIND_ROAD
 
-    r = max(0, width - 1)
+    # --- НАЧАЛО ИЗМЕНЕНИЯ: Самая простая и правильная логика ---
     for path in paths:
         if not path:
             continue
-        for (x, z) in path:
-            for dz in range(-r, r + 1):
-                for dx in range(-r, r + 1):
-                    if max(abs(dx), abs(dz)) <= r:
-                        paint(x + dx, z + dz)
+
+        # Просто рисуем квадратный блок 'width' x 'width' в каждой точке пути.
+        # Для width=2 это само по себе создает сплошную дорогу без разрывов.
+        for x, z in path:
+            for dz in range(width):
+                for dx in range(width):
+                    paint(x + dx, z + dz)

@@ -43,13 +43,12 @@ def make_road_policy(
     tf[KIND_WATER] = (water_cost if pass_water else float("inf"))
 
     return PathPolicy(
-        neighbors=NEI4,
+        neighbors=NEI8, # <<< ЗАМЕНИТЕ NEI4 на NEI8
         corner_cut=False,
         terrain_factor=tf,
         slope_penalty_per_meter=slope_penalty,
-        heuristic=heuristic_l1,
+        heuristic=heuristic_octile, # <<< ИСПОЛЬЗУЙТЕ heuristic_octile для 8 направлений
     )
-
 
 def make_nav_policy(
     slope_penalty: float = 0.08,

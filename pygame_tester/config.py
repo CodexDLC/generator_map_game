@@ -7,17 +7,15 @@ PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
 PRESET_PATH = PROJECT_ROOT / "game_engine" / "presets" / "world" / "base_default.json"
 ARTIFACTS_ROOT = PROJECT_ROOT / "artifacts"
 
-# --- НАЧАЛО ИЗМЕНЕНИЯ: Добавляем ширину меню ---
 MENU_WIDTH = 220
+
+# --- НАЧАЛО ИЗМЕНЕНИЯ: Делаем "зум" для лучшей детализации ---
+TILE_SIZE = 32  # Увеличили размер каждого тайла
+VIEWPORT_WIDTH_TILES = 40  # Уменьшили количество тайлов по ширине
+VIEWPORT_HEIGHT_TILES = 30 # Уменьшили количество тайлов по высоте
 # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
-# --- Настройки отображения (Viewport) ---
-TILE_SIZE = 20
-VIEWPORT_WIDTH_TILES = 64
-VIEWPORT_HEIGHT_TILES = 64
-# --- НАЧАЛО ИЗМЕНЕНИЯ: Увеличиваем общую ширину экрана ---
 SCREEN_WIDTH = VIEWPORT_WIDTH_TILES * TILE_SIZE + MENU_WIDTH
-# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 SCREEN_HEIGHT = VIEWPORT_HEIGHT_TILES * TILE_SIZE
 
 # --- Настройки управления ---

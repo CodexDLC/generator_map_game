@@ -1,17 +1,20 @@
 # game_engine/story_features/local_roads.py
 from __future__ import annotations
 import random
-from typing import List, Optional, Dict, Tuple, Any
+from collections import deque
+from typing import List, Dict, Tuple, Any
 from opensimplex import OpenSimplex
+
 
 # --- Импорты ---
 from game_engine.algorithms.pathfinding.routers import BaseRoadRouter
-from game_engine.algorithms.pathfinding.network import apply_paths_to_grid
+from game_engine.algorithms.pathfinding.network import apply_paths_to_grid, find_path_network
 from .road_helpers import (
     Coord, hub_anchor, find_edge_gate, make_local_road_policy,
 )
-from game_engine.core.constants import KIND_GROUND, KIND_SAND, KIND_OBSTACLE, KIND_ROAD
-
+from game_engine.core.constants import KIND_OBSTACLE, KIND_ROAD, KIND_WATER
+from ..core.types import GenResult
+from ..world_structure.regions import Region
 
 
 def _choose_gate_sides(seed: int, cx: int, cz: int) -> List[str]:
@@ -60,53 +63,88 @@ def _side_of_gate(p: Tuple[int, int], w: int, h: int) -> str:
 
 
 def _carve_ramp_along_path(
-    elev: list[list[float]],
-    path: list[tuple[int, int]],
-    *,
-    step_m: float = 1.0,
-    width: int = 1,
-    kind: Optional[list[list[str]]] = None
+        elev: list[list[float]],
+        path: list[tuple[int, int]],
+        *,
+        ramp_step_m: float = 0.5,
+        width: int = 3  # Ширина зоны "земляных работ"
 ) -> None:
     """
-    Подрезаем только резкие перепады высот вдоль дороги.
+    Создает плавный пандус, "срезая" холмы, которые выше дороги.
     """
-    if not path or step_m <= 0:
-        return
+    if not path or ramp_step_m <= 0: return
+    H, W = len(elev), len(elev[0]) if elev else 0
+    if not (H and W): return
 
-    H = len(elev)
-    W = len(elev[0]) if H else 0
-    r = max(0, int(width) - 1)
-    eps = 1e-6
+    # 1. Рассчитываем идеальный профиль высот для центральной линии дороги
+    path_heights = {pt: float(elev[pt[1]][pt[0]]) for pt in path}
 
-    def is_road(x: int, z: int) -> bool:
-        if not (0 <= x < W and 0 <= z < H):
-            return False
-        if kind is None:
-            return True
-        return kind[z][x] == KIND_ROAD
+    # Проход вперед
+    for i in range(1, len(path)):
+        p_prev, p_curr = path[i - 1], path[i]
+        h_prev, h_curr = path_heights[p_prev], path_heights[p_curr]
+        if h_curr > h_prev + ramp_step_m:
+            path_heights[p_curr] = h_prev + ramp_step_m
 
-    x0, z0 = path[0]
-    prev_h = float(elev[z0][x0])
+    # Проход назад
+    for i in range(len(path) - 2, -1, -1):
+        p_next, p_curr = path[i + 1], path[i]
+        h_next, h_curr = path_heights[p_next], path_heights[p_curr]
+        if h_curr > h_next + ramp_step_m:
+            path_heights[p_curr] = h_next + ramp_step_m
 
-    for (x, z) in path[1:]:
-        orig = float(elev[z][x])
-        dh = orig - prev_h
+    # 2. Применяем "земляные работы"
+    radius = (width - 1) // 2
 
-        if abs(dh) <= step_m + eps:
-            prev_h = orig
-            continue
+    # Создаем карту высот для всей зоны пандуса
+    ramp_zone_heights = {}
+    for (px, pz), ph in path_heights.items():
+        for dz in range(-radius, radius + 1):
+            for dx in range(-radius, radius + 1):
+                ramp_zone_heights[(px + dx, pz + dz)] = ph
 
-        target = prev_h + (step_m if dh > 0 else -step_m)
+    # Срезаем все, что выше рассчитанной высоты пандуса
+    for (x, z), target_h in ramp_zone_heights.items():
+        if 0 <= x < W and 0 <= z < H:
+            if elev[z][x] > target_h:
+                elev[z][x] = target_h
 
-        if is_road(x, z):
-            elev[z][x] = target
-        for dz in range(-r, r + 1):
-            for dx in range(-r, r + 1):
-                if max(abs(dx), abs(dz)) <= r and is_road(x + dx, z + dz):
-                    elev[z + dz][x + dx] = target
-        prev_h = target
 
-# --- НАЧАЛО НОВОЙ ЛОГИКИ ---
+def _preprocess_water_bodies(grid: List[List[str]], max_water_crossing_size: int):
+    """
+    Находит на карте водоемы. Если водоем большой, помечает его как OBSTACLE,
+    чтобы A* не мог через него пройти.
+    """
+    h = len(grid)
+    w = len(grid[0]) if h else 0
+    if not (w and h): return
+
+    visited = [[False for _ in range(w)] for _ in range(h)]
+
+    for z in range(h):
+        for x in range(w):
+            if grid[z][x] == KIND_WATER and not visited[z][x]:
+                # Нашли новый, еще не изученный водоем. Начинаем поиск в ширину (BFS).
+                water_body_tiles = []
+                q = deque([(x, z)])
+                visited[z][x] = True
+
+                while q:
+                    cx, cz = q.popleft()
+                    water_body_tiles.append((cx, cz))
+
+                    # Проверяем 4-х соседей
+                    for dx, dz in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                        nx, nz = cx + dx, cz + dz
+                        if 0 <= nx < w and 0 <= nz < h and \
+                                not visited[nz][nx] and grid[nz][nx] == KIND_WATER:
+                            visited[nz][nx] = True
+                            q.append((nx, nz))
+
+                # Если размер водоема превышает лимит, делаем его непроходимым
+                if len(water_body_tiles) > max_water_crossing_size:
+                    for wx, wz in water_body_tiles:
+                        grid[wz][wx] = KIND_OBSTACLE
 
 def _generate_temporary_obstacles(
         original_kind_grid: List[List[str]],
@@ -129,7 +167,7 @@ def _generate_temporary_obstacles(
     # 2. Используем свой, отдельный шум для дорожных препятствий, чтобы он был бесшовным
     road_obs_noise = OpenSimplex((seed ^ 0xCAFEFACE) & 0x7FFFFFFF)
     groups_cfg = scatter_cfg.get("groups", {})
-    freq = 1.0 / float(groups_cfg.get("noise_scale_tiles", 48.0))  # Чуть более мелкие пятна
+    freq = 1.0 / float(groups_cfg.get("noise_scale_tiles", 32.0))  # Чуть более мелкие пятна
     threshold = float(groups_cfg.get("threshold", 0.55))
 
     for z in range(size):
@@ -147,75 +185,87 @@ def _generate_temporary_obstacles(
 # --- ОСНОВНАЯ ФУНКЦИЯ, ПЕРЕРАБОТАННАЯ ---
 
 def build_local_roads(
-        result: "GenResult",  # Теперь принимаем весь результат генерации
+        result: GenResult,
         preset: Any,
         params: Dict,
-        *,
-        width: int = 1,
+        region: Region,
 ) -> None:
     """
-    Прокладка дорог ВНУТРИ одного чанка с использованием временного "слепка".
+    Строит дороги в чанке, СТРОГО СЛЕДУЯ плану, полученному от RegionManager.
     """
     kind_grid = result.layers["kind"]
     height_grid = result.layers["height_q"]["grid"]
     size = result.size
     cx = params.get("cx", 0)
     cz = params.get("cz", 0)
+    # --- НАЧАЛО ИЗМЕНЕНИЯ (1/2): Получаем world_seed из правильного места ---
     world_seed = params.get("seed", 0)
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
-    # 1. Создаем временный "слепок" с призрачными препятствиями
-    pathfinding_grid = _generate_temporary_obstacles(kind_grid, world_seed, cx, cz, preset)
-
-    # 2. Определяем цели для дорог (центральный хаб и выходы)
-    anchor = hub_anchor(kind_grid, preset)
-    sides = _choose_gate_sides(world_seed, cx, cz)
-    if not sides:
+    # 1. Получаем "задание" для этого конкретного чанка из глобального плана
+    sides_to_connect = region.road_plan.get((cx, cz), [])
+    if not sides_to_connect:
         return
 
-    gates: List[Coord] = []
-    for s in sides:
-        p = find_edge_gate(kind_grid, s, cx, cz, size)
+    # 2. Находим на карте точки-ворота, соответствующие плану
+    gates = []
+    for side in sides_to_connect:
+        p = find_edge_gate(kind_grid, side, cx, cz, size)
         if p:
-            # "Пробиваем" препятствия у ворот на временной карте
-            pathfinding_grid[p[1]][p[0]] = KIND_GROUND
             gates.append(p)
-    if not gates:
+
+    if len(gates) < 2:
         return
 
-    # 3. Настраиваем A* так, чтобы он мог проходить через препятствия, но с большим штрафом
-    # Это позволит ему "пробивать" пятна, если нет другого пути.
+    # 3. Создаем временную карту для поиска пути (как и раньше)
+    # --- НАЧАЛО ИЗМЕНЕНИЯ (2/2): Используем правильную переменную world_seed ---
+    pathfinding_grid = _generate_temporary_obstacles(kind_grid, world_seed, cx, cz, preset)
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+    _preprocess_water_bodies(pathfinding_grid, max_water_crossing_size=4)
+
+    # 4. В зависимости от количества выходов, решаем, нужен ли перекресток
+    points_to_connect = list(gates)
+    num_exits = len(points_to_connect)
+
+    # Ваша логика: если выходов 3 или больше, ищем центр для перекрестка
+    if num_exits >= 3:
+        anchor = hub_anchor(kind_grid, preset)
+        if anchor:
+            points_to_connect.append(anchor)
+
+    # 5. Находим оптимальную сеть, соединяющую все нужные точки
     policy = make_local_road_policy(slope_cost=2.0, water_cost=15.0)
-    policy.terrain_factor[KIND_OBSTACLE] = 25.0  # Очень дорого, но не бесконечно!
+    policy.terrain_factor[KIND_OBSTACLE] = 25.0
     router = BaseRoadRouter(policy=policy)
 
-    # 4. Ищем пути на ВРЕМЕННОЙ карте
-    paths: List[List[Coord]] = []
-    for gate in gates:
-        # Ищем путь от якоря до ворот на карте с препятствиями
-        path = router.find(pathfinding_grid, height_grid, anchor, gate)
-        if path:
-            paths.append(path)
+    paths = find_path_network(pathfinding_grid, height_grid, points_to_connect, router)
 
     if not paths:
         return
 
-    # 5. Применяем найденные пути к НАСТОЯЩЕЙ карте
-    apply_paths_to_grid(
-        kind_grid,  # <--- Применяем к оригиналу!
-        paths,
-        width=max(1, int(width)),
-        allow_slope=True,
-        allow_water=True  # Разрешаем строить мосты/броды
-    )
+    # 6. Продлеваем пути до края (старая логика, немного улучшена)
+    all_points_on_paths = {point for path in paths for point in path}
+    for gate in gates:
+        if gate in all_points_on_paths:
+            # Находим путь, который заканчивается в этих воротах, и продлеваем его
+            for path in paths:
+                if path and path[-1] == gate:
+                    side = _side_of_gate(gate, size, size)
+                    if side == 'N':
+                        path.append((gate[0], 0))
+                    elif side == 'S':
+                        path.append((gate[0], size - 1))
+                    elif side == 'W':
+                        path.append((0, gate[1]))
+                    elif side == 'E':
+                        path.append((size - 1, gate[1]))
+                    break  # Продлили, ищем следующий
 
-    # 6. Прорезаем пандусы (старая логика, можно улучшать в будущем)
+    # 7. Рисуем дороги и пандусы (без изменений)
+    apply_paths_to_grid(kind_grid, paths, width=2, allow_slope=True, allow_water=True)
+
     elev_cfg = getattr(preset, "elevation", {}) or {}
-    ramp_step = float(elev_cfg.get("quantization_step_m", 1.0))
+    ramp_step = float(elev_cfg.get("quantization_step_m", 0.5))
     for path in paths:
         if height_grid:
-            _carve_ramp_along_path(
-                height_grid, path,
-                step_m=ramp_step,
-                width=max(1, int(width)),
-                kind=kind_grid,
-            )
+            _carve_ramp_along_path(height_grid, path, ramp_step_m=ramp_step, width=4)

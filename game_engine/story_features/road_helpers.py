@@ -5,7 +5,7 @@ from typing import List, Tuple, Optional, Iterator
 # --- Импорты без изменений ---
 from game_engine.algorithms.pathfinding.policies import PathPolicy, ROAD_POLICY
 from game_engine.core.constants import (
-    KIND_GROUND, KIND_WATER, KIND_SLOPE, KIND_ROAD
+    KIND_GROUND, KIND_WATER, KIND_SLOPE, KIND_ROAD, KIND_SAND
 )
 
 Coord = Tuple[int, int]
@@ -14,8 +14,8 @@ Coord = Tuple[int, int]
 # ------------------------- политика для локальных дорог -------------------------
 # (эта функция без изменений)
 def make_local_road_policy(base: PathPolicy = ROAD_POLICY,
-                           slope_cost: float = 1.5,
-                           water_cost: float = 12.0) -> PathPolicy:
+                           slope_cost: float = 5.0,
+                           water_cost: float = 15.0) -> PathPolicy:
     tf = dict(base.terrain_factor)
     tf[KIND_SLOPE] = slope_cost
     tf[KIND_WATER] = water_cost
@@ -37,7 +37,11 @@ def hub_rect(size: int, preset) -> tuple[int, int, int, int]:
     return size // 3, size // 3, (2 * size) // 3, (2 * size) // 3
 
 
-def hub_anchor(kind: List[List[str]], preset) -> Coord:
+def hub_anchor(kind: List[List[str]], preset) -> Optional[Coord]:
+    """
+    Находит лучшую точку для центрального перекрестка, ИГНОРИРУЯ воду.
+    Возвращает None, если в центре нет подходящей земли.
+    """
     h = len(kind)
     w = len(kind[0]) if h else 0
     x0, z0, x1, z1 = hub_rect(w, preset)
@@ -45,9 +49,13 @@ def hub_anchor(kind: List[List[str]], preset) -> Coord:
     cz = (z0 + z1) // 2
 
     def rank(k: str) -> int:
-        if k == KIND_GROUND: return 0
-        if k == KIND_SLOPE:  return 1
-        if k == KIND_WATER:  return 2
+        # Лучшие места - земля и песок
+        if k in (KIND_GROUND, KIND_SAND):
+            return 0
+        # Склоны тоже подходят
+        if k == KIND_SLOPE:
+            return 1
+        # Все остальное (ВОДА, деревья, скалы) - НЕ подходит
         return 9999
 
     best: Optional[Coord] = None
@@ -56,13 +64,18 @@ def hub_anchor(kind: List[List[str]], preset) -> Coord:
         for x in range(x0, x1):
             k = kind[z][x]
             r = rank(k)
-            if r >= 9999: continue
+            # Пропускаем все неподходящие тайлы
+            if r >= 9999:
+                continue
+
             d = abs(x - cx) + abs(z - cz)
             s = r * 10000 + d
             if s < best_score:
                 best_score = s
                 best = (x, z)
-    return best if best else (cx, cz)
+
+    # Если мы не нашли ни одной подходящей точки, вернем None
+    return best
 
 
 # <<< НАЧАЛО ИЗМЕНЕНИЙ >>>
@@ -112,7 +125,11 @@ def _scan_edge_from_center(side: str, w: int, h: int, inset: int = 1):
 # ------------------------- выбор «гейта» на грани чанка -------------------------
 # (остальные функции без изменений)
 def _passable_for_gate(kind: str) -> bool:
-    return kind in (KIND_GROUND, KIND_SLOPE, KIND_WATER, KIND_ROAD)
+    """
+    Определяет, можно ли в тайле такого типа разместить "ворота" для дороги.
+    Теперь вода ЗАПРЕЩЕНА.
+    """
+    return kind in (KIND_GROUND, KIND_SLOPE, KIND_ROAD, KIND_SAND)
 
 
 def find_edge_gate(kind_grid: List[List[str]], side: str,
