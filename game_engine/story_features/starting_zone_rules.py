@@ -4,15 +4,15 @@ from typing import Any
 
 from ..core.types import GenResult
 from ..core.constants import (
-    KIND_WATER, KIND_WALL, KIND_GROUND, KIND_SLOPE, KIND_BRIDGE, KIND_OBSTACLE
+    KIND_WATER, KIND_WALL, KIND_GROUND, KIND_SLOPE, KIND_BRIDGE
 )
 from dataclasses import dataclass
+from .story_definitions import get_structure_at
 
 
-# CityParams остается таким же
 @dataclass
 class CityParams:
-    # ... (содержимое класса CityParams без изменений) ...
+    # (Этот класс остается без изменений)
     step: float
     gate_w: int
     wall_th: int
@@ -41,18 +41,22 @@ class CityParams:
         )
 
 
-# --- ИСПРАВЛЕННАЯ СТОЛИЦА В (0, 0) ---
-def build_capital_city(result: GenResult, p: CityParams):
-    """Строит столицу с 4-мя гарантированными выходами."""
+def _apply_walls_and_moat(result: GenResult, p: CityParams, open_sides: list[str] = []):
+    """Общая функция для строительства стен, рва и склонов."""
     size = result.size
     h_grid = result.layers["height_q"]["grid"]
     k_grid = result.layers["kind"]
     original_h = [row[:] for row in h_grid]
 
-    # Строим стены, ров и склоны (как и раньше)
     for z in range(size):
         for x in range(size):
-            r = min(x, z, size - 1 - x, size - 1 - z)
+            # Определяем расстояние до ближайшей "закрытой" стены
+            dist_n = z if 'N' not in open_sides else size
+            dist_s = size - 1 - z if 'S' not in open_sides else size
+            dist_w = x if 'W' not in open_sides else size
+            dist_e = size - 1 - x if 'E' not in open_sides else size
+            r = min(dist_n, dist_s, dist_w, dist_e)
+
             ground_h = original_h[z][x]
             if 0 <= r <= p.r_moat_end:
                 k_grid[z][x] = KIND_WATER;
@@ -62,76 +66,123 @@ def build_capital_city(result: GenResult, p: CityParams):
             elif p.r_wall_start <= r <= p.r_wall_end:
                 k_grid[z][x] = KIND_WALL;
                 h_grid[z][x] = ground_h + p.wall_height_add
+            else:
+                k_grid[z][x] = KIND_GROUND
 
-    # --- УПРОЩЕННАЯ И ИСПРАВЛЕННАЯ ЛОГИКА ВОРОТ ---
-    c = size // 2
-    gate_start = c - p.gate_w // 2
-    gate_end = gate_start + p.gate_w
-
-    # Прорезаем горизонтальную дорогу (Запад-Восток)
-    for z in range(gate_start, gate_end):
-        for x in range(size):
-            h_grid[z][x] = original_h[z][x]
-            is_over_moat = (x <= p.r_moat_end or size - 1 - x <= p.r_moat_end)
-            k_grid[z][x] = KIND_BRIDGE if is_over_moat and h_grid[z][x] > 0 else KIND_GROUND
-
-    # Прорезаем вертикальную дорогу (Север-Юг)
-    for x in range(gate_start, gate_end):
-        for z in range(size):
-            h_grid[z][x] = original_h[z][x]
-            is_over_moat = (z <= p.r_moat_end or size - 1 - z <= p.r_moat_end)
-            k_grid[z][x] = KIND_BRIDGE if is_over_moat and h_grid[z][x] > 0 else KIND_GROUND
+    return original_h
 
 
-# --- ИСПРАВЛЕННЫЙ ПОРТОВЫЙ ГОРОД В (0, 3) ---
-def build_port_city(result: GenResult, p: CityParams):
-    """Строит портовый город БЕЗ ЮЖНОЙ и СЕВЕРНОЙ стены/дороги."""
+
+def build_capital_city(result: GenResult, p: CityParams):
+    """Столица: 4 стены, гейты на всех сторонах. Без внутренних дорог. + DEBUG-логи."""
     size = result.size
     h_grid = result.layers["height_q"]["grid"]
     k_grid = result.layers["kind"]
-    base_h = 15.0
 
-    for z in range(size):
-        for x in range(size):
-            r = min(x, z, size - 1 - x)
-            is_south_wall_zone = (p.r_wall_start <= (size - 1 - z) <= p.r_wall_end)
-            if is_south_wall_zone:
-                k_grid[z][x] = KIND_GROUND;
-                h_grid[z][x] = base_h
-                continue
-            if 0 <= r <= p.r_moat_end:
-                k_grid[z][x] = KIND_WATER;
-                h_grid[z][x] = base_h - p.step * 4
-            elif r == p.r_slope1:
-                k_grid[z][x] = KIND_SLOPE;
-                h_grid[z][x] = base_h - p.step * 2
-            elif r == p.r_slope2:
-                k_grid[z][x] = KIND_SLOPE;
-                h_grid[z][x] = base_h - p.step
-            elif p.r_wall_start <= r <= p.r_wall_end:
-                k_grid[z][x] = KIND_WALL;
-                h_grid[z][x] = base_h + p.step * 5
-            else:
-                k_grid[z][x] = KIND_GROUND;
-                h_grid[z][x] = base_h
+    original_h = _apply_walls_and_moat(result, p, open_sides=[])
 
     c = size // 2
     gate_start = c - p.gate_w // 2
     gate_end = gate_start + p.gate_w
 
-    # Прорезаем ТОЛЬКО горизонтальную дорогу (Запад-Восток)
-    for z in range(gate_start, gate_end):
-        for x in range(size):
-            h_grid[z][x] = base_h
-            is_over_moat = (x <= p.r_moat_end or size - 1 - x <= p.r_wall_end)
-            k_grid[z][x] = KIND_BRIDGE if is_over_moat else KIND_GROUND
+    print(f"[CITY][Capital] size={size}, gates width={p.gate_w}, x_range={gate_start}..{gate_end-1}")
 
-# --- ГЛАВНАЯ ФУНКЦИЯ-ДИСПЕТЧЕР (без изменений) ---
+    # Север (z=0)
+    north_bridge_rows = list(range(0, p.r_moat_end + 1))
+    north_wall_rows   = list(range(p.r_wall_start, p.r_wall_end + 1))
+    for x in range(gate_start, gate_end):
+        for rz in north_bridge_rows:
+            k_grid[rz][x] = KIND_BRIDGE; h_grid[rz][x] = original_h[rz][x]
+        for rz in north_wall_rows:
+            k_grid[rz][x] = KIND_GROUND; h_grid[rz][x] = original_h[rz][x]
+    print(f"[GATE][N] x={gate_start}..{gate_end-1} bridge rows={north_bridge_rows} wall gap rows={north_wall_rows}")
+
+    # Юг (z=size-1)
+    z = size - 1
+    south_bridge_rows = list(range(z - p.r_moat_end, z + 1))
+    south_wall_rows   = list(range(z - p.r_wall_end,  z - p.r_wall_start + 1))
+    for x in range(gate_start, gate_end):
+        for rz in south_bridge_rows:
+            k_grid[rz][x] = KIND_BRIDGE; h_grid[rz][x] = original_h[rz][x]
+        for rz in south_wall_rows:
+            k_grid[rz][x] = KIND_GROUND;  h_grid[rz][x] = original_h[rz][x]
+    print(f"[GATE][S] x={gate_start}..{gate_end-1} bridge rows={south_bridge_rows} wall gap rows={south_wall_rows}")
+
+    # Запад (x=0)
+    west_bridge_cols = list(range(0, p.r_moat_end + 1))
+    west_wall_cols   = list(range(p.r_wall_start, p.r_wall_end + 1))
+    for z in range(gate_start, gate_end):
+        for rx in west_bridge_cols:
+            k_grid[z][rx] = KIND_BRIDGE; h_grid[z][rx] = original_h[z][rx]
+        for rx in west_wall_cols:
+            k_grid[z][rx] = KIND_GROUND;  h_grid[z][rx] = original_h[z][rx]
+    print(f"[GATE][W] z={gate_start}..{gate_end-1} bridge cols={west_bridge_cols} wall gap cols={west_wall_cols}")
+
+    # Восток (x=size-1)
+    x = size - 1
+    east_bridge_cols = list(range(x - p.r_moat_end, x + 1))
+    east_wall_cols   = list(range(x - p.r_wall_end,  x - p.r_wall_start + 1))
+    for z in range(gate_start, gate_end):
+        for rx in east_bridge_cols:
+            k_grid[z][rx] = KIND_BRIDGE; h_grid[z][rx] = original_h[z][rx]
+        for rx in east_wall_cols:
+            k_grid[z][rx] = KIND_GROUND;  h_grid[z][rx] = original_h[z][rx]
+    print(f"[GATE][E] z={gate_start}..{gate_end-1} bridge cols={east_bridge_cols} wall gap cols={east_wall_cols}")
+
+
+def build_port_city(result: GenResult, p: CityParams):
+    """Порт: укрепления W/E, гейты W/E. Без внутренних дорог. + DEBUG-логи."""
+    size = result.size
+    h_grid = result.layers["height_q"]["grid"]
+    k_grid = result.layers["kind"]
+
+    original_h = _apply_walls_and_moat(result, p, open_sides=['N','S'])
+
+    c = size // 2
+    gate_start = c - p.gate_w // 2
+    gate_end = gate_start + p.gate_w
+
+    print(f"[CITY][Port] size={size}, gates width={p.gate_w}, z_range={gate_start}..{gate_end-1}")
+
+    # Запад (x=0)
+    west_bridge_cols = list(range(0, p.r_moat_end + 1))
+    west_wall_cols   = list(range(p.r_wall_start, p.r_wall_end + 1))
+    for z in range(gate_start, gate_end):
+        for rx in west_bridge_cols:
+            k_grid[z][rx] = KIND_BRIDGE; h_grid[z][rx] = original_h[z][rx]
+        for rx in west_wall_cols:
+            k_grid[z][rx] = KIND_GROUND;  h_grid[z][rx] = original_h[z][rx]
+    print(f"[GATE][W] z={gate_start}..{gate_end-1} bridge cols={west_bridge_cols} wall gap cols={west_wall_cols}")
+
+    # Восток (x=size-1)
+    x = size - 1
+    east_bridge_cols = list(range(x - p.r_moat_end, x + 1))
+    east_wall_cols   = list(range(x - p.r_wall_end,  x - p.r_wall_start + 1))
+    for z in range(gate_start, gate_end):
+        for rx in east_bridge_cols:
+            k_grid[z][rx] = KIND_BRIDGE; h_grid[z][rx] = original_h[z][rx]
+        for rx in east_wall_cols:
+            k_grid[z][rx] = KIND_GROUND;  h_grid[z][rx] = original_h[z][rx]
+    print(f"[GATE][E] z={gate_start}..{gate_end-1} bridge cols={east_bridge_cols} wall gap cols={east_wall_cols}")
+
+
+
 def apply_starting_zone_rules(result: GenResult, preset: Any) -> None:
+    """
+    Главный диспетчер. Вызывает правильный строитель для каждого города.
+    """
     params = CityParams.from_preset(preset)
-    if result.cx == 0 and result.cz == 0:
-        print(f"--- Строим СТОЛИЦУ в чанке ({result.cx}, {result.cz}) ---")
+    structure = get_structure_at(result.cx, result.cz)
+    if not structure:
+        return
+
+    print(f"--- Строим '{structure.name}' в чанке ({result.cx}, {result.cz}) ---")
+
+    # --- ГЛАВНОЕ ИЗМЕНЕНИЕ: ВЫБИРАЕМ ФУНКЦИЮ В ЗАВИСИМОСТИ ОТ ИМЕНИ ---
+    if structure.name == "Столица":
         build_capital_city(result, params)
-    elif result.cx == 0 and result.cz == 3:
-        print(f"--- Строим ПОРТОВЫЙ ГОРОД в чанке ({result.cx}, {result.cz}) ---")
+    elif structure.name == "Портовый город":
         build_port_city(result, params)
+    else:
+        # Запасной вариант для будущих городов
+        build_capital_city(result, params)

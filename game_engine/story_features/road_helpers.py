@@ -1,18 +1,20 @@
-# game_engine/generators/world/road_helpers.py
+# game_engine/story_features/road_helpers.py
 from __future__ import annotations
 from typing import List, Tuple, Optional, Iterator
 
-# --- Импорты без изменений ---
+# --- Импорты ---
 from game_engine.algorithms.pathfinding.policies import PathPolicy, ROAD_POLICY
 from game_engine.core.constants import (
     KIND_GROUND, KIND_WATER, KIND_SLOPE, KIND_ROAD, KIND_SAND
 )
+# --- Импортируем реестр для поиска точных координат ворот ---
+from .story_definitions import get_structure_at
+from ..world_structure.planners.road_planner import OPPOSITE_SIDE
 
 Coord = Tuple[int, int]
 
 
 # ------------------------- политика для локальных дорог -------------------------
-# (эта функция без изменений)
 def make_local_road_policy(base: PathPolicy = ROAD_POLICY,
                            slope_cost: float = 5.0,
                            water_cost: float = 15.0) -> PathPolicy:
@@ -23,7 +25,6 @@ def make_local_road_policy(base: PathPolicy = ROAD_POLICY,
 
 
 # ------------------------- площадка/якорь «хаба» -------------------------
-# (эти функции без изменений)
 def hub_rect(size: int, preset) -> tuple[int, int, int, int]:
     cfg_hp = getattr(preset, "hub_pad", {}) or {}
     if cfg_hp.get("enabled", False):
@@ -49,13 +50,8 @@ def hub_anchor(kind: List[List[str]], preset) -> Optional[Coord]:
     cz = (z0 + z1) // 2
 
     def rank(k: str) -> int:
-        # Лучшие места - земля и песок
-        if k in (KIND_GROUND, KIND_SAND):
-            return 0
-        # Склоны тоже подходят
-        if k == KIND_SLOPE:
-            return 1
-        # Все остальное (ВОДА, деревья, скалы) - НЕ подходит
+        if k in (KIND_GROUND, KIND_SAND): return 0
+        if k == KIND_SLOPE: return 1
         return 9999
 
     best: Optional[Coord] = None
@@ -64,93 +60,85 @@ def hub_anchor(kind: List[List[str]], preset) -> Optional[Coord]:
         for x in range(x0, x1):
             k = kind[z][x]
             r = rank(k)
-            # Пропускаем все неподходящие тайлы
-            if r >= 9999:
-                continue
-
+            if r >= 9999: continue
             d = abs(x - cx) + abs(z - cz)
             s = r * 10000 + d
             if s < best_score:
                 best_score = s
                 best = (x, z)
-
-    # Если мы не нашли ни одной подходящей точки, вернем None
     return best
 
 
-# <<< НАЧАЛО ИЗМЕНЕНИЙ >>>
-
+# ------------------------- итераторы по граням -------------------------
 def _iter_from_center(center: int, max_val: int, inset: int) -> Iterator[int]:
-    """
-    Новая функция-помощник.
-    Итерирует по координатам вдоль одной оси, начиная от центра и расходясь к краям.
-    """
-    # d - это расстояние от центра
+    """Итерирует по координатам вдоль одной оси, начиная от центра."""
     max_dist = max(center - inset, max_val - 1 - inset - center)
     for d in range(max_dist + 1):
-        # Сначала точка "до" центра
         p1 = center - d
-        if inset <= p1 < max_val - inset:
-            yield p1
-        # Затем точка "после" центра (если это не сам центр)
+        if inset <= p1 < max_val - inset: yield p1
         p2 = center + d
-        if d != 0 and inset <= p2 < max_val - inset:
-            yield p2
+        if d != 0 and inset <= p2 < max_val - inset: yield p2
 
 
 def _scan_edge_from_center(side: str, w: int, h: int, inset: int = 1):
-    """
-    Переписанная функция без дублирования.
-    Итератор по клеткам на грани, начиная от центра к краям.
-    """
+    """Итератор по клеткам на грани, начиная от центра к краям."""
     xc, zc = w // 2, h // 2
-
-    # Логика для Севера и Юга
     if side in ("N", "S"):
         z = inset if side == "N" else h - 1 - inset
-        # Используем новую функцию-помощник для перебора X
-        for x in _iter_from_center(xc, w, inset):
-            yield x, z
-
-    # Логика для Запада и Востока
+        for x in _iter_from_center(xc, w, inset): yield x, z
     elif side in ("W", "E"):
         x = inset if side == "W" else w - 1 - inset
-        # Используем новую функцию-помощник для перебора Z
-        for z in _iter_from_center(zc, h, inset):
-            yield x, z
+        for z in _iter_from_center(zc, h, inset): yield x, z
 
-
-# <<< КОНЕЦ ИЗМЕНЕНИЙ >>>
 
 # ------------------------- выбор «гейта» на грани чанка -------------------------
-# (остальные функции без изменений)
 def _passable_for_gate(kind: str) -> bool:
-    """
-    Определяет, можно ли в тайле такого типа разместить "ворота" для дороги.
-    Теперь вода ЗАПРЕЩЕНА.
-    """
+    """Определяет, можно ли в тайле такого типа разместить "ворота" для дороги."""
     return kind in (KIND_GROUND, KIND_SLOPE, KIND_ROAD, KIND_SAND)
 
 
 def find_edge_gate(kind_grid: List[List[str]], side: str,
-                   cx: int, cz: int, size: int) -> Optional[Coord]: # <<< УБРАЛИ 'seed'
+                   cx: int, cz: int, size: int) -> Optional[Coord]:
     """
     Выбрать точку «врезки» на грани чанка.
+    Теперь она ищет гейт, если СОСЕДНИЙ чанк является особым строением.
     """
-    if cx == 1 and cz == 0 and side == 'W':
-        return 1, size // 2
-
     h = len(kind_grid)
     w = len(kind_grid[0]) if h else 0
-    if not (w and h):
-        return None
+    if not (w and h): return None
 
-    for x, z in _scan_edge_from_center(side, w, h, inset=1):
-        if kind_grid[z][x] == KIND_ROAD:
-            return x, z
+    # 1. ПРОВЕРКА, НЕ ЯВЛЯЕТСЯ ЛИ СОСЕД ГОРОДОМ
+    # Вычисляем координаты соседа в указанном направлении
+    neighbor_cx, neighbor_cz = cx, cz
+    if side == 'N':
+        neighbor_cz -= 1
+    elif side == 'S':
+        neighbor_cz += 1
+    elif side == 'W':
+        neighbor_cx -= 1
+    elif side == 'E':
+        neighbor_cx += 1
 
+    # Ищем строение в соседнем чанке
+    structure = get_structure_at(neighbor_cx, neighbor_cz)
+
+    # Если сосед - это строение, и у него есть выход в нашу сторону...
+    opposite_side = OPPOSITE_SIDE[side]
+    if structure and opposite_side in structure.exits:
+        exit_def = structure.exits[opposite_side]
+        # ...то мы вычисляем координаты гейта на НАШЕЙ стороне,
+        # зеркально отражая позицию ворот города.
+        pos = max(1, min(w - 2, int(size * exit_def.position_percent / 100)))
+
+        if side == 'N': return (pos, 1)
+        if side == 'S': return (pos, h - 2)
+        if side == 'W': return (1, pos)
+        if side == 'E': return (w - 2, pos)
+
+    # 2. ЗАПАСНОЙ ВАРИАНТ (для обычных меж-чанковых дорог)
     for x, z in _scan_edge_from_center(side, w, h, inset=1):
-        if _passable_for_gate(kind_grid[z][x]):
-            return x, z
+        if kind_grid[z][x] == KIND_ROAD: return x, z
+    for x, z in _scan_edge_from_center(side, w, h, inset=1):
+        if _passable_for_gate(kind_grid[z][x]): return x, z
 
     return None
