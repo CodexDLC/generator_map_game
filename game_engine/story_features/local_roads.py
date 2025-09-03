@@ -171,6 +171,7 @@ def _generate_temporary_obstacles(
     return temp_grid
 
 
+
 # --- ОСНОВНАЯ ФУНКЦИЯ ---
 
 def build_local_roads(
@@ -214,8 +215,9 @@ def build_local_roads(
         return
 
     # 3) Временная карта
-    pathfinding_grid = _generate_temporary_obstacles(kind_grid, world_seed, cx, cz, preset)
+    pathfinding_grid = [row[:] for row in kind_grid]  # только копия
     _preprocess_water_bodies(pathfinding_grid, max_water_crossing_size=4)
+    print(f"[ROADS] ({cx},{cz}) temp obstacles: DISABLED")
 
     # 4) Точки
     points_to_connect = list(gates)
@@ -228,7 +230,7 @@ def build_local_roads(
 
     # 5) Поиск сети
     policy = make_local_road_policy(slope_cost=50.0, water_cost=float('inf'))
-    policy.terrain_factor[KIND_OBSTACLE] = 75.0
+    policy.terrain_factor[KIND_OBSTACLE] = float('inf')
     router = BaseRoadRouter(policy=policy)
     paths = find_path_network(pathfinding_grid, height_grid, points_to_connect, router)
     if not paths:
@@ -267,6 +269,8 @@ def build_local_roads(
 
         print(f"[ROADS] ({cx},{cz}) extend path#{i} at_start={at_start} gate={gate} side={side} ext_len={len(ext)}")
         paths[i] = (ext + paths[i]) if at_start else (paths[i] + ext)
+
+
 
     # 7) Рендер
     print(f"[ROADS] ({cx},{cz}) apply {len(paths)} paths")

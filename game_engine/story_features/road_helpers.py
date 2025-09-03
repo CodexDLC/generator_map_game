@@ -99,46 +99,53 @@ def _passable_for_gate(kind: str) -> bool:
 
 def find_edge_gate(kind_grid: List[List[str]], side: str,
                    cx: int, cz: int, size: int) -> Optional[Coord]:
-    """
-    Выбрать точку «врезки» на грани чанка.
-    Теперь она ищет гейт, если СОСЕДНИЙ чанк является особым строением.
-    """
+    """Возвращает точку гейта на нашей границе; если у соседа-строения
+    нет выхода на нас — возвращает None и запрещает fallback-сканирование."""
+
+    OPPOSITE = {'N': 'S', 'S': 'N', 'W': 'E', 'E': 'W'}
+    DIR = {'N': (0, -1), 'S': (0, 1), 'W': (-1, 0), 'E': (1, 0)}
+
     h = len(kind_grid)
     w = len(kind_grid[0]) if h else 0
-    if not (w and h): return None
+    if not (w and h):
+        return None
 
-    # 1. ПРОВЕРКА, НЕ ЯВЛЯЕТСЯ ЛИ СОСЕД ГОРОДОМ
-    # Вычисляем координаты соседа в указанном направлении
-    neighbor_cx, neighbor_cz = cx, cz
-    if side == 'N':
-        neighbor_cz -= 1
-    elif side == 'S':
-        neighbor_cz += 1
-    elif side == 'W':
-        neighbor_cx -= 1
-    elif side == 'E':
-        neighbor_cx += 1
+    # сосед по стороне
+    dx, dz = DIR[side]
+    n_cx, n_cz = cx + dx, cz + dz
+    neighbor = get_structure_at(n_cx, n_cz)
 
-    # Ищем строение в соседнем чанке
-    structure = get_structure_at(neighbor_cx, neighbor_cz)
+    # если сосед — строение БЕЗ выхода на нас → гейта нет и fallback запрещён
+    if neighbor and OPPOSITE[side] not in neighbor.exits:
+        return None
 
-    # Если сосед - это строение, и у него есть выход в нашу сторону...
-    opposite_side = OPPOSITE_SIDE[side]
-    if structure and opposite_side in structure.exits:
-        exit_def = structure.exits[opposite_side]
-        # ...то мы вычисляем координаты гейта на НАШЕЙ стороне,
-        # зеркально отражая позицию ворот города.
-        pos = max(1, min(w - 2, int(size * exit_def.position_percent / 100)))
-
+    # если у соседа есть выход на нас → зеркалим его позицию
+    if neighbor and OPPOSITE[side] in neighbor.exits:
+        pos = int(size * neighbor.exits[OPPOSITE[side]].position_percent / 100)
+        pos = max(1, min(w - 2, pos))
         if side == 'N': return (pos, 1)
         if side == 'S': return (pos, h - 2)
-        if side == 'W': return (1, pos)
+        if side == 'W': return (1,   pos)
         if side == 'E': return (w - 2, pos)
 
-    # 2. ЗАПАСНОЙ ВАРИАНТ (для обычных меж-чанковых дорог)
+    # обычный случай: ищем готовую дорогу или проходимую клетку на нашей кромке
     for x, z in _scan_edge_from_center(side, w, h, inset=1):
-        if kind_grid[z][x] == KIND_ROAD: return x, z
+        if kind_grid[z][x] == KIND_ROAD:
+            return (x, z)
     for x, z in _scan_edge_from_center(side, w, h, inset=1):
-        if _passable_for_gate(kind_grid[z][x]): return x, z
+        if _passable_for_gate(kind_grid[z][x]):
+            return (x, z)
 
     return None
+
+
+def _bridge_streak_over(kind: List[List[str]], path: List[Tuple[int,int]], limit: int) -> bool:
+    cnt = 0
+    for x, z in path:
+        if kind[z][x] == KIND_WATER:
+            cnt += 1
+            if cnt > limit:
+                return True
+        else:
+            cnt = 0
+    return False

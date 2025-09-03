@@ -136,7 +136,7 @@ def build_port_city(result: GenResult, p: CityParams):
     h_grid = result.layers["height_q"]["grid"]
     k_grid = result.layers["kind"]
 
-    original_h = _apply_walls_and_moat(result, p, open_sides=['N','S'])
+    original_h = _apply_walls_and_moat(result, p, open_sides=['S'])
 
     c = size // 2
     gate_start = c - p.gate_w // 2
