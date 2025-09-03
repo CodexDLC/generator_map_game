@@ -21,8 +21,8 @@ def _choose_gate_sides(seed: int, cx: int, cz: int) -> List[str]:
     """
     Правила:
       - стартовый (1,0) -> ['W','E','N']  (к воротам, на восток, на север)
-      - первые 5 чанков восточнее старта на оси z=0 (cx in [2..6], cz=0): без 'S'
-      - прочие: 2..4 стороны детерминированно от мирового сида
+      - первые 5 Чанков восточнее старта на оси z=0 (cx in [2..6], cz=0): без 'S'
+      - прочие: 2..4 стороны детерминированною от мирового сида
     """
     if cx == 1 and cz == 0:
         return ['W', 'E', 'N']
@@ -52,13 +52,14 @@ def _prime_cross(kind, anchor: Tuple[int, int], dirs: List[str], width: int = 2)
                             allow_slope=True, allow_water=False)
 
 
-def _side_of_gate(p: Tuple[int, int], w: int, h: int) -> str:
-    """Определяем грань по координате врезки (внутренняя клетка, с inset=1)."""
+def _side_of_gate(p: tuple[int,int], w: int, h: int) -> str:
+    """Определяет, на какой стороне находится гейт."""
     x, z = p
-    if z == 1:         return 'N'
-    if z == h - 2:     return 'S'
-    if x == 1:         return 'W'
-    if x == w - 2:     return 'E'
+    # Гейт ставится с отступом в 1 клетку от края
+    if z == 1: return 'N'
+    if z == h - 2: return 'S'
+    if x == 1: return 'W'
+    if x == w - 2: return 'E'
     return '?'
 
 
@@ -67,47 +68,47 @@ def _carve_ramp_along_path(
         path: list[tuple[int, int]],
         *,
         ramp_step_m: float = 0.5,
-        width: int = 3  # Ширина зоны "земляных работ"
+        width: int = 3
 ) -> None:
     """
     Создает плавный пандус, "срезая" холмы, которые выше дороги.
+    Теперь работает аккуратнее на границах чанка.
     """
-    if not path or ramp_step_m <= 0: return
+    if not path: return
     H, W = len(elev), len(elev[0]) if elev else 0
     if not (H and W): return
 
-    # 1. Рассчитываем идеальный профиль высот для центральной линии дороги
     path_heights = {pt: float(elev[pt[1]][pt[0]]) for pt in path}
 
-    # Проход вперед
+    # Сглаживаем профиль высот дороги (вперед и назад)
     for i in range(1, len(path)):
         p_prev, p_curr = path[i - 1], path[i]
-        h_prev, h_curr = path_heights[p_prev], path_heights[p_curr]
-        if h_curr > h_prev + ramp_step_m:
-            path_heights[p_curr] = h_prev + ramp_step_m
-
-    # Проход назад
+        if abs(path_heights[p_curr] - path_heights[p_prev]) > ramp_step_m:
+            path_heights[p_curr] = path_heights[p_prev] + ramp_step_m * (
+                1 if path_heights[p_curr] > path_heights[p_prev] else -1)
     for i in range(len(path) - 2, -1, -1):
         p_next, p_curr = path[i + 1], path[i]
-        h_next, h_curr = path_heights[p_next], path_heights[p_curr]
-        if h_curr > h_next + ramp_step_m:
-            path_heights[p_curr] = h_next + ramp_step_m
+        if abs(path_heights[p_curr] - path_heights[p_next]) > ramp_step_m:
+            path_heights[p_curr] = path_heights[p_next] + ramp_step_m * (
+                1 if path_heights[p_curr] > path_heights[p_next] else -1)
 
-    # 2. Применяем "земляные работы"
+    # Применяем "земляные работы", ослабляя эффект у краев
     radius = (width - 1) // 2
+    for (px, pz), target_h in path_heights.items():
+        # Определяем, насколько мы близки к границе
+        dist_to_border = min(px, pz, W - 1 - px, H - 1 - pz)
+        # Сила воздействия: 100% в центре, плавно падает до 0% на границе
+        strength = min(1.0, dist_to_border / 4.0)
+        if strength <= 0: continue
 
-    # Создаем карту высот для всей зоны пандуса
-    ramp_zone_heights = {}
-    for (px, pz), ph in path_heights.items():
         for dz in range(-radius, radius + 1):
             for dx in range(-radius, radius + 1):
-                ramp_zone_heights[(px + dx, pz + dz)] = ph
-
-    # Срезаем все, что выше рассчитанной высоты пандуса
-    for (x, z), target_h in ramp_zone_heights.items():
-        if 0 <= x < W and 0 <= z < H:
-            if elev[z][x] > target_h:
-                elev[z][x] = target_h
+                x, z = px + dx, pz + dz
+                if 0 <= x < W and 0 <= z < H:
+                    current_h = elev[z][x]
+                    # Применяем сглаживание только если нужно и с учетом силы
+                    if current_h > target_h:
+                        elev[z][x] = (current_h * (1 - strength)) + (target_h * strength)
 
 
 def _preprocess_water_bodies(grid: List[List[str]], max_water_crossing_size: int):
@@ -204,6 +205,9 @@ def build_local_roads(
 
     # 1. Получаем "задание" для этого конкретного чанка из глобального плана
     sides_to_connect = region.road_plan.get((cx, cz), [])
+
+    print(f"--- [DEBUG] Чанк ({cx},{cz}) получил задание на дороги: {sides_to_connect}")
+
     if not sides_to_connect:
         return
 
@@ -234,8 +238,8 @@ def build_local_roads(
             points_to_connect.append(anchor)
 
     # 5. Находим оптимальную сеть, соединяющую все нужные точки
-    policy = make_local_road_policy(slope_cost=2.0, water_cost=15.0)
-    policy.terrain_factor[KIND_OBSTACLE] = 25.0
+    policy = make_local_road_policy(slope_cost=50.0, water_cost=float('inf'))
+    policy.terrain_factor[KIND_OBSTACLE] = 75.0
     router = BaseRoadRouter(policy=policy)
 
     paths = find_path_network(pathfinding_grid, height_grid, points_to_connect, router)
@@ -243,23 +247,18 @@ def build_local_roads(
     if not paths:
         return
 
-    # 6. Продлеваем пути до края (старая логика, немного улучшена)
+    # --- НОВЫЙ БЛОК: "Дотягиваем" пути до края чанка ---
+    # Это решает проблему разрывов на границах.
     all_points_on_paths = {point for path in paths for point in path}
     for gate in gates:
         if gate in all_points_on_paths:
-            # Находим путь, который заканчивается в этих воротах, и продлеваем его
-            for path in paths:
-                if path and path[-1] == gate:
-                    side = _side_of_gate(gate, size, size)
-                    if side == 'N':
-                        path.append((gate[0], 0))
-                    elif side == 'S':
-                        path.append((gate[0], size - 1))
-                    elif side == 'W':
-                        path.append((0, gate[1]))
-                    elif side == 'E':
-                        path.append((size - 1, gate[1]))
-                    break  # Продлили, ищем следующий
+            side = _side_of_gate(gate, size, size) # Нужна вспомогательная функция
+            path_to_extend = next((p for p in paths if p and p[-1] == gate), None)
+            if path_to_extend:
+                if side == 'N': path_to_extend.insert(0, (gate[0], 0))
+                elif side == 'S': path_to_extend.append((gate[0], size - 1))
+                elif side == 'W': path_to_extend.insert(0, (0, gate[1]))
+                elif side == 'E': path_to_extend.append((size - 1, gate[1]))
 
     # 7. Рисуем дороги и пандусы (без изменений)
     apply_paths_to_grid(kind_grid, paths, width=2, allow_slope=True, allow_water=True)

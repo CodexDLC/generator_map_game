@@ -25,18 +25,12 @@ class WorldGenerator(BaseGenerator):
         )
         apply_biome_rules(result, self.preset, region)
 
-        # --- НАЧАЛО ИЗМЕНЕНИЯ ---
         # 3. Строим дороги, передавая ВЕСЬ РЕГИОН с планом дорог
         build_local_roads(result, self.preset, params, region)
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
-        # 4. Применяем особые правила для стартовой зоны (например, город)
-        is_starting_zone = (
-                params.get("world_id") == "world_location" and
-                -1 <= result.cx <= 1 and
-                -1 <= result.cz <= 1
-        )
-        if is_starting_zone:
+        # 4. Применяем особые правила для стартового города ТОЛЬКО в чанке (0,0)
+        if result.cx == 0 and 0 <= result.cz <= 3:
             starting_zone_rules.apply_starting_zone_rules(result, self.preset)
 
+        # Эта строка должна быть на этом уровне отступа, вне блока if
         return result

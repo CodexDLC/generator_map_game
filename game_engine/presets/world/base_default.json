@@ -8,9 +8,9 @@
     "shaping_power": 1.8,
     "quantization_step_m": 0.5,
     "smoothing_passes": 2,
-    "noise_scale_tiles": 256.0,
-    "max_height_m": 45.0,
-    "sea_level_m": 9.0,
+    "noise_scale_tiles": 128.0,
+    "max_height_m": 30.0,
+    "sea_level_m": 6.0,
 
     "terracing": {
       "enabled": true,
@@ -59,7 +59,7 @@
 
   "pre_rules": {
       "south_ocean": {
-        "cz_min_ocean": 1,
+        "cz_min_ocean": 4,
         "initial_depth_factor": 0.1,
         "max_depth_factor": 0.33,
         "deepen_range_chunks": 3

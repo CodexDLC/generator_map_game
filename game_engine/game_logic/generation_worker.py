@@ -1,4 +1,5 @@
 # Этот файл будет выполняться в отдельном процессе
+import traceback
 from pygame_tester.world_manager import WorldManager
 
 
@@ -32,5 +33,5 @@ def worker_main(task_queue, city_seed: int):
 
         except Exception as e:
             print(f"[Worker-{city_seed}] CRITICAL ERROR: {e}")
-
+            traceback.print_exc()
     print(f"[Worker-{city_seed}] process finished.")
