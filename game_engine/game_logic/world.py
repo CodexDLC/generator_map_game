@@ -206,7 +206,8 @@ class GameWorld:
                 wx_offset = player_cx * CHUNK_SIZE
                 wz_offset = player_cz * CHUNK_SIZE
                 self.player.path = [(lx + wx_offset, lz + wz_offset) for lx, lz in local_path]
-                if self.player.path: self.player.path.pop(0)
+                # --- ИЗМЕНЕНИЕ: СТРОКА НИЖЕ БЫЛА УДАЛЕНА ---
+                # if self.player.path: self.player.path.pop(0)
             else:
                 self.player.path = []
                 print("Path not found!")

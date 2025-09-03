@@ -20,44 +20,7 @@ def generate_forests(result: GenResult, preset: Any, region: Region):
     if not cfg.get("enabled", False):
         return
 
-    # --- ЭТАП 1: Создание сплошных "пятен" (маски) ---
-    groups_cfg = cfg.get("groups", {})
-    details_cfg = cfg.get("details", {})
 
-    group_scale = float(groups_cfg.get("noise_scale_tiles", 64.0))
-    group_threshold = float(groups_cfg.get("threshold", 0.45))
-    group_freq = 1.0 / group_scale
-
-    detail_scale = float(details_cfg.get("noise_scale_tiles", 7.0))
-    detail_threshold = float(details_cfg.get("threshold", 0.55))
-    detail_freq = 1.0 / detail_scale
-
-    group_noise_gen = OpenSimplex((result.seed ^ 0xABCDEFAB) & 0x7FFFFFFF)
-    detail_noise_gen = OpenSimplex((result.seed ^ 0x12345678) & 0x7FFFFFFF)
-
-    scatter_mask = [[False for _ in range(size)] for _ in range(size)]
-    for z in range(size):
-        for x in range(size):
-            if kind_grid[z][x] in (KIND_GROUND, KIND_SAND):
-                wx, wz = result.cx * size + x, result.cz * size + z
-                group_val = (group_noise_gen.noise2(wx * group_freq, wz * group_freq) + 1.0) / 2.0
-                if group_val > group_threshold:
-                    detail_val = (detail_noise_gen.noise2(wx * detail_freq, wz * detail_freq) + 1.0) / 2.0
-                    if detail_val > detail_threshold:
-                        scatter_mask[z][x] = True
-
-    # --- ЭТАП 2: Прореживание маски по алгоритму "случайный отбор с защитной зоной" ---
-    thinning_cfg = cfg.get("thinning", {})
-    if not thinning_cfg.get("enabled", False):
-        return
-
-    min_dist = max(1, int(thinning_cfg.get("min_distance", 2)))
-
-    possible_points = []
-    for z in range(size):
-        for x in range(size):
-            if scatter_mask[z][x]:
-                possible_points.append((x, z))
 
     rng = random.Random(result.stage_seeds.get("obstacles", result.seed))
     rng.shuffle(possible_points)

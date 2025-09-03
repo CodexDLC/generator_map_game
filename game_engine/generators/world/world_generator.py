@@ -6,8 +6,7 @@ from .._base.generator import BaseGenerator
 from ...core.types import GenResult
 from ...story_features import starting_zone_rules
 from ...story_features.biome_rules import apply_biome_rules
-from ...story_features.features import generate_forests, generate_rocks
-from ...story_features.local_roads import build_local_roads  # <<< ДОБАВЛЕНО
+from ...story_features.local_roads import build_local_roads  # <<< Импортируем дороги
 from ...world_structure.regions import RegionManager
 
 
@@ -20,29 +19,18 @@ class WorldGenerator(BaseGenerator):
         # 1. Создаем базовый ландшафт (высоты, вода, склоны)
         result = super().generate(params)
 
-        # 2. Получаем данные о биоме, чтобы передать их дальше
+        # 2. Определяем регион и применяем правила биомов (леса, скалы и т.д.)
         region = self.region_manager.get_region_data(
             *self.region_manager.get_region_coords_from_chunk_coords(result.cx, result.cz)
         )
-
-        # 3. Применяем правила биома (фабрика)
         apply_biome_rules(result, self.preset, region)
 
-        # 4. Рисуем леса и камни
-        generate_forests(result, self.preset, region)
-        generate_rocks(result, self.preset)
+        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+        # 3. Строим дороги. Этот шаг теперь ПОСЛЕДНИЙ перед финализацией.
+        build_local_roads(result, self.preset, params)
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
-        # <<< ВРЕМЕННО: Рисуем дороги после всех объектов >>>
-        # Функция build_local_roads использует kind и height для прокладки пути.
-        # Поэтому она должна быть вызвана после того, как эти слои будут заполнены.
-        build_local_roads(
-            result.layers["kind"],
-            result.layers["height_q"]["grid"],
-            result.size,
-            self.preset,
-            params
-        )
-
+        # 4. Применяем особые правила для стартовой зоны (например, город)
         is_starting_zone = (
                 params.get("world_id") == "world_location" and
                 -1 <= result.cx <= 1 and
