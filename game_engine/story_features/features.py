@@ -6,9 +6,10 @@ from opensimplex import OpenSimplex
 
 from ..core.constants import KIND_GROUND, KIND_SAND, KIND_TREE, KIND_ROCK, KIND_SLOPE
 from ..core.types import GenResult
+from ..world_structure.regions import Region
 
 
-def generate_forests(result: GenResult, preset: Any):
+def generate_forests(result: GenResult, preset: Any, region: Region):
     """
     Генерирует леса, используя двухслойный шум и прореживание с защитной зоной.
     Работает со своим собственным набором шумов.
@@ -16,7 +17,8 @@ def generate_forests(result: GenResult, preset: Any):
     kind_grid = result.layers["kind"]
     size = len(kind_grid)
     cfg = getattr(preset, "scatter", {})
-    if not cfg.get("enabled", False): return
+    if not cfg.get("enabled", False):
+        return
 
     # --- ЭТАП 1: Создание сплошных "пятен" (маски) ---
     groups_cfg = cfg.get("groups", {})
@@ -46,7 +48,8 @@ def generate_forests(result: GenResult, preset: Any):
 
     # --- ЭТАП 2: Прореживание маски по алгоритму "случайный отбор с защитной зоной" ---
     thinning_cfg = cfg.get("thinning", {})
-    if not thinning_cfg.get("enabled", False): return
+    if not thinning_cfg.get("enabled", False):
+        return
 
     min_dist = max(1, int(thinning_cfg.get("min_distance", 2)))
 
