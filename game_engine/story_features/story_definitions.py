@@ -34,16 +34,7 @@ STRUCTURE_REGISTRY: Dict[Tuple[int, int], StoryStructure] = {
             "E": StructureExit("E"),
         }
     ),
-    (0, 3): StoryStructure(
-        name="Портовый город",
-        cx=0,
-        cz=3,
-        exits={
-            # У порта есть только выходы на Запад и Восток
-            "W": StructureExit("W"),
-            "E": StructureExit("E"),
-        }
-    ),
+    # БЛОК С ПОРТОВЫМ ГОРОДОМ (0, 3) ПОЛНОСТЬЮ УДАЛЕН
 }
 
 def get_structure_at(cx: int, cz: int) -> StoryStructure | None:

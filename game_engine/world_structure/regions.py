@@ -1,78 +1,45 @@
-# game_engine/world_structure/regions.py
-from dataclasses import dataclass, field
-from typing import Dict, Tuple, List, Any
+# REWRITTEN FILE: game_engine/world_structure/regions.py
+from __future__ import annotations
+import json
+import dataclasses
 from pathlib import Path
+from typing import Dict, Tuple
 
-from .road_types import ChunkRoadPlan
 from ..core.preset import Preset
 from ..core.types import GenResult
-from ..core.export import write_region_meta, write_client_chunk, write_chunk_preview
-from .serialization import RegionMetaContract, ClientChunkContract
+from ..core.export import write_region_meta
 from ..generators._base.generator import BaseGenerator
-from ..generators.world.world_generator import WorldGenerator
+from .serialization import RegionMetaContract
+from .planners.road_planner import plan_roads_for_region
+from .planners.biome_planner import assign_biome_to_region
+from .context import Region
 
-# --- Функции для работы с сеткой регионов (остаются без изменений) ---
-REGION_SIZE = 7
-REGION_OFFSET = REGION_SIZE // 2
-
-
-def region_key(cx: int, cz: int) -> Tuple[int, int]:
-    scx = (cx + REGION_OFFSET) // REGION_SIZE if cx >= -REGION_OFFSET else (cx - REGION_OFFSET) // REGION_SIZE
-    scz = (cz + REGION_OFFSET) // REGION_SIZE if cz >= -REGION_OFFSET else (cz - REGION_OFFSET) // REGION_SIZE
-    return scx, scz
+# --- CHANGE: Import grid utils from the new file ---
+from .grid_utils import region_base, REGION_SIZE
 
 
-def region_base(scx: int, scz: int) -> Tuple[int, int]:
-    base_cx = scx * REGION_SIZE - REGION_OFFSET
-    base_cz = scz * REGION_SIZE - REGION_OFFSET
-    return base_cx, base_cz
-
-
-@dataclass
-class Region:
-    """Внутреннее представление региона в памяти."""
-    scx: int
-    scz: int
-    road_plan: Dict[Tuple[int, int], ChunkRoadPlan] = field(default_factory=dict)
-    final_chunks: Dict[Tuple[int, int], GenResult] = field(default_factory=dict)
-
-
-# --- НОВЫЙ REGION MANAGER ---
 class RegionManager:
-    def __init__(self, world_seed: int, preset: Preset, base_generator: BaseGenerator, world_generator: WorldGenerator,
-                 artifacts_root: Path):
+    def __init__(self, world_seed: int, preset: Preset, base_generator: BaseGenerator, artifacts_root: Path):
         self.world_seed = world_seed
         self.preset = preset
-        self.region_cache: Dict[Tuple[int, int], Region] = {}
         self.base_generator = base_generator
-        self.world_generator = world_generator
         self.artifacts_root = artifacts_root
+        self.raw_data_path = self.artifacts_root / "world_raw" / str(self.world_seed)
 
-    def _get_region_path(self, scx: int, scz: int) -> Path:
-        """Определяет путь к папке региона."""
-        return self.artifacts_root / "world" / "world_location" / str(self.world_seed) / "regions" / f"{scx}_{scz}"
-
-    def ensure_region_is_generated(self, cx: int, cz: int):
+    def generate_raw_region(self, scx: int, scz: int):
         """
-        Главный метод. Проверяет, сгенерирован ли регион на диске.
-        Если нет - запускает полный процесс генерации.
+        Generates and saves the 'raw' version of a region, including the base landscape
+        and global plans. This is STAGE 1 of the generation pipeline.
         """
-        scx, scz = region_key(cx, cz)
-        region_path = self._get_region_path(scx, scz)
-        meta_path = region_path / "region_meta.json"
-
-        if meta_path.exists():
-            # Регион уже сгенерирован, ничего не делаем
+        region_meta_path = self.raw_data_path / "regions" / f"{scx}_{scz}" / "region_meta.json"
+        if region_meta_path.exists():
+            print(f"[RegionManager] Raw data for region ({scx},{scz}) already exists.")
             return
 
-        self._generate_full_region(scx, scz, region_path)
-
-    def _generate_full_region(self, scx: int, scz: int, region_path: Path):
-        print(f"[RegionManager] Starting full generation for region ({scx}, {scz})...")
+        print(f"[RegionManager] STARTING RAW generation for region ({scx}, {scz})...")
         base_cx, base_cz = region_base(scx, scz)
 
-        # --- ПРОХОД 1: ГЕНЕРАЦИЯ "ГОЛОГО" ЛАНДШАФТА ---
-        print("[RegionManager] Pass 1: Generating base landscape for 49 chunks...")
+        # 1. Create base landscape in memory
         base_chunks: Dict[Tuple[int, int], GenResult] = {}
         for dz in range(REGION_SIZE):
             for dx in range(REGION_SIZE):
@@ -80,31 +47,37 @@ class RegionManager:
                 params = {"seed": self.world_seed, "cx": cx, "cz": cz}
                 base_chunks[(cx, cz)] = self.base_generator.generate(params)
 
-        # --- ПРОХОД 2: ГЛОБАЛЬНОЕ ПЛАНИРОВАНИЕ ---
-        from .planners.road_planner import plan_roads_for_region
-        print("[RegionManager] Pass 2: Planning global roads...")
+        # 2. Perform global planning
+        biome_type = assign_biome_to_region(self.world_seed, scx, scz)
         road_plan = plan_roads_for_region(scx, scz, self.world_seed, self.preset, base_chunks)
 
-        # --- ПРОХОД 3: ФИНАЛЬНАЯ ДЕТАЛИЗАЦИЯ И СОХРАНЕНИЕ ---
-        print("[RegionManager] Pass 3: Finalizing and exporting 49 chunks...")
-        new_region = Region(scx=scx, scz=scz, road_plan=road_plan)
-
-        for (cx, cz), base_chunk in base_chunks.items():
-            final_chunk = self.world_generator.finalize_chunk(base_chunk, new_region)
-            new_region.final_chunks[(cx, cz)] = final_chunk
-
-            # Сохраняем клиентский чанк
-            client_contract = ClientChunkContract(cx=cx, cz=cz, layers=final_chunk.layers)
-            chunk_path = region_path / "chunks" / f"{cx}_{cz}.json"
-            write_client_chunk(str(chunk_path), client_contract)
-
-            # Сохраняем превью для миникарты
-            preview_path = region_path / "previews" / f"{cx}_{cz}.png"
-            palette = self.preset.export.get("palette", {})
-            write_chunk_preview(str(preview_path), final_chunk.layers["kind"], palette)
-
-        # Сохраняем метаданные региона
+        # 3. Save raw data to disk
         meta_contract = RegionMetaContract(scx=scx, scz=scz, world_seed=self.world_seed, road_plan=road_plan)
-        write_region_meta(str(region_path / "region_meta.json"), meta_contract)
+        write_region_meta(str(region_meta_path), meta_contract)
 
-        print(f"[RegionManager] Region ({scx}, {scz}) generation complete.")
+        for (cx, cz), chunk_data in base_chunks.items():
+            raw_chunk_path = self.raw_data_path / "chunks" / f"{cx}_{cz}.json"
+            raw_chunk_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # --- ИЗМЕНЕНИЕ: Собираем только нужные данные для сырого чанка ---
+            lean_raw_data = {
+                "version": chunk_data.version,
+                "type": chunk_data.type,
+                "seed": chunk_data.seed,
+                "cx": chunk_data.cx,
+                "cz": chunk_data.cz,
+                "size": chunk_data.size,
+                "cell_size": chunk_data.cell_size,
+                "layers": chunk_data.layers,
+                "ports": chunk_data.ports,
+                "capabilities": chunk_data.capabilities,
+                # Добавляем stage_seeds, так как они могут понадобиться для консистентной детализации
+                "stage_seeds": chunk_data.stage_seeds
+            }
+            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+            with open(raw_chunk_path, 'w', encoding='utf-8') as f:
+                # Сериализуем не весь объект, а только наш "облегченный" словарь
+                json.dump(lean_raw_data, f, indent=2)
+
+        print(f"[RegionManager] FINISHED RAW generation for region ({scx}, {scz}).")

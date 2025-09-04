@@ -1,8 +1,8 @@
 # game_engine/world_structure/planners/road_planner.py
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 from collections import defaultdict
 
-from ..regions import Region, REGION_SIZE, region_base
+from ..grid_utils import REGION_SIZE, region_base
 from ...core.types import GenResult
 from ...story_features.story_definitions import get_structure_at
 from ...algorithms.pathfinding.a_star import find_path as astar_find

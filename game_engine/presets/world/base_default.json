@@ -59,7 +59,7 @@
 
   "pre_rules": {
       "south_ocean": {
-        "cz_min_ocean": 4,
+        "cz_min_ocean": 8,
         "initial_depth_factor": 0.1,
         "max_depth_factor": 0.33,
         "deepen_range_chunks": 3

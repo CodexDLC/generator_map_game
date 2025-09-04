@@ -1,11 +1,13 @@
-# game_engine/story_features/biome_rules.py
+# ОБНОВИТЕ ФАЙЛ: game_engine/story_features/biome_rules.py
 from __future__ import annotations
-from typing import Any, Dict
+from typing import Any
 
 from ..core.types import GenResult
-from ..world_structure.regions import Region
+# --- ИЗМЕНЕНИЕ: Импортируем Region из нового, чистого файла ---
+from ..world_structure.context import Region
 from .features.forests import ForestBrush
 from .features.rocks import RockBrush
+
 
 # Реестр кисточек
 BRUSH_REGISTRY = {

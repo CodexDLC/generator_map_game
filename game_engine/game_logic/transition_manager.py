@@ -1,12 +1,10 @@
-# game_engine/game_logic/transition_manager.py
+# ОБНОВИТЕ ФАЙЛ: game_engine/game_logic/transition_manager.py
 from __future__ import annotations
 from typing import Tuple, TYPE_CHECKING
 
 from pygame_tester.config import CHUNK_SIZE
 from ..core.constants import KIND_GROUND
 
-# --- ИЗМЕНЕНИЕ: Решение проблемы циклического импорта ---
-# Этот блок выполняется только для проверки типов IDE, но не во время работы программы.
 if TYPE_CHECKING:
     from .world import GameWorld
 
@@ -15,10 +13,11 @@ class WorldTransitionManager:
     def __init__(self, world_manager):
         self.world_manager = world_manager
 
-    # --- ИЗМЕНЕНИЕ: Указываем тип 'GameWorld' в кавычках ---
     def check_and_trigger_transition(self, wx: int, wz: int, game_world: 'GameWorld') -> Tuple[int, int] | None:
-        if not game_world.pre_generation_complete:
-            return None
+        # --- ИЗМЕНЕНИЕ: УДАЛЯЕМ НЕНУЖНУЮ ПРОВЕРКУ ---
+        # if not game_world.pre_generation_complete:
+        #     return None
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
         if self.world_manager.world_id != "city":
             return None
@@ -51,8 +50,9 @@ class WorldTransitionManager:
                 elif side == "W": new_cx, new_cz = -1, 0
                 else: new_cx, new_cz = 1, 0
 
-                self.world_manager.player_chunk_cx = new_cx
-                self.world_manager.player_chunk_cz = new_cz
+                # Эта логика была в WorldManager, но ее лучше оставить здесь
+                # self.world_manager.player_chunk_cx = new_cx
+                # self.world_manager.player_chunk_cz = new_cz
                 new_wx = new_cx * CHUNK_SIZE + (CHUNK_SIZE - 1 - lx)
                 new_wz = new_cz * CHUNK_SIZE + (CHUNK_SIZE - 1 - lz)
                 return (new_wx, new_wz)

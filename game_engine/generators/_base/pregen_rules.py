@@ -33,7 +33,7 @@ def apply_ocean_coast_rules(result: Any, preset: Any):
     2. Расставляет пляжи и склоны.
     3. Углубляет воду к южному краю до высоты 0.
     """
-    if result.cz != 3:
+    if result.cz != 7:
         return
 
     size = result.size

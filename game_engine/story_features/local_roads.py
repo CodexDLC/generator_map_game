@@ -2,23 +2,24 @@ from __future__ import annotations
 from typing import Any
 
 from ..core.types import GenResult
-from ..world_structure.regions import Region, region_base
+from ..world_structure.context import Region
+from ..world_structure.regions import region_base
+
 from ..algorithms.pathfinding.routers import BaseRoadRouter
 from ..algorithms.pathfinding.network import apply_paths_to_grid, find_path_network
 from ..algorithms.pathfinding.policies import make_road_policy
 from .road_helpers import carve_ramp_along_path
 
 
-def build_local_roads(result: GenResult, preset: Any, params: Any, region: Region) -> None:
+def build_local_roads(result: GenResult, region: Region) -> None:
     """
     Строит дороги внутри чанка, соединяя опорные точки из регионального плана.
     """
     chunk_key = (result.cx, result.cz)
+    # Используем 'region' для получения плана, а не 'params'
     plan_for_chunk = (region.road_plan or {}).get(chunk_key)
 
-    if not plan_for_chunk:
-        return
-    if not plan_for_chunk.waypoints:
+    if not plan_for_chunk or not plan_for_chunk.waypoints:
         return
 
     print(f"[ROADS] chunk={chunk_key} Building road from {len(plan_for_chunk.waypoints)} waypoints.")
