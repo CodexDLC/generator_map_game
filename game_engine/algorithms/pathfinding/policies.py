@@ -75,6 +75,29 @@ def make_nav_policy(
     )
 
 
+def make_tract_policy() -> PathPolicy:
+    """
+    Политика для главных ТРАКТОВ.
+    Очень высокий штраф за воду, чтобы заставить A* искать обходные пути.
+    """
+    tf = dict(DEFAULT_TERRAIN_FACTOR)
+    tf[KIND_ROAD] = 0.5  # Трактам еще выгоднее идти по уже проложенным дорогам
+    tf[KIND_OBSTACLE] = float("inf")
+    tf[KIND_VOID] = float("inf")
+    tf[KIND_SLOPE] = 5.0  # Небольшой штраф за склоны, но они проходимы
+
+    # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ ---
+    tf[KIND_WATER] = 500.0  # Огромный штраф за воду, A* будет избегать ее любой ценой
+
+    return PathPolicy(
+        neighbors=NEI8,
+        corner_cut=False,
+        terrain_factor=tf,
+        slope_penalty_per_meter=0.2,  # Небольшой штраф за перепад высот
+        heuristic=heuristic_octile,
+    )
+
+
 # --------- Готовые профили по умолчанию ---------
 
 ROAD_POLICY: PathPolicy = make_road_policy(pass_water=False)

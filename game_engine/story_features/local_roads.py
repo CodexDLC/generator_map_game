@@ -56,5 +56,6 @@ def build_local_roads(result: GenResult, region: Region) -> None:
         if path:
             carve_ramp_along_path(height_grid, path)
 
-    apply_paths_to_grid(kind_grid, paths, width=2, allow_slope=True, allow_water=True)
+    # --- ИЗМЕНЕНИЕ: Делаем дорогу шириной в 3 клетки ---
+    apply_paths_to_grid(kind_grid, paths, width=3, allow_slope=True, allow_water=True)
     print(f"[ROADS] chunk={chunk_key} Successfully applied paths.")
