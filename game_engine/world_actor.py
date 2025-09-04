@@ -9,6 +9,7 @@ from .world_structure.grid_utils import region_key, REGION_SIZE
 from .world_structure.regions import RegionManager, region_base
 from .world_structure.chunk_processor import process_chunk
 from .world_structure.context import Region
+from .world_structure.road_types import RoadWaypoint, ChunkRoadPlan
 from .world_structure.serialization import ClientChunkContract
 
 
@@ -39,7 +40,6 @@ class WorldActor:
         # Этап 1: Генерация "сырца"
         region_manager.generate_raw_region(scx, scz)
 
-        # Проверяем, нужно ли детализировать
         final_chunk_path_check = self.final_data_path / f"{cx}_{cz}" / "chunk.rle.json"
         if final_chunk_path_check.exists():
             self._log(f"Final chunks for region ({scx},{scz}) already exist. Skipping detailing.")
@@ -51,13 +51,31 @@ class WorldActor:
         region_meta_path = self.raw_data_path / "regions" / f"{scx}_{scz}" / "region_meta.json"
         with open(region_meta_path, 'r', encoding='utf-8') as f:
             meta_data = json.load(f)
-            road_plan_str_keys = meta_data.get("road_plan", {})
-            road_plan = {tuple(eval(k.replace('__tuple__', ''))): v for k, v in road_plan_str_keys.items()}
+
+            # --- НАЧАЛО ИСПРАВЛЕНИЯ: Полная десериализация road_plan ---
+
+            deserialized_road_plan = {}
+            # road_plan_from_json - это словарь вида {"-1,0": {"waypoints": [...]}}
+            road_plan_from_json = meta_data.get("road_plan", {})
+
+            for key_str, plan_dict in road_plan_from_json.items():
+                # Превращаем строку "-1,0" обратно в кортеж (-1, 0)
+                cx_str, cz_str = key_str.split(',')
+                chunk_key = (int(cx_str), int(cz_str))
+
+                # Создаем пустой объект ChunkRoadPlan
+                new_plan = ChunkRoadPlan()
+                # Заполняем его вэйпоинтами, создавая объекты RoadWaypoint из словарей
+                new_plan.waypoints = [RoadWaypoint(**wp_dict) for wp_dict in plan_dict.get("waypoints", [])]
+
+                deserialized_road_plan[chunk_key] = new_plan
+
+            # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
             region_context = Region(
                 scx=scx, scz=scz,
                 biome_type="placeholder_biome",
-                road_plan=road_plan
+                road_plan=deserialized_road_plan  # <-- Используем полностью восстановленный план
             )
 
         base_cx, base_cz = region_base(scx, scz)
@@ -66,10 +84,9 @@ class WorldActor:
 
         for i, (dz, dx) in enumerate(chunk_list):
             chunk_cx, chunk_cz = base_cx + dx, base_cz + dz
-
             self._log(f"  -> Detailing chunk ({chunk_cx},{chunk_cz}) [{i + 1}/{total_chunks}]...")
-
             raw_chunk_path = self.raw_data_path / "chunks" / f"{chunk_cx}_{chunk_cz}.json"
+
             final_chunk = process_chunk(self.preset, raw_chunk_path, region_context)
 
             client_chunk_path = self.final_data_path / f"{chunk_cx}_{chunk_cz}" / "chunk.rle.json"

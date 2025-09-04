@@ -1,4 +1,4 @@
-# ПЕРЕПИШИТЕ ФАЙЛ: game_engine/core/export.py
+# Замените ВСЁ содержимое файла game_engine/core/export.py на этот код:
 from __future__ import annotations
 import json
 import os
@@ -8,9 +8,7 @@ import dataclasses
 
 from ..world_structure.serialization import RegionMetaContract, ClientChunkContract
 from .constants import ID_TO_KIND, KIND_TO_ID
-from .utils.rle import encode_rle_rows, \
-    decode_rle_rows
-
+from .utils.rle import encode_rle_rows
 
 try:
     from PIL import Image
@@ -23,49 +21,50 @@ PREVIEW_TILE_PX = 2
 
 
 def _atomic_write_json(path: str, data: Any):
-    """Атомарная запись JSON с поддержкой dataclass и кортежей в ключах."""
+    """Атомарная запись JSON с поддержкой dataclass."""
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path + ".tmp"
 
+    # --- ИСПРАВЛЕНИЕ: Этот сериализатор КРАЙНЕ ВАЖЕН ---
+    # Он преобразует все наши кастомные dataclass'ы в словари
     def default_serializer(o):
         if dataclasses.is_dataclass(o):
             return dataclasses.asdict(o)
-        if isinstance(o, tuple):
-            return f"__tuple__{list(o)}"
         raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
 
     with open(tmp_path, "w", encoding="utf-8") as f:
+        # --- ИСПРАВЛЕНИЕ: Возвращаем default=default_serializer на место ---
         json.dump(data, f, ensure_ascii=False, indent=2, default=default_serializer)
+
     os.rename(tmp_path, path)
 
 
 def write_region_meta(path: str, meta_contract: RegionMetaContract):
-    """Сохраняет метаданные региона."""
-    _atomic_write_json(path, meta_contract)
+    """Сохраняет метаданные региона, корректно обрабатывая ключи-кортежи."""
+    data_to_serialize = dataclasses.asdict(meta_contract)
+
+    if 'road_plan' in data_to_serialize and meta_contract.road_plan:
+        serializable_road_plan = {
+            f"{k[0]},{k[1]}": v for k, v in meta_contract.road_plan.items()
+        }
+        data_to_serialize['road_plan'] = serializable_road_plan
+
+    _atomic_write_json(path, data_to_serialize)
     print(f"--- EXPORT: Метаданные региона сохранены: {path}")
 
 
-# --- ИСПРАВЛЕННАЯ ВЕРСИЯ ФУНКЦИИ ---
 def write_client_chunk(path: str, chunk_contract: ClientChunkContract):
-    """
-    Сохраняет готовый чанк для клиента, ПРАВИЛЬНО кодируя слои в RLE.
-    """
+    """Сохраняет готовый чанк для клиента, кодируя слои в RLE."""
     output_data = {
-        "version": chunk_contract.version,
-        "cx": chunk_contract.cx,
-        "cz": chunk_contract.cz,
-        "layers": {}
+        "version": chunk_contract.version, "cx": chunk_contract.cx,
+        "cz": chunk_contract.cz, "layers": {}
     }
-
     for layer_name, grid_data in chunk_contract.layers.items():
         if layer_name == "kind":
-            # Для 'kind' заменяем строки на ID для экономии места
             id_grid = [[KIND_TO_ID.get(kind, 4) for kind in row] for row in grid_data]
             output_data["layers"][layer_name] = encode_rle_rows(id_grid)
         elif layer_name == "height_q" and isinstance(grid_data, dict) and "grid" in grid_data:
-            # Для 'height_q' берем вложенный грид
             output_data["layers"][layer_name] = encode_rle_rows(grid_data["grid"])
-
     _atomic_write_json(path, output_data)
 
 

@@ -9,16 +9,18 @@ from .helpers import (
     no_corner_cut, reconstruct,
 )
 
+
 def find_path(
-    kind_grid: List[List[str]],
-    height_grid: Optional[List[List[float]]],
-    start_pos: Tuple[int, int],
-    end_pos: Tuple[int, int],
-    policy: PathPolicy = NAV_POLICY,
+        kind_grid: List[List[str]],
+        height_grid: Optional[List[List[float]]],
+        start_pos: Tuple[int, int],
+        end_pos: Tuple[int, int],
+        policy: PathPolicy = NAV_POLICY,
+        # --- НОВЫЙ ПАРАМЕТР ---
+        cost_grid: Optional[List[List[float]]] = None
 ) -> List[Tuple[int, int]] | None:
     """
-    Универсальный A*: работает и для ИИ, и для прокладки дорог (через policy).
-    Возвращает список координат (x,z) от start до goal или None.
+    Универсальный A* с поддержкой дополнительной карты штрафов (cost_grid).
     """
     if not kind_grid or not kind_grid[0]:
         return None
@@ -35,11 +37,9 @@ def find_path(
         return None
 
     start: Coord = (sx, sz)
-    goal:  Coord = (gx, gz)
-
-    open_heap: List[Tuple[float, int, Coord]] = []  # (f, tie, node)
+    goal: Coord = (gx, gz)
+    open_heap: List[Tuple[float, int, Coord]] = []
     heapq.heappush(open_heap, (0.0, 0, start))
-
     came_from: Dict[Coord, Coord] = {}
     g_score: Dict[Coord, float] = {start: 0.0}
     closed: set[Coord] = set()
@@ -68,7 +68,10 @@ def find_path(
             base = base_step_cost(dx, dz)
             elev = elevation_penalty(height_grid, cx, cz, nx, nz, policy.slope_penalty_per_meter)
             terr = policy.terrain_factor.get(kind_grid[nz][nx], 1.0)
-            step_cost = base * terr + elev
+
+            # --- НОВОЕ: Учитываем штраф из cost_grid ---
+            additional_cost = cost_grid[nz][nx] if cost_grid else 1.0
+            step_cost = (base * terr + elev) * additional_cost
 
             tentative_g = g_score[current] + step_cost
             nbr: Coord = (nx, nz)
@@ -79,5 +82,4 @@ def find_path(
                 tie_breaker += 1
                 f_score = tentative_g + policy.heuristic(nbr, goal)
                 heapq.heappush(open_heap, (f_score, tie_breaker, nbr))
-
     return None

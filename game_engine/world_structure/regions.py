@@ -28,8 +28,7 @@ class RegionManager:
 
     def generate_raw_region(self, scx: int, scz: int):
         """
-        Generates and saves the 'raw' version of a region, including the base landscape
-        and global plans. This is STAGE 1 of the generation pipeline.
+        Генерирует и сохраняет "сырую" версию региона (ЭТАП 1).
         """
         region_meta_path = self.raw_data_path / "regions" / f"{scx}_{scz}" / "region_meta.json"
         if region_meta_path.exists():
@@ -39,7 +38,7 @@ class RegionManager:
         print(f"[RegionManager] STARTING RAW generation for region ({scx}, {scz})...")
         base_cx, base_cz = region_base(scx, scz)
 
-        # 1. Create base landscape in memory
+        # 1. Создаем "голый" ландшафт в памяти
         base_chunks: Dict[Tuple[int, int], GenResult] = {}
         for dz in range(REGION_SIZE):
             for dx in range(REGION_SIZE):
@@ -49,35 +48,33 @@ class RegionManager:
 
         # 2. Perform global planning
         biome_type = assign_biome_to_region(self.world_seed, scx, scz)
-        road_plan = plan_roads_for_region(scx, scz, self.world_seed, self.preset, base_chunks)
+        road_plan = plan_roads_for_region(
+            scx, scz, self.world_seed, self.preset, base_chunks, biome_type
+        )
 
         # 3. Save raw data to disk
-        meta_contract = RegionMetaContract(scx=scx, scz=scz, world_seed=self.world_seed, road_plan=road_plan)
+
+        # --- ИСПРАВЛЕНИЕ: Мы создаем контракт с ОРИГИНАЛЬНЫМ road_plan (с кортежами) ---
+        # Преобразованием в строки теперь будет заниматься функция write_region_meta
+        meta_contract = RegionMetaContract(
+            scx=scx, scz=scz, world_seed=self.world_seed,
+            road_plan=road_plan
+        )
         write_region_meta(str(region_meta_path), meta_contract)
 
+        # Сохраняем "облегченные" сырые чанки (эта часть остается без изменений)
         for (cx, cz), chunk_data in base_chunks.items():
             raw_chunk_path = self.raw_data_path / "chunks" / f"{cx}_{cz}.json"
             raw_chunk_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # --- ИЗМЕНЕНИЕ: Собираем только нужные данные для сырого чанка ---
             lean_raw_data = {
-                "version": chunk_data.version,
-                "type": chunk_data.type,
-                "seed": chunk_data.seed,
-                "cx": chunk_data.cx,
-                "cz": chunk_data.cz,
-                "size": chunk_data.size,
-                "cell_size": chunk_data.cell_size,
-                "layers": chunk_data.layers,
-                "ports": chunk_data.ports,
+                "version": chunk_data.version, "type": chunk_data.type,
+                "seed": chunk_data.seed, "cx": chunk_data.cx, "cz": chunk_data.cz,
+                "size": chunk_data.size, "cell_size": chunk_data.cell_size,
+                "layers": chunk_data.layers, "ports": chunk_data.ports,
                 "capabilities": chunk_data.capabilities,
-                # Добавляем stage_seeds, так как они могут понадобиться для консистентной детализации
                 "stage_seeds": chunk_data.stage_seeds
             }
-            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-
             with open(raw_chunk_path, 'w', encoding='utf-8') as f:
-                # Сериализуем не весь объект, а только наш "облегченный" словарь
                 json.dump(lean_raw_data, f, indent=2)
 
         print(f"[RegionManager] FINISHED RAW generation for region ({scx}, {scz}).")

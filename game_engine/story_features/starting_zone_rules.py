@@ -59,12 +59,12 @@ def _apply_walls_and_moat(result: GenResult, p: CityParams, open_sides: list[str
 
             ground_h = original_h[z][x]
             if 0 <= r <= p.r_moat_end:
-                k_grid[z][x] = KIND_WATER;
+                k_grid[z][x] = KIND_WATER
                 h_grid[z][x] = 0.0
             elif r == p.r_slope1 or r == p.r_slope2:
                 if k_grid[z][x] == KIND_GROUND: k_grid[z][x] = KIND_SLOPE
             elif p.r_wall_start <= r <= p.r_wall_end:
-                k_grid[z][x] = KIND_WALL;
+                k_grid[z][x] = KIND_WALL
                 h_grid[z][x] = ground_h + p.wall_height_add
             else:
                 k_grid[z][x] = KIND_GROUND
@@ -130,43 +130,6 @@ def build_capital_city(result: GenResult, p: CityParams):
     print(f"[GATE][E] z={gate_start}..{gate_end-1} bridge cols={east_bridge_cols} wall gap cols={east_wall_cols}")
 
 
-def build_port_city(result: GenResult, p: CityParams):
-    """Порт: укрепления W/E, гейты W/E. Без внутренних дорог. + DEBUG-логи."""
-    size = result.size
-    h_grid = result.layers["height_q"]["grid"]
-    k_grid = result.layers["kind"]
-
-    original_h = _apply_walls_and_moat(result, p, open_sides=['S'])
-
-    c = size // 2
-    gate_start = c - p.gate_w // 2
-    gate_end = gate_start + p.gate_w
-
-    print(f"[CITY][Port] size={size}, gates width={p.gate_w}, z_range={gate_start}..{gate_end-1}")
-
-    # Запад (x=0)
-    west_bridge_cols = list(range(0, p.r_moat_end + 1))
-    west_wall_cols   = list(range(p.r_wall_start, p.r_wall_end + 1))
-    for z in range(gate_start, gate_end):
-        for rx in west_bridge_cols:
-            k_grid[z][rx] = KIND_BRIDGE; h_grid[z][rx] = original_h[z][rx]
-        for rx in west_wall_cols:
-            k_grid[z][rx] = KIND_GROUND;  h_grid[z][rx] = original_h[z][rx]
-    print(f"[GATE][W] z={gate_start}..{gate_end-1} bridge cols={west_bridge_cols} wall gap cols={west_wall_cols}")
-
-    # Восток (x=size-1)
-    x = size - 1
-    east_bridge_cols = list(range(x - p.r_moat_end, x + 1))
-    east_wall_cols   = list(range(x - p.r_wall_end,  x - p.r_wall_start + 1))
-    for z in range(gate_start, gate_end):
-        for rx in east_bridge_cols:
-            k_grid[z][rx] = KIND_BRIDGE; h_grid[z][rx] = original_h[z][rx]
-        for rx in east_wall_cols:
-            k_grid[z][rx] = KIND_GROUND;  h_grid[z][rx] = original_h[z][rx]
-    print(f"[GATE][E] z={gate_start}..{gate_end-1} bridge cols={east_bridge_cols} wall gap cols={east_wall_cols}")
-
-
-
 def apply_starting_zone_rules(result: GenResult, preset: Any) -> None:
     """
     Главный диспетчер. Вызывает правильный строитель для каждого города.
@@ -181,8 +144,6 @@ def apply_starting_zone_rules(result: GenResult, preset: Any) -> None:
     # --- ГЛАВНОЕ ИЗМЕНЕНИЕ: ВЫБИРАЕМ ФУНКЦИЮ В ЗАВИСИМОСТИ ОТ ИМЕНИ ---
     if structure.name == "Столица":
         build_capital_city(result, params)
-    elif structure.name == "Портовый город":
-        build_port_city(result, params)
     else:
         # Запасной вариант для будущих городов
         build_capital_city(result, params)
