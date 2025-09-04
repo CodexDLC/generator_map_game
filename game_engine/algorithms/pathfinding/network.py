@@ -1,11 +1,11 @@
 # game_engine/algorithms/pathfinding/network.py
 from __future__ import annotations
-from typing import List, Tuple, Optional, Iterable, Dict
+from typing import List, Tuple, Optional, Iterable
 import math
 
 # --- ИЗМЕНЕНИЯ: Правильные пути ---
 from .routers import BaseRoadRouter
-from .helpers import Coord, in_bounds
+from .helpers import Coord
 from ...core.constants import (
     KIND_GROUND, KIND_ROAD, KIND_WATER, KIND_OBSTACLE, KIND_SLOPE, KIND_VOID, KIND_BRIDGE
 )

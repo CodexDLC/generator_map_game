@@ -20,8 +20,8 @@ class WorldGenerator(BaseGenerator):
         result = super().generate(params)
 
         # 2. Определяем регион и применяем правила биомов (леса, скалы и т.д.)
-        region = self.region_manager.get_region_data(
-            *self.region_manager.get_region_coords_from_chunk_coords(result.cx, result.cz)
+        region = self.region_manager.get_region(
+            result.cx, result.cz
         )
         apply_biome_rules(result, self.preset, region)
 

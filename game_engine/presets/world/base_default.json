@@ -9,7 +9,7 @@
     "quantization_step_m": 0.5,
     "smoothing_passes": 2,
     "noise_scale_tiles": 128.0,
-    "max_height_m": 39.0,
+    "max_height_m": 45.0,
     "sea_level_m": 9.0,
 
     "terracing": {

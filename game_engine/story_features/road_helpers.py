@@ -9,7 +9,7 @@ from game_engine.core.constants import (
 )
 # --- Импортируем реестр для поиска точных координат ворот ---
 from .story_definitions import get_structure_at
-from ..world_structure.planners.road_planner import OPPOSITE_SIDE
+
 
 Coord = Tuple[int, int]
 

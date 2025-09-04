@@ -174,111 +174,66 @@ def _generate_temporary_obstacles(
 
 # --- ОСНОВНАЯ ФУНКЦИЯ ---
 
-def build_local_roads(
-        result: GenResult,
-        preset: Any,
-        params: Dict,
-        region: Region,
-) -> None:
-    """Строит дороги в чанке строго по плану region.road_plan[(cx,cz)]. + DEBUG-логи"""
-    kind_grid = result.layers["kind"]
+def build_local_roads(result: GenResult, preset: Any, params: Any, region: Region) -> None:
+    """
+    Прокладка локальных дорог в чанке:
+      - вычисляем ворота по плану региона,
+      - тянем путь(и) к якорю города,
+      - рендерим дороги на kind_grid.
+    Вода запрещена; склоны разрешены с ценой.
+    """
+    kind_grid  = result.layers["kind"]
     height_grid = result.layers["height_q"]["grid"]
     size = result.size
-    cx = params.get("cx", 0)
-    cz = params.get("cz", 0)
-    world_seed = params.get("seed", 0)
+    cx, cz = params.cx, params.cz
 
-    # 1) Задание сторон
-    sides_to_connect = region.road_plan.get((cx, cz), [])
-    print(f"[ROADS] chunk=({cx},{cz}) size={size} sides={sides_to_connect}")
-    if not sides_to_connect:
+    sides = (region.road_plan or {}).get((cx, cz), [])
+    print(f"[ROADS] chunk=({cx},{cz}) size={size} sides={sides}")
+    if not sides:
         print(f"[ROADS] ({cx},{cz}) no sides -> skip")
         return
 
-    # 2) Поиск гейтов
-    gates: List[tuple[int, int]] = []
-    for side in sides_to_connect:
-        p = find_edge_gate(kind_grid, side, cx, cz, size)
-        print(f"[ROADS] ({cx},{cz}) side={side} gate={p}")
-        if p:
-            gates.append(p)
+    # 1) Координаты ворот по указанным сторонам
+    gates: List[Tuple[int, int]] = []
+    for side in sides:
+        g = find_edge_gate(kind_grid, side, preset)
+        print(f"[ROADS] ({cx},{cz}) side={side} gate={g}")
+        if g is not None:
+            gates.append(g)
 
     if not gates:
-        print(f"[ROADS] ({cx},{cz}) no gates found -> skip")
+        print(f"[ROADS] ({cx},{cz}) no gates -> skip")
         return
 
+    # 2) Якорь хаба
+    anchor = hub_anchor(kind_grid, preset) or (size // 2, size // 2)
+
+    # 3) Политика: без воды, со штрафом за склоны
+    policy = make_local_road_policy(slope_cost=50.0, water_cost=float("inf"))
+
+    # 4) Построение путей
+    paths: List[List[Tuple[int, int]]] = []
     if len(gates) == 1:
-        anchor = hub_anchor(kind_grid, preset) or (size // 2, size // 2)
-        path = [gates[0], anchor]
-        print(f"[ROADS] ({cx},{cz}) single gate={gates[0]} -> anchor={anchor}")
-        apply_paths_to_grid(kind_grid, [path], width=2, allow_slope=True, allow_water=True)
-        return
+        # Быстрый путь A* от единственных ворот к якорю
+        from game_engine.algorithms.pathfinding.a_star import find_path as astar_find
+        path = astar_find(kind_grid, height_grid, gates[0], anchor, policy=policy)
+        if not path:
+            print(f"[ROADS] ({cx},{cz}) single gate={gates[0]} -> anchor={anchor} -> NO PATH")
+            return
+        print(f"[ROADS] ({cx},{cz}) single gate path len={len(path)}")
+        paths = [path]
+    else:
+        # Сеть: якорь + все ворота, MST + A*
+        points = [anchor] + gates
+        router = BaseRoadRouter(policy=policy)
+        paths = find_path_network(kind_grid, height_grid, points, router=router)
+        print(f"[ROADS] ({cx},{cz}) network paths={len(paths)}")
 
-    # 3) Временная карта
-    pathfinding_grid = [row[:] for row in kind_grid]  # только копия
-    _preprocess_water_bodies(pathfinding_grid, max_water_crossing_size=4)
-    print(f"[ROADS] ({cx},{cz}) temp obstacles: DISABLED")
-
-    # 4) Точки
-    points_to_connect = list(gates)
-    if len(points_to_connect) >= 3:
-        anchor = hub_anchor(kind_grid, preset)
-        if anchor:
-            points_to_connect.append(anchor)
-            print(f"[ROADS] ({cx},{cz}) add hub anchor={anchor}")
-    print(f"[ROADS] ({cx},{cz}) points_to_connect={points_to_connect}")
-
-    # 5) Поиск сети
-    policy = make_local_road_policy(slope_cost=50.0, water_cost=float('inf'))
-    policy.terrain_factor[KIND_OBSTACLE] = float('inf')
-    router = BaseRoadRouter(policy=policy)
-    paths = find_path_network(pathfinding_grid, height_grid, points_to_connect, router)
     if not paths:
-        print(f"[ROADS] ({cx},{cz}) no paths from router")
+        print(f"[ROADS] ({cx},{cz}) paths empty -> skip render")
         return
 
-    for i, p in enumerate(paths):
-        if p:
-            print(f"[ROADS] ({cx},{cz}) path#{i} len={len(p)} start={p[0]} end={p[-1]}")
+    # 5) Рендер дорог. Воду не красим, склоны разрешаем.
+    apply_paths_to_grid(kind_grid, paths, width=2, allow_slope=True, allow_water=False)
+    print(f"[ROADS] ({cx},{cz}) applied {len(paths)} path(s)")
 
-    # 6) Дотянуть пути до края
-    for gate in gates:
-        side = _side_of_gate(gate, size, size)
-        found = None
-        for i, p in enumerate(paths):
-            if p and (p[0] == gate or p[-1] == gate):
-                found = (i, p[0] == gate)
-                break
-        if not found:
-            print(f"[ROADS] ({cx},{cz}) gate {gate} not part of any path")
-            continue
-
-        i, at_start = found
-        gx, gz = gate
-        if side == 'N':
-            ext = [(gx, z) for z in range(gz - 1, -1, -1)]
-        elif side == 'S':
-            ext = [(gx, z) for z in range(gz + 1, size)]
-        elif side == 'W':
-            ext = [(x, gz) for x in range(gx - 1, -1, -1)]
-        elif side == 'E':
-            ext = [(x, gz) for x in range(gx + 1, size)]
-        else:
-            print(f"[ROADS] ({cx},{cz}) gate {gate} side=? skip extend")
-            continue
-
-        print(f"[ROADS] ({cx},{cz}) extend path#{i} at_start={at_start} gate={gate} side={side} ext_len={len(ext)}")
-        paths[i] = (ext + paths[i]) if at_start else (paths[i] + ext)
-
-
-
-    # 7) Рендер
-    print(f"[ROADS] ({cx},{cz}) apply {len(paths)} paths")
-    apply_paths_to_grid(kind_grid, paths, width=2, allow_slope=True, allow_water=True)
-
-    elev_cfg = getattr(preset, "elevation", {}) or {}
-    ramp_step = float(elev_cfg.get("quantization_step_m", 0.5))
-    for i, path in enumerate(paths):
-        if height_grid and path:
-            _carve_ramp_along_path(height_grid, path, ramp_step_m=ramp_step, width=4)
-            print(f"[ROADS] ({cx},{cz}) carved ramp on path#{i} len={len(path)}")
