@@ -4,9 +4,9 @@ from typing import List, Tuple, Optional
 from .a_star import find_path as astar_find
 from .policies import PathPolicy, ROAD_POLICY, NAV_POLICY, make_road_policy
 
-
-Coord = Tuple[int, int]
-
+# --- НАЧАЛО ИЗМЕНЕНИЯ: Убираем дубликат, импортируем из helpers ---
+from .helpers import Coord
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 class BaseRoadRouter:
     """

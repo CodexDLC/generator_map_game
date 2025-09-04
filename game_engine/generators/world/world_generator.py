@@ -6,8 +6,8 @@ from .._base.generator import BaseGenerator
 from ...core.types import GenResult
 from ...story_features import starting_zone_rules
 from ...story_features.biome_rules import apply_biome_rules
-from ...story_features.local_roads import build_local_roads  # <<< Импортируем дороги
-from ...world_structure.regions import RegionManager
+from ...story_features.local_roads import build_local_roads
+from ...world_structure.regions import RegionManager, Region
 
 
 class WorldGenerator(BaseGenerator):
@@ -16,21 +16,25 @@ class WorldGenerator(BaseGenerator):
         self.region_manager = region_manager
 
     def generate(self, params: Dict[str, Any]) -> GenResult:
-        # 1. Создаем базовый ландшафт (высоты, вода, склоны)
-        result = super().generate(params)
+        # Этот метод больше не используется для полной генерации,
+        # он будет вызываться из RegionManager для детализации.
+        # Оставляем его для обратной совместимости, но основная логика переезжает.
+        raise NotImplementedError("Use RegionManager.get_or_create_region instead")
+
+    def finalize_chunk(self, base_result: GenResult, region: Region) -> GenResult:
+        """
+        НОВЫЙ МЕТОД: Принимает "голый" чанк от BaseGenerator и детализирует его.
+        """
+        params = {"cx": base_result.cx, "cz": base_result.cz, "seed": base_result.seed}
 
         # 2. Определяем регион и применяем правила биомов (леса, скалы и т.д.)
-        region = self.region_manager.get_region(
-            result.cx, result.cz
-        )
-        apply_biome_rules(result, self.preset, region)
+        apply_biome_rules(base_result, self.preset, region)
 
-        # 3. Строим дороги, передавая ВЕСЬ РЕГИОН с планом дорог
-        build_local_roads(result, self.preset, params, region)
+        # 3. Строим дороги, используя глобальный план из региона
+        build_local_roads(base_result, self.preset, params, region)
 
-        # 4. Применяем особые правила для стартового города ТОЛЬКО в чанке (0,0)
-        if result.cx == 0 and 0 <= result.cz <= 3:
-            starting_zone_rules.apply_starting_zone_rules(result, self.preset)
+        # 4. Применяем особые правила для стартового города
+        if base_result.cx == 0 and 0 <= result.cz <= 3:
+            starting_zone_rules.apply_starting_zone_rules(base_result, self.preset)
 
-        # Эта строка должна быть на этом уровне отступа, вне блока if
-        return result
+        return base_result

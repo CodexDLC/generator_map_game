@@ -1,29 +1,103 @@
 # game_engine/story_features/road_helpers.py
 from __future__ import annotations
 from typing import List, Tuple, Optional, Iterator
+from collections import deque # <-- Добавляем импорт для _preprocess_water_bodies
 
-# --- Импорты ---
-from game_engine.algorithms.pathfinding.policies import PathPolicy, ROAD_POLICY
+# --- Централизованные и согласованные импорты ---
+from game_engine.algorithms.pathfinding.helpers import Coord
 from game_engine.core.constants import (
-    KIND_GROUND, KIND_WATER, KIND_SLOPE, KIND_ROAD, KIND_SAND
+    KIND_GROUND, KIND_WATER, KIND_SLOPE, KIND_ROAD, KIND_SAND, KIND_OBSTACLE
 )
-# --- Импортируем реестр для поиска точных координат ворот ---
 from .story_definitions import get_structure_at
 
 
-Coord = Tuple[int, int]
+
+def side_of_gate(p: tuple[int, int], w: int, h: int) -> str:
+    """Определяет сторону, на которой стоит гейт (ожидается отступ 1 клетка от края)."""
+    x, z = p
+    if z == 1: return 'N'
+    if z == h - 2: return 'S'
+    if x == 1: return 'W'
+    if x == w - 2: return 'E'
+    return '?'
 
 
-# ------------------------- политика для локальных дорог -------------------------
-def make_local_road_policy(base: PathPolicy = ROAD_POLICY,
-                           slope_cost: float = 5.0,
-                           water_cost: float = 15.0) -> PathPolicy:
-    tf = dict(base.terrain_factor)
-    tf[KIND_SLOPE] = slope_cost
-    tf[KIND_WATER] = water_cost
-    return base.with_overrides(terrain_factor=tf, slope_penalty_per_meter=0.05)
+def carve_ramp_along_path(
+        elev: list[list[float]],
+        path: list[tuple[int, int]],
+        *,
+        ramp_step_m: float = 0.5,
+        width: int = 3
+) -> None:
+    """
+    Создает плавный пандус, "срезая" холмы, которые выше дороги.
+    """
+    if not path: return
+    H, W = len(elev), len(elev[0]) if elev else 0
+    if not (H and W): return
+
+    path_heights = {pt: float(elev[pt[1]][pt[0]]) for pt in path}
+
+    # сглаживание профиля туда-обратно
+    for i in range(1, len(path)):
+        p_prev, p_curr = path[i - 1], path[i]
+        if abs(path_heights[p_curr] - path_heights[p_prev]) > ramp_step_m:
+            path_heights[p_curr] = path_heights[p_prev] + ramp_step_m * (
+                1 if path_heights[p_curr] > path_heights[p_prev] else -1)
+    for i in range(len(path) - 2, -1, -1):
+        p_next, p_curr = path[i + 1], path[i]
+        if abs(path_heights[p_curr] - path_heights[p_next]) > ramp_step_m:
+            path_heights[p_curr] = path_heights[p_next] + ramp_step_m * (
+                1 if path_heights[p_curr] > path_heights[p_next] else -1)
+
+    # ослабление к краям
+    radius = (width - 1) // 2
+    for (px, pz), target_h in path_heights.items():
+        dist_to_border = min(px, pz, W - 1 - px, H - 1 - pz)
+        strength = min(1.0, dist_to_border / 4.0)
+        if strength <= 0: continue
+
+        for dz in range(-radius, radius + 1):
+            for dx in range(-radius, radius + 1):
+                x, z = px + dx, pz + dz
+                if 0 <= x < W and 0 <= z < H:
+                    current_h = elev[z][x]
+                    if current_h > target_h:
+                        elev[z][x] = (current_h * (1 - strength)) + (target_h * strength)
 
 
+def preprocess_water_bodies(grid: List[List[str]], max_water_crossing_size: int):
+    """
+    Большие водоемы (больше max_water_crossing_size) помечаем как OBSTACLE.
+    """
+    h = len(grid)
+    w = len(grid[0]) if h else 0
+    if not (w and h): return
+
+    visited = [[False for _ in range(w)] for _ in range(h)]
+
+    for z in range(h):
+        for x in range(w):
+            if grid[z][x] == KIND_WATER and not visited[z][x]:
+                water_body_tiles = []
+                q = deque([(x, z)])
+                visited[z][x] = True
+
+                while q:
+                    cx, cz = q.popleft()
+                    water_body_tiles.append((cx, cz))
+                    for dx, dz in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                        nx, nz = cx + dx, cz + dz
+                        if 0 <= nx < w and 0 <= nz < h and \
+                                not visited[nz][nx] and grid[nz][nx] == KIND_WATER:
+                            visited[nz][nx] = True
+                            q.append((nx, nz))
+
+                if len(water_body_tiles) > max_water_crossing_size:
+                    for wx, wz in water_body_tiles:
+                        grid[wz][wx] = KIND_OBSTACLE
+
+# --- КОНЕЦ ПЕРЕНЕСЕННОГО КОДА ---
 # ------------------------- площадка/якорь «хаба» -------------------------
 def hub_rect(size: int, preset) -> tuple[int, int, int, int]:
     cfg_hp = getattr(preset, "hub_pad", {}) or {}
@@ -99,6 +173,7 @@ def _passable_for_gate(kind: str) -> bool:
 
 def find_edge_gate(kind_grid: List[List[str]], side: str,
                    cx: int, cz: int, size: int) -> Optional[Coord]:
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
     """Возвращает точку гейта на нашей границе; если у соседа-строения
     нет выхода на нас — возвращает None и запрещает fallback-сканирование."""
 
@@ -123,10 +198,10 @@ def find_edge_gate(kind_grid: List[List[str]], side: str,
     if neighbor and OPPOSITE[side] in neighbor.exits:
         pos = int(size * neighbor.exits[OPPOSITE[side]].position_percent / 100)
         pos = max(1, min(w - 2, pos))
-        if side == 'N': return (pos, 1)
-        if side == 'S': return (pos, h - 2)
-        if side == 'W': return (1,   pos)
-        if side == 'E': return (w - 2, pos)
+        if side == 'N': return pos, 1
+        if side == 'S': return pos, h - 2
+        if side == 'W': return 1,   pos
+        if side == 'E': return w - 2, pos
 
     # обычный случай: ищем готовую дорогу или проходимую клетку на нашей кромке
     for x, z in _scan_edge_from_center(side, w, h, inset=1):

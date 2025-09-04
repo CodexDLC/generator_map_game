@@ -9,11 +9,10 @@ ARTIFACTS_ROOT = PROJECT_ROOT / "artifacts"
 
 MENU_WIDTH = 220
 
-# --- НАЧАЛО ИЗМЕНЕНИЯ: Делаем "зум" для лучшей детализации ---
-TILE_SIZE = 25  # Увеличили размер каждого тайла
-VIEWPORT_WIDTH_TILES = 48  # Уменьшили количество тайлов по ширине
-VIEWPORT_HEIGHT_TILES = 36 # Уменьшили количество тайлов по высоте
-# --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+TILE_SIZE = 25
+VIEWPORT_WIDTH_TILES = 90  # <-- Увеличиваем количество тайлов по ширине
+VIEWPORT_HEIGHT_TILES = 45 # <-- Увеличиваем количество тайлов по высоте
 
 SCREEN_WIDTH = VIEWPORT_WIDTH_TILES * TILE_SIZE + MENU_WIDTH
 SCREEN_HEIGHT = VIEWPORT_HEIGHT_TILES * TILE_SIZE

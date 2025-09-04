@@ -1,71 +1,102 @@
-from typing import Dict, List, Tuple
+# game_engine/world_structure/planners/road_planner.py
+from typing import Dict, List, Tuple, Optional
+from collections import defaultdict
+
 from ..regions import Region, REGION_SIZE, region_base
+from ...core.types import GenResult
 from ...story_features.story_definitions import get_structure_at
+from ...algorithms.pathfinding.a_star import find_path as astar_find
+from ...algorithms.pathfinding.policies import make_road_policy
+from ..road_types import GlobalCoord, RoadWaypoint, ChunkRoadPlan
+from ...core.preset import Preset
+from ...core.constants import KIND_GROUND
 
-OPPOSITE: Dict[str, str] = {'N':'S','S':'N','W':'E','E':'W'}
-DIR: Dict[str, Tuple[int,int]] = {'N':(0,-1),'S':(0,1),'W':(-1,0),'E':(1,0)}
+def _stitch_region_maps(base_chunks: Dict[Tuple[int, int], GenResult], scx: int, scz: int, preset: Preset) -> List[List[str]]:
+    """Сшивает 49 карт проходимости в одну большую."""
+    chunk_size = preset.size
+    region_pixel_size = REGION_SIZE * chunk_size
+    grid = [[KIND_GROUND for _ in range(region_pixel_size)] for _ in range(region_pixel_size)]
+    base_cx, base_cz = region_base(scx, scz)
 
-def _dedup(seq: List[str]) -> List[str]:
-    seen = set()
-    out: List[str] = []
-    for s in seq:
-        if s not in seen:
-            seen.add(s); out.append(s)
-    return out
+    for (cx, cz), chunk_data in base_chunks.items():
+        start_x = (cx - base_cx) * chunk_size
+        start_y = (cz - base_cz) * chunk_size
+        for z in range(chunk_size):
+            for x in range(chunk_size):
+                grid[start_y + z][start_x + x] = chunk_data.layers["kind"][z][x]
+    return grid
 
-def plan_roads_for_region(region: Region, seed: int) -> Dict[Tuple[int,int], List[str]]:
-    """
-    Возвращает план дорог для всех 7×7 чанков региона.
-    Правило: дороги тянем К воротам строений.
-    1) Для каждого строения внутри региона: его выход side -> соседний чанк получает OPPOSITE[side].
-    2) Границы: если у соседа ВНЕ региона есть строение с выходом на нас, текущий чанк получает side.
-    """
-    plan: Dict[Tuple[int,int], List[str]] = {}
+def _l1(p1: GlobalCoord, p2: GlobalCoord) -> int:
+    return abs(p1[0] - p2[0]) + abs(p1[1] - p2[1])
 
-    base_cx, base_cz = region_base(region.scx, region.scz)
-    size = REGION_SIZE
 
-    # Инициализация ключей
-    for dz in range(size):
-        for dx in range(size):
-            cx = base_cx + dx
-            cz = base_cz + dz
-            plan[(cx, cz)] = []
+def _build_global_mst(points: List[GlobalCoord]) -> List[Tuple[int, int]]:
+    n = len(points)
+    if n <= 1: return []
+    used, edges, min_e, sel_e = [False] * n, [], [float('inf')] * n, [-1] * n
+    min_e[0] = 0
+    for _ in range(n):
+        v = -1
+        for i in range(n):
+            if not used[i] and (v == -1 or min_e[i] < min_e[v]):
+                v = i
+        if v == -1: break
+        used[v] = True
+        if sel_e[v] != -1: edges.append((sel_e[v], v))
+        for to in range(n):
+            dist = _l1(points[v], points[to])
+            if not used[to] and dist < min_e[to]:
+                min_e[to], sel_e[to] = dist, v
+    return edges
 
-    # (1) Строения ВНУТРИ региона → стороны соседям
-    for dz in range(size):
-        for dx in range(size):
-            cx = base_cx + dx
-            cz = base_cz + dz
-            s = get_structure_at(cx, cz)
-            if not s:
-                continue
-            for side in s.exits.keys():
-                dx1, dz1 = DIR[side]
-                ncx, ncz = cx + dx1, cz + dz1
-                # если сосед в нашем регионе — добавим сторону
-                if (base_cx <= ncx < base_cx + size) and (base_cz <= ncz < base_cz + size):
-                    plan[(ncx, ncz)].append(OPPOSITE[side])
 
-    # (2) Строения СНАРУЖИ региона → наши стороны на границе
-    for dz in range(size):
-        for dx in range(size):
-            cx = base_cx + dx
-            cz = base_cz + dz
-            sides = plan[(cx, cz)]
+def plan_roads_for_region(scx: int, scz: int, seed: int, preset: Preset, base_chunks: Dict[Tuple[int, int], GenResult]) -> Dict[Tuple[int, int], ChunkRoadPlan]:
+    """Планировщик, работающий на реальной сшитой карте региона."""
+    base_cx, base_cz = region_base(scx, scz)
+    chunk_size = preset.size
 
-            for side, (dx1, dz1) in DIR.items():
-                ncx, ncz = cx + dx1, cz + dz1
-                # если сосед ВНЕ нашего региона — проверим строение у соседа
-                if not (base_cx <= ncx < base_cx + size and base_cz <= ncz < base_cz + size):
-                    ns = get_structure_at(ncx, ncz)
-                    if ns and OPPOSITE[side] in ns.exits:
-                        sides.append(side)
+    print(f"[RoadPlanner] Region ({scx},{scz}) starting...")
+    # --- ИЗМЕНЕНИЕ: Используем реальную карту вместо "черновой" ---
+    stitched_map = _stitch_region_maps(base_chunks, scx, scz, preset)
 
-    # дедупликация
-    for k in list(plan.keys()):
-        plan[k] = _dedup(plan[k])
+    points_of_interest: List[RoadWaypoint] = []
+    for dz in range(REGION_SIZE):
+        for dx in range(REGION_SIZE):
+            cx, cz = base_cx + dx, base_cz + dz
+            if get_structure_at(cx, cz):
+                gx, gy = dx * chunk_size + chunk_size // 2, dz * chunk_size + chunk_size // 2
+                points_of_interest.append(RoadWaypoint(pos=(gx, gy), is_structure=True))
 
-    # отладка
-    print(f"[RoadPlanner] Region ({region.scx},{region.scz}) plan ready")
-    return plan
+    if len(points_of_interest) < 1: return {}  # Если нет даже одной точки, выходим
+
+    poi_coords = [p.pos for p in points_of_interest]
+    mst_edges = _build_global_mst(poi_coords)
+
+    policy = make_road_policy(pass_water=True, water_cost=15.0)
+
+    all_global_paths: List[List[GlobalCoord]] = []
+    for i, j in mst_edges:
+        path = astar_find(stitched_map, None, poi_coords[i], poi_coords[j], policy)
+        if path: all_global_paths.append(path)
+
+    final_plan: Dict[Tuple[int, int], ChunkRoadPlan] = defaultdict(ChunkRoadPlan)
+    for path in all_global_paths:
+        # --- НАЧАЛО ИЗМЕНЕНИЯ: Добавляем тип для ясности ---
+        last_chunk_key: Tuple[int, int] | None = None
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+        for i, (gx, gy) in enumerate(path):
+            cx, cz = base_cx + (gx // chunk_size), base_cz + (gy // chunk_size)
+            chunk_key = (cx, cz)
+
+            is_gate = last_chunk_key is not None and last_chunk_key != chunk_key
+            waypoint = RoadWaypoint(pos=(gx, gy), is_gate=is_gate)
+
+            # --- НАЧАЛО ИЗМЕНЕНИЯ: Добавляем явную проверку ---
+            if is_gate and last_chunk_key is not None:
+                final_plan[last_chunk_key].waypoints[-1].is_gate = True
+            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+            final_plan[chunk_key].waypoints.append(waypoint)
+            last_chunk_key = chunk_key
+
+    return dict(final_plan)
