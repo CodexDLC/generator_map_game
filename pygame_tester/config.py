@@ -2,7 +2,7 @@
 import pathlib
 
 # --- Основные настройки мира ---
-CHUNK_SIZE = 96
+CHUNK_SIZE = 128
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
 PRESET_PATH = PROJECT_ROOT / "game_engine" / "presets" / "world" / "base_default.json"
 ARTIFACTS_ROOT = PROJECT_ROOT / "artifacts"

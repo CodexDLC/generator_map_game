@@ -4,7 +4,8 @@ from pathlib import Path
 import json
 
 from .core.preset import Preset
-from .core.export import write_client_chunk, write_chunk_preview, write_heightmap_r16
+from .core.export import write_client_chunk, write_chunk_preview, write_heightmap_r16, write_color_map_png, \
+    write_control_map_png
 from .world_structure.grid_utils import region_key, REGION_SIZE
 from .world_structure.regions import RegionManager, region_base
 from .world_structure.chunk_processor import process_chunk
@@ -89,19 +90,29 @@ class WorldActor:
 
             final_chunk = process_chunk(self.preset, raw_chunk_path, region_context)
 
-            client_chunk_path = self.final_data_path / f"{chunk_cx}_{chunk_cz}" / "chunk.rle.json"
-            client_contract = ClientChunkContract(cx=chunk_cx, cz=chunk_cz, layers=final_chunk.layers)
-            write_client_chunk(str(client_chunk_path), client_contract)
+            # --- НАЧАЛО ИСПРАВЛЕНИЙ ---
+            client_chunk_dir = self.final_data_path / f"{chunk_cx}_{chunk_cz}"
+            client_rle_path = client_chunk_dir / "chunk.rle.json"
+            heightmap_path = client_chunk_dir / "heightmap.r16"  # <-- Путь к нашему файлу
+            colormap_path = client_chunk_dir / "colormap.png"
+            controlmap_path = client_chunk_dir / "control.png"
+            preview_path = client_chunk_dir / "preview.png"
 
-            preview_path = client_chunk_path.parent / "preview.png"
+            kind_grid = final_chunk.layers["kind"]
+            height_grid = final_chunk.layers["height_q"]["grid"]
             palette = self.preset.export.get("palette", {})
-            write_chunk_preview(str(preview_path), final_chunk.layers["kind"], palette)
 
-            # --- ИЗМЕНЁННЫЙ БЛОК ---
-            # Меняем имя файла и вызываемую функцию
-            heightmap_path = client_chunk_path.parent / "heightmap.r16"
-            if "height_q" in final_chunk.layers and "grid" in final_chunk.layers["height_q"]:
-                write_heightmap_r16(str(heightmap_path), final_chunk.layers["height_q"]["grid"])
-            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+            # Вызываем все функции экспорта
+            client_contract = ClientChunkContract(cx=chunk_cx, cz=chunk_cz, layers=final_chunk.layers)
+            write_client_chunk(str(client_rle_path), client_contract)
+
+            # ВЫЗЫВАЕМ СОХРАНЕНИЕ КАРТЫ ВЫСОТ
+            max_height = float(self.preset.elevation.get("max_height_m", 1.0))
+            write_heightmap_r16(str(heightmap_path), height_grid, max_height)
+
+            write_color_map_png(str(colormap_path), kind_grid, palette)
+            write_control_map_png(str(controlmap_path), kind_grid)
+            write_chunk_preview(str(preview_path), kind_grid, palette)
+            # --- КОНЕЦ ИСПРАВЛЕНИЙ ---
 
         self._log(f"[WorldActor] Detailing for region ({scx},{scz}) is complete.")
