@@ -4,7 +4,7 @@ from pathlib import Path
 import json
 
 from .core.preset import Preset
-from .core.export import write_client_chunk, write_chunk_preview
+from .core.export import write_client_chunk, write_chunk_preview, write_heightmap_r16
 from .world_structure.grid_utils import region_key, REGION_SIZE
 from .world_structure.regions import RegionManager, region_base
 from .world_structure.chunk_processor import process_chunk
@@ -96,5 +96,12 @@ class WorldActor:
             preview_path = client_chunk_path.parent / "preview.png"
             palette = self.preset.export.get("palette", {})
             write_chunk_preview(str(preview_path), final_chunk.layers["kind"], palette)
+
+            # --- ИЗМЕНЁННЫЙ БЛОК ---
+            # Меняем имя файла и вызываемую функцию
+            heightmap_path = client_chunk_path.parent / "heightmap.r16"
+            if "height_q" in final_chunk.layers and "grid" in final_chunk.layers["height_q"]:
+                write_heightmap_r16(str(heightmap_path), final_chunk.layers["height_q"]["grid"])
+            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
         self._log(f"[WorldActor] Detailing for region ({scx},{scz}) is complete.")

@@ -17,6 +17,12 @@ try:
 except ImportError:
     PIL_OK = False
 
+try:
+    import numpy as np
+    NUMPY_OK = True
+except ImportError:
+    NUMPY_OK = False
+
 PREVIEW_TILE_PX = 2
 
 
@@ -100,3 +106,46 @@ def write_chunk_preview(path: str, kind_grid: List[List[Any]], palette: Dict[str
         os.rename(tmp_path, path)
     except Exception as e:
         print(f"!!! LOG: КРИТИЧЕСКАЯ ОШИБКА при создании preview.png: {e}")
+
+
+def write_heightmap_r16(path: str, height_grid: List[List[float]]):
+    """
+    Сохраняет карту высот в 16-битном RAW формате (.r16), который идеально
+    подходит для импорта в игровые движки, такие как Godot (Terrain3D).
+    """
+    if not NUMPY_OK:
+        print("!!! LOG: NumPy library not found, cannot write .r16 heightmap.")
+        return
+    try:
+        h = len(height_grid)
+        w = len(height_grid[0]) if h else 0
+        if w == 0 or h == 0: return
+
+        # Находим минимальную и максимальную высоту в данных
+        min_h = min(min(row) for row in height_grid)
+        max_h = max(max(row) for row in height_grid)
+        height_range = max_h - min_h
+        if height_range == 0: height_range = 1.0
+
+        # 1. Создаем NumPy массив из списка списков
+        height_array = np.array(height_grid, dtype=np.float32)
+
+        # 2. Нормализуем высоту в диапазон [0, 1]
+        normalized_array = (height_array - min_h) / height_range
+
+        # 3. Масштабируем до 16-битного диапазона [0, 65535]
+        scaled_array = (normalized_array * 65535.0).astype(np.uint16)
+
+        # 4. Сохраняем как бинарный RAW файл
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path + ".tmp"
+
+        # 'wb' - write binary (запись в бинарном режиме)
+        with open(tmp_path, 'wb') as f:
+            f.write(scaled_array.tobytes())
+
+        os.rename(tmp_path, path)
+        print(f"--- EXPORT: 16-битная карта высот сохранена: {path}")
+
+    except Exception as e:
+        print(f"!!! LOG: КРИТИЧЕСКАЯ ОШИБКА при создании heightmap.r16: {e}")
