@@ -57,14 +57,18 @@ class WorldActor:
         for i, (dz, dx) in enumerate(chunk_list):
             chunk_cx, chunk_cz = base_cx + dx, base_cz + dz
             self._log(f"  -> Detailing chunk ({chunk_cx},{chunk_cz}) [{i + 1}/{total_chunks}]...")
-            raw_chunk_path = self.raw_data_path / "chunks" / f"{chunk_cx}_{cz}.json"
-            final_chunk = process_chunk(self.preset, raw_chunk_path, region_context)
-            client_chunk_dir = self.final_data_path / f"{chunk_cx}_{cz}"
 
-            # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+            # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+            # Вот здесь была ошибка: было f"{chunk_cx}_{cz}.json"
+            raw_chunk_path = self.raw_data_path / "chunks" / f"{chunk_cx}_{chunk_cz}.json"
+            # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
+            final_chunk = process_chunk(self.preset, raw_chunk_path, region_context)
+            client_chunk_dir = self.final_data_path / f"{chunk_cx}_{chunk_cz}"
+
             client_rle_path = client_chunk_dir / "chunk.rle.json"
             heightmap_path = client_chunk_dir / "heightmap.r16"
-            controlmap_path = client_chunk_dir / "control.r32"  # <-- Новый формат файла
+            controlmap_path = client_chunk_dir / "control.r32"
             preview_path = client_chunk_dir / "preview.png"
 
             kind_grid = final_chunk.layers["kind"]
@@ -75,11 +79,7 @@ class WorldActor:
             client_contract = ClientChunkContract(cx=chunk_cx, cz=chunk_cz, layers=final_chunk.layers)
             write_client_chunk(str(client_rle_path), client_contract)
             write_heightmap_r16(str(heightmap_path), height_grid, max_height)
-
-            # Вызываем новую функцию для control map, старые удаляем
             write_control_map_r32(str(controlmap_path), kind_grid)
-
             write_chunk_preview(str(preview_path), kind_grid, palette)
-            # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
         self._log(f"[WorldActor] Detailing for region ({scx},{scz}) is complete.")

@@ -96,22 +96,31 @@ def write_chunk_preview(path: str, kind_grid: List[List[Any]], palette: Dict[str
 
 
 def write_heightmap_r16(path: str, height_grid: List[List[float]], max_height: float):
-    if not NUMPY_OK: print("!!! LOG: NumPy не найден, не могу сохранить .r16."); return
+    if not NUMPY_OK:
+        print("!!! LOG: NumPy не найден, не могу сохранить .r16."); return
     try:
-        if not height_grid or not height_grid[0]: return
-        if max_height <= 0: max_height = 1.0
+        if not height_grid or not height_grid[0]:
+            return
+        if max_height <= 0:
+            max_height = 1.0
+
         height_array = np.array(height_grid, dtype=np.float32)
-        normalized_array = np.clip(height_array / max_height, 0.0, 1.0)
-        final_array = normalized_array.astype(np.float16)
+        normalized = np.clip(height_array / max_height, 0.0, 1.0)
+
+        # Было: float16  -> НЕ надо
+        # final_array = normalized.astype(np.float16)
+
+        # Стало: little-endian uint16 0..65535
+        final_array = (normalized * 65535.0).astype('<u2')  # <u2 == little-endian uint16
+
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path + ".tmp"
         with open(tmp_path, 'wb') as f:
             f.write(final_array.tobytes())
         os.replace(tmp_path, path)
-        print(f"--- EXPORT: 16-битная float-карта высот (нормализованная) сохранена: {path}")
+        print(f"--- EXPORT: 16-битный UINT heightmap (нормализованный) сохранён: {path}")
     except Exception as e:
         print(f"!!! LOG: КРИТИЧЕСКАЯ ОШИБКА при создании heightmap.r16: {e}")
-
 
 def _pack_control_data(base_id=0, overlay_id=0, blend8=0, uv_rot=0, uv_scale=0, nav=True, hole=False,
                        auto=False) -> np.uint32:
