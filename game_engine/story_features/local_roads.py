@@ -11,42 +11,41 @@ from ..algorithms.pathfinding.policies import make_road_policy
 from .road_helpers import carve_ramp_along_path
 
 
-def build_local_roads(result: GenResult, region: Region) -> None:
+def build_local_roads(result: GenResult, region: Region, preset: Preset) -> None:
     """
     Строит дороги внутри чанка, соединяя опорные точки из регионального плана.
     """
     chunk_key = (result.cx, result.cz)
-    # Используем 'region' для получения плана, а не 'params'
     plan_for_chunk = (region.road_plan or {}).get(chunk_key)
 
     if not plan_for_chunk or not plan_for_chunk.waypoints:
         return
 
-    print(f"[ROADS] chunk={chunk_key} Building road from {len(plan_for_chunk.waypoints)} waypoints.")
-
-    # Переводим глобальные координаты в локальные
-    base_cx, base_cz = region_base(region.scx, region.scz)
+    # --- ИЗМЕНЕНИЕ: Получаем region_size из пресета ---
+    region_size = preset.region_size
+    base_cx, base_cz = region_base(region.scx, region.scz, region_size)
     chunk_size = result.size
 
+    # ... (остальная часть функции без изменений) ...
     local_waypoints = []
     for wp in plan_for_chunk.waypoints:
         global_x, global_y = wp.pos
         local_x = global_x - ((result.cx - base_cx) * chunk_size)
         local_y = global_y - ((result.cz - base_cz) * chunk_size)
-        # Убедимся, что точка находится внутри чанка, чтобы избежать ошибок
         if 0 <= local_x < chunk_size and 0 <= local_y < chunk_size:
             local_waypoints.append((local_x, local_y))
 
     if len(local_waypoints) < 2:
         return
 
-    kind_grid = result.layers["kind"]
+    surface_grid = result.layers["surface"]
+    nav_grid = result.layers["navigation"]
     height_grid = result.layers["height_q"]["grid"]
 
-    policy = make_road_policy(allow_slopes=True, pass_water=True, water_cost=15.0, slope_penalty=0.05)
+    policy = make_road_policy(allow_slopes=True, allow_water_as_bridge=True, water_bridge_cost=15.0)
     router = BaseRoadRouter(policy=policy)
 
-    paths = find_path_network(kind_grid, height_grid, local_waypoints, router=router)
+    paths = find_path_network(surface_grid, nav_grid, height_grid, local_waypoints, router=router)
 
     if not paths:
         print(f"[ROADS][WARN] chunk={chunk_key} Could not connect waypoints.")
@@ -56,6 +55,5 @@ def build_local_roads(result: GenResult, region: Region) -> None:
         if path:
             carve_ramp_along_path(height_grid, path)
 
-    # --- ИЗМЕНЕНИЕ: Делаем дорогу шириной в 3 клетки ---
-    apply_paths_to_grid(kind_grid, paths, width=3, allow_slope=True, allow_water=True)
+    apply_paths_to_grid(surface_grid, nav_grid, paths, width=3)
     print(f"[ROADS] chunk={chunk_key} Successfully applied paths.")

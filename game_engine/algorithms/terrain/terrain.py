@@ -1,15 +1,12 @@
 # game_engine/algorithms/terrain/terrain.py
 from __future__ import annotations
-from typing import Any, List
+from typing import Any, List, Tuple
 import math
 
 from opensimplex import OpenSimplex
 
 from .features import fbm2d
-from ...core.constants import (
-    KIND_GROUND, KIND_OBSTACLE, KIND_WATER, KIND_SLOPE, KIND_WALL, KIND_ROAD, KIND_SAND,
-    KIND_BRIDGE
-)
+from ...core.constants import KIND_ROAD, KIND_SAND, NAV_OBSTACLE, KIND_GROUND, NAV_PASSABLE, KIND_SLOPE, NAV_WATER
 
 
 def _apply_shaping_curve(grid: List[List[float]], power: float):
@@ -134,118 +131,130 @@ def generate_elevation(seed: int, cx: int, cz: int, size: int, preset: Any) -> T
 
 def classify_terrain(
         elevation_grid: List[List[float]],
-        kind_grid: List[List[str]],
+        surface_grid: List[List[str]], # <-- Мы это уже исправляли, все верно
+        nav_grid: List[List[str]],     # <-- Мы это уже исправляли, все верно
         preset: Any
 ) -> None:
-    size = len(kind_grid)
+    size = len(surface_grid)
     cfg = getattr(preset, "elevation", None) or {}
-    sea_level = float(cfg.get("sea_level_m", 12.0))
-    protected_kinds = {KIND_WALL, KIND_ROAD, KIND_BRIDGE}
-
+    sea_level = float(cfg.get("sea_level_m", 9.0))
     for z in range(size):
         for x in range(size):
-            if kind_grid[z][x] in protected_kinds: continue
-
             elev = elevation_grid[z][x]
             if elev < sea_level:
-                kind_grid[z][x] = KIND_WATER
+                surface_grid[z][x] = KIND_SAND
+                nav_grid[z][x] = NAV_OBSTACLE
             else:
-                kind_grid[z][x] = KIND_GROUND
+                surface_grid[z][x] = KIND_GROUND
+                nav_grid[z][x] = NAV_PASSABLE
 
 
 def apply_slope_obstacles(
         elevation_grid_with_margin: List[List[float]],
-        kind_grid: List[List[str]],
+        surface_grid: List[List[str]],
         preset: Any
 ) -> None:
-    """
-    Создает склоны, используя большую карту высот для корректной работы на границах.
-    """
-    target_size = len(kind_grid)
+    target_size = len(surface_grid)
     margin = (len(elevation_grid_with_margin) - target_size) // 2
-
     cfg = getattr(preset, "slope_obstacles", None) or {}
     if not cfg.get("enabled", False): return
 
-    thr_ratio = 0
-    if "angle_threshold_deg" in cfg:
-        thr_ratio = math.tan(math.radians(float(cfg["angle_threshold_deg"])))
-    else:
-        dh = float(cfg.get("delta_h_threshold_m", 3.0))
-        thr_ratio = dh / 1.0
+    thr_ratio = math.tan(math.radians(float(cfg.get("angle_threshold_deg", 55.0))))
+    # --- НОВОЕ: Читаем ширину полосы склона из пресета ---
+    band_cells = int(cfg.get("band_cells", 2))
 
-    original_kind = [row[:] for row in kind_grid]
-    protected_kinds = {KIND_OBSTACLE, KIND_WATER, KIND_WALL, KIND_ROAD, KIND_BRIDGE}
+    protected_surfaces = {KIND_ROAD}
     NEI8 = ((-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1))
 
-    # Итерируемся только по клеткам финального размера (96x96)
+    # --- ЭТАП 1: Находим все самые крайние клетки обрывов ---
+    cliff_edges = [[False for _ in range(target_size)] for _ in range(target_size)]
     for z in range(target_size):
         for x in range(target_size):
-            if original_kind[z][x] in protected_kinds:
+            if surface_grid[z][x] in protected_surfaces:
                 continue
 
-            # Берем высоту из БОЛЬШОЙ карты, используя смещение (margin)
             h0 = elevation_grid_with_margin[z + margin][x + margin]
             is_cliff_edge = False
-
             for dx, dz in NEI8:
-                # Координаты соседа в БОЛЬШОЙ карте
                 nx, nz = x + margin + dx, z + margin + dz
-
-                # Проверять границы большой карты не нужно, т.к. margin гарантирует,
-                # что мы не выйдем за пределы для клеток 96x96.
                 h_neighbor = elevation_grid_with_margin[nz][nx]
-
                 if h0 - h_neighbor >= thr_ratio:
                     is_cliff_edge = True
                     break
-
             if is_cliff_edge:
-                # Изменяем мы при этом финальную, маленькую карту kind_grid
-                kind_grid[z][x] = KIND_SLOPE
+                cliff_edges[z][x] = True
+
+    # --- ЭТАП 2: "Раздуваем" края обрывов вглубь, создавая полосу склонов ---
+    for z in range(target_size):
+        for x in range(target_size):
+            if not cliff_edges[z][x]:
+                continue
+
+            # Помечаем саму клетку обрыва как склон
+            surface_grid[z][x] = KIND_SLOPE
+
+            # Ищем направление "вверх" (к центру возвышенности)
+            h0 = elevation_grid_with_margin[z + margin][x + margin]
+            grad_x, grad_z = 0, 0
+            for dx, dz in NEI8:
+                nx, nz = x + margin + dx, z + margin + dz
+                h_neighbor = elevation_grid_with_margin[nz][nx]
+                if h_neighbor > h0:
+                    grad_x += dx
+                    grad_z += dz
+
+            # Нормализуем вектор направления
+            length = math.hypot(grad_x, grad_z)
+            if length > 0:
+                ux, uz = grad_x / length, grad_z / length
+                # "Рисуем" полосу склонов вглубь от обрыва
+                for i in range(1, band_cells + 1):
+                    bx = round(x + i * ux)
+                    bz = round(z + i * uz)
+                    if 0 <= bx < target_size and 0 <= bz < target_size:
+                        if surface_grid[bz][bx] not in protected_surfaces:
+                            surface_grid[bz][bx] = KIND_SLOPE
 
 
 def apply_beaches(
         elevation_grid: List[List[float]],
-        kind_grid: List[List[str]],
+        surface_grid: List[List[str]],  # <-- ИЗМЕНЕНИЕ: kind_grid -> surface_grid
+        nav_grid: List[List[str]],  # <-- Добавили nav_grid
         preset: Any
 ) -> None:
-    size = len(kind_grid)
+    size = len(surface_grid)
     if size == 0: return
 
     elev_cfg = getattr(preset, "elevation", {}) or {}
     step = float(elev_cfg.get("quantization_step_m", 1.0))
     height_threshold = step * 0.5
 
-    new_kind_grid = [row[:] for row in kind_grid]
+    new_surface_grid = [row[:] for row in surface_grid]
     for z in range(size):
         for x in range(size):
-            if kind_grid[z][x] != KIND_GROUND: continue
+            if surface_grid[z][x] != KIND_GROUND: continue
+
             is_beach = False
             for dx, dz in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                 nx, nz = x + dx, z + dz
-                if 0 <= nx < size and 0 <= nz < size and kind_grid[nz][nx] == KIND_WATER:
+                # --- ИЗМЕНЕНИЕ: Проверяем воду в nav_grid ---
+                if 0 <= nx < size and 0 <= nz < size and nav_grid[nz][nx] == NAV_WATER:
                     h_ground = elevation_grid[z][x]
                     h_water = elevation_grid[nz][nx]
                     if abs(h_ground - h_water) < height_threshold:
                         is_beach = True
                         break
-            if is_beach: new_kind_grid[z][x] = KIND_SAND
+            if is_beach: new_surface_grid[z][x] = KIND_SAND
 
     for z in range(size):
-        for x in range(size):
-            kind_grid[z][x] = new_kind_grid[z][x]
+        surface_grid[z][x] = new_surface_grid[z][x]
 
 
 def generate_scatter_mask(
         seed: int, cx: int, cz: int, size: int,
-        kind_grid: List[List[str]],  # kind_grid все еще нужен, чтобы не ставить пятна в воде
+        surface_grid: List[List[str]], # <-- ИЗМЕНЕНИЕ: kind_grid -> surface_grid
         preset: Any
 ) -> List[List[bool]]:
-    """
-    Создает сырую маску "пятен" для будущих препятствий, но не применяет их.
-    Возвращает двухмерный массив True/False.
-    """
     cfg = getattr(preset, "scatter", {})
     obstacle_mask = [[False for _ in range(size)] for _ in range(size)]
     if not cfg.get("enabled", False):
@@ -253,24 +262,21 @@ def generate_scatter_mask(
 
     groups_cfg = cfg.get("groups", {})
     details_cfg = cfg.get("details", {})
-
     group_scale = float(groups_cfg.get("noise_scale_tiles", 64.0))
     group_threshold = float(groups_cfg.get("threshold", 0.5))
     group_freq = 1.0 / group_scale
-
     detail_scale = float(details_cfg.get("noise_scale_tiles", 8.0))
     detail_threshold = float(details_cfg.get("threshold", 0.6))
     detail_freq = 1.0 / detail_scale
-
     group_noise_gen = OpenSimplex((seed ^ 0xABCDEFAB) & 0x7FFFFFFF)
     detail_noise_gen = OpenSimplex((seed ^ 0x12345678) & 0x7FFFFFFF)
 
     for z in range(size):
         for x in range(size):
-            if kind_grid[z][x] in (KIND_GROUND, KIND_SAND):
+            # --- ИЗМЕНЕНИЕ: Проверяем поверхность по surface_grid ---
+            if surface_grid[z][x] in (KIND_GROUND, KIND_SAND):
                 wx, wz = cx * size + x, cz * size + z
                 group_val = (group_noise_gen.noise2(wx * group_freq, wz * group_freq) + 1.0) / 2.0
-
                 if group_val > group_threshold:
                     detail_val = (detail_noise_gen.noise2(wx * detail_freq, wz * detail_freq) + 1.0) / 2.0
                     if detail_val > detail_threshold:

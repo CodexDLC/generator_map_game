@@ -3,26 +3,27 @@ from __future__ import annotations
 from typing import List, Tuple, Optional, Iterable
 import math
 
-# --- ИЗМЕНЕНИЯ: Правильные пути ---
+# --- ИЗМЕНЕНИЯ: Правильные пути и константы ---
 from .routers import BaseRoadRouter
 from .helpers import Coord
 from ...core.constants import (
-    KIND_GROUND, KIND_ROAD, KIND_WATER, KIND_OBSTACLE, KIND_SLOPE, KIND_VOID, KIND_BRIDGE
+    NAV_WATER, NAV_BRIDGE, KIND_ROAD, NAV_PASSABLE  # <-- Исправлено: KIND_ROAD вместо SURFACE_ROAD
 )
+
 
 def _l1(a: Coord, b: Coord) -> int:
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
+
 def _build_mst(points: List[Coord]) -> List[Tuple[int, int]]:
+    # ... (код этой функции остается без изменений) ...
     n = len(points)
-    if n <= 1:
-        return []
+    if n <= 1: return []
     used = [False] * n
     used[0] = True
     edges: List[Tuple[int, int]] = []
     best = [(_l1(points[0], points[i]), 0) for i in range(n)]
     best[0] = (0, 0)
-
     for _ in range(n - 1):
         j = -1
         best_cost = math.inf
@@ -30,22 +31,22 @@ def _build_mst(points: List[Coord]) -> List[Tuple[int, int]]:
             if not used[i] and best[i][0] < best_cost:
                 best_cost = best[i][0]
                 j = i
-        if j == -1:
-            break
+        if j == -1: break
         used[j] = True
         edges.append((best[j][1], j))
         for i in range(n):
             if not used[i]:
                 d = _l1(points[j], points[i])
-                if d < best[i][0]:
-                    best[i] = (d, j)
+                if d < best[i][0]: best[i] = (d, j)
     return edges
 
+
 def find_path_network(
-    kind_grid: List[List[str]],
-    height_grid: Optional[List[List[float]]],
-    points: List[Coord],
-    router: Optional[BaseRoadRouter] = None,
+        surface_grid: List[List[str]],
+        nav_grid: List[List[str]],
+        height_grid: Optional[List[List[float]]],
+        points: List[Coord],
+        router: Optional[BaseRoadRouter] = None,
 ) -> List[List[Coord]]:
     if not points:
         return []
@@ -54,45 +55,45 @@ def find_path_network(
     paths: List[List[Coord]] = []
     for i, j in edges:
         a, b = points[i], points[j]
-        path = r.find(kind_grid, height_grid, a, b)
+        path = r.find(surface_grid, nav_grid, height_grid, a, b)
         if path:
             paths.append(path)
     return paths
 
+
 def apply_paths_to_grid(
-    kind_grid: List[List[str]],
-    paths: Iterable[List[Coord]],
-    width: int = 1,
-    *,
-    allow_slope: bool = False,
-    allow_water: bool = False,
+        surface_grid: List[List[str]],
+        nav_grid: List[List[str]],
+        paths: Iterable[List[Coord]],
+        width: int = 1,
 ) -> None:
     """
-    Применяет пути к карте, создавая сплошную дорогу заданной ширины.
-    (Финальная, упрощенная версия).
+    Применяет пути к обоим слоям: рисует дорогу/мост на слое поверхностей
+    и ОБЕСПЕЧИВАЕТ ПРОХОДИМОСТЬ на навигационном слое.
     """
-    h = len(kind_grid)
-    w = len(kind_grid[0]) if h else 0
-    original_kind = [row[:] for row in kind_grid]
-
-    def can_paint(k: str) -> bool:
-        if k == KIND_VOID or k == KIND_OBSTACLE: return False
-        if k == KIND_WATER and not allow_water: return False
-        if k == KIND_SLOPE and not allow_slope: return False
-        return True
+    h = len(surface_grid)
+    w = len(surface_grid[0]) if h else 0
 
     def paint(x: int, z: int):
-        if 0 <= x < w and 0 <= z < h and can_paint(original_kind[z][x]):
-            kind_grid[z][x] = KIND_BRIDGE if original_kind[z][x] == KIND_WATER else KIND_ROAD
+        if 0 <= x < w and 0 <= z < h:
+            # Сначала проверяем, была ли здесь вода, чтобы понять, мост это или дорога.
+            is_bridge = nav_grid[z][x] == NAV_WATER
 
-    # --- НАЧАЛО ИЗМЕНЕНИЯ: Самая простая и правильная логика ---
+            # 1. Обновляем слой поверхностей (визуальный)
+            surface_grid[z][x] = KIND_ROAD  # И мост, и дорога визуально выглядят как KIND_ROAD
+
+            # 2. Обновляем навигационный слой (логический)
+            # --- ГЛАВНОЕ ИЗМЕНЕНИЕ: Мы принудительно делаем клетку проходимой ---
+            if is_bridge:
+                nav_grid[z][x] = NAV_BRIDGE
+            else:
+                nav_grid[z][x] = NAV_PASSABLE  # Убираем любое препятствие, которое могло здесь быть
+
     for path in paths:
         if not path:
             continue
-
-        # Просто рисуем квадратный блок 'width' x 'width' в каждой точке пути.
-        # Для width=2 это само по себе создает сплошную дорогу без разрывов.
         for x, z in path:
+            # Рисуем дорогу заданной ширины
             for dz in range(width):
                 for dx in range(width):
                     paint(x + dx, z + dz)

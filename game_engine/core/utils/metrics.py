@@ -1,24 +1,37 @@
 # game_engine/core/utils/metrics.py
 from __future__ import annotations
-from typing import Any, Dict, List
+from typing import Dict, List
 
-from ..constants import KIND_VALUES, KIND_GROUND, KIND_OBSTACLE, KIND_WATER
+# --- ИЗМЕНЕНИЕ: Импортируем нужные константы из новых наборов ---
+from ..constants import KIND_GROUND, NAV_OBSTACLE, NAV_WATER
 
 
-def compute_metrics(kind_grid: List[List[str]]) -> Dict[str, float]:
-    h = len(kind_grid);
-    w = len(kind_grid[0]) if h else 0
-    total = h * w if h else 0
-    if total == 0: return {"open_pct": 0.0, "obstacle_pct": 0.0, "water_pct": 0.0}
+def compute_metrics(surface_grid: List[List[str]], nav_grid: List[List[str]]) -> Dict[str, float]:
+    """
+    Считает метрики по чанку, используя оба слоя: surface и navigation.
+    """
+    h = len(surface_grid)
+    w = len(surface_grid[0]) if h else 0
+    total = h * w
+    if total == 0:
+        return {"open_pct": 0.0, "obstacle_pct": 0.0, "water_pct": 0.0}
 
-    counts = {k: 0 for k in KIND_VALUES}
-    for row in kind_grid:
+    # Считаем количество разных типов в каждом слое
+    surface_counts: Dict[str, int] = {}
+    for row in surface_grid:
         for v in row:
-            counts[v] = counts.get(v, 0) + 1
+            surface_counts[v] = surface_counts.get(v, 0) + 1
 
-    open_cells = counts.get(KIND_GROUND, 0)
-    obstacle_cells = counts.get(KIND_OBSTACLE, 0)
-    water_cells = counts.get(KIND_WATER, 0)
+    nav_counts: Dict[str, int] = {}
+    for row in nav_grid:
+        for v in row:
+            nav_counts[v] = nav_counts.get(v, 0) + 1
+
+    # "Открытые" клетки - это земля на слое поверхностей
+    open_cells = surface_counts.get(KIND_GROUND, 0)
+    # Препятствия и вода - на навигационном слое
+    obstacle_cells = nav_counts.get(NAV_OBSTACLE, 0)
+    water_cells = nav_counts.get(NAV_WATER, 0)
 
     return {
         "open_pct": open_cells / total,

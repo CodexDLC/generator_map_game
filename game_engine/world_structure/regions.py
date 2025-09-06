@@ -1,7 +1,6 @@
 # REWRITTEN FILE: game_engine/world_structure/regions.py
 from __future__ import annotations
 import json
-import dataclasses
 from pathlib import Path
 from typing import Dict, Tuple
 
@@ -12,10 +11,10 @@ from ..generators._base.generator import BaseGenerator
 from .serialization import RegionMetaContract
 from .planners.road_planner import plan_roads_for_region
 from .planners.biome_planner import assign_biome_to_region
-from .context import Region
+
 
 # --- CHANGE: Import grid utils from the new file ---
-from .grid_utils import region_base, REGION_SIZE
+from .grid_utils import region_base
 
 
 class RegionManager:
@@ -36,17 +35,18 @@ class RegionManager:
             return
 
         print(f"[RegionManager] STARTING RAW generation for region ({scx}, {scz})...")
-        base_cx, base_cz = region_base(scx, scz)
 
-        # 1. Создаем "голый" ландшафт в памяти
+        # --- ИЗМЕНЕНИЕ: Берем размер региона из пресета ---
+        region_size = self.preset.region_size
+        base_cx, base_cz = region_base(scx, scz, region_size)
+
         base_chunks: Dict[Tuple[int, int], GenResult] = {}
-        for dz in range(REGION_SIZE):
-            for dx in range(REGION_SIZE):
+        for dz in range(region_size):
+            for dx in range(region_size):
                 cx, cz = base_cx + dx, base_cz + dz
                 params = {"seed": self.world_seed, "cx": cx, "cz": cz}
                 base_chunks[(cx, cz)] = self.base_generator.generate(params)
 
-        # 2. Perform global planning
         biome_type = assign_biome_to_region(self.world_seed, scx, scz)
         road_plan = plan_roads_for_region(
             scx, scz, self.world_seed, self.preset, base_chunks, biome_type

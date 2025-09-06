@@ -3,15 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, Mapping
 
-# --- ИЗМЕНЕНИЕ: Правильный путь к константам ---
-from .constants import KIND_VALUES, DEFAULT_PALETTE
+# --- ИЗМЕНЕНИЕ: Импортируем SURFACE_KINDS вместо KIND_VALUES ---
+from .constants import SURFACE_KINDS, DEFAULT_PALETTE
 
 
 @dataclass(frozen=True)
 class Preset:
     id: str = "world/base_default"
-    size: int = 64
+    size: int = 128
     cell_size: float = 1.0
+    initial_load_radius: int = 1
+    region_size: int = 5
 
     city_wall: Dict[str, Any] = field(default_factory=dict)
 
@@ -37,7 +39,7 @@ class Preset:
         "enabled": False,
         "groups": {"noise_scale_tiles": 64.0, "threshold": 0.5},
         "details": {"noise_scale_tiles": 8.0, "threshold": 0.6},
-        "thinning": {"enabled": True, "min_distance": 2} # <-- Обновлено
+        "thinning": {"enabled": True, "min_distance": 2}
     })
 
     obstacles: Dict[str, Any] = field(default_factory=lambda: {"density": 0.12, "min_blob": 8, "max_blob": 64})
@@ -58,10 +60,8 @@ class Preset:
     def _deep_merge(base: Dict[str, Any], overrides: Mapping[str, Any]) -> Dict[str, Any]:
         out = dict(base)
         for k, v in overrides.items():
-            if isinstance(v, Mapping) and isinstance(out.get(k), dict):
-                out[k] = Preset._deep_merge(out[k], v)
-            else:
-                out[k] = v
+            if isinstance(v, Mapping) and isinstance(out.get(k), dict): out[k] = Preset._deep_merge(out[k], v)
+            else: out[k] = v
         return out
 
     def merge_overrides(self, overrides: Mapping[str, Any]) -> "Preset":
@@ -72,9 +72,10 @@ class Preset:
     def from_dict(cls, data: Mapping[str, Any]) -> "Preset":
         default = cls().to_dict()
         merged = cls._deep_merge(default, dict(data))
-
         obj = cls(
             id=merged["id"], size=int(merged["size"]), cell_size=float(merged["cell_size"]),
+            region_size=int(merged["region_size"]), # <-- ЧИТАЕМ НОВЫЙ ПАРАМЕТР
+            initial_load_radius=int(merged["initial_load_radius"]),
             city_wall=dict(merged.get("city_wall", {})),
             elevation=dict(merged["elevation"]),
             slope_obstacles=dict(merged.get("slope_obstacles", {})),
@@ -82,19 +83,18 @@ class Preset:
             obstacles=dict(merged["obstacles"]), water=dict(merged["water"]),
             height_q=dict(merged["height_q"]), ports=dict(merged["ports"]),
             fields=dict(merged["fields"]), export=dict(merged["export"]),
-            pre_rules=dict(merged.get("pre_rules", {}))  # ← ДОБАВЬ ЭТО
+            pre_rules=dict(merged.get("pre_rules", {}))
         )
         obj.validate()
         return obj
-
     def validate(self) -> None:
+        # ... (проверки до палитры остаются без изменений) ...
         if not isinstance(self.id, str) or not self.id:
             raise ValueError("Preset.id must be non-empty string")
         if self.size < 8:
             raise ValueError("Preset.size must be >= 8")
         if self.cell_size <= 0:
             raise ValueError("Preset.cell_size must be > 0")
-
         od = float(self.obstacles.get("density", 0.0))
         if not (0.0 <= od <= 1.0):
             raise ValueError("obstacles.density must be in [0,1]")
@@ -102,18 +102,15 @@ class Preset:
         mx = int(self.obstacles.get("max_blob", mn))
         if not (1 <= mn <= mx):
             raise ValueError("obstacles.min_blob <= max_blob and >= 1")
-
         wd = float(self.water.get("density", 0.0))
         if not (0.0 <= wd <= 1.0):
             raise ValueError("water.density must be in [0,1]")
         lc = float(self.water.get("lake_chance", 0.0))
         if not (0.0 <= lc <= 1.0):
             raise ValueError("water.lake_chance must be in [0,1]")
-
         hs = float(self.height_q.get("scale", 0.1))
         if hs <= 0:
             raise ValueError("height_q.scale must be > 0")
-
         pmin = int(self.ports.get("min", 2))
         pmax = int(self.ports.get("max", 4))
         if not (1 <= pmin <= pmax <= 4):
@@ -121,25 +118,26 @@ class Preset:
         em = int(self.ports.get("edge_margin", 0))
         if not (0 <= em < self.size // 2):
             raise ValueError("ports.edge_margin must be >=0 and < size/2")
-
         for key in ("temperature", "humidity"):
             cfg = dict(self.fields.get(key, {}))
             if cfg.get("enabled"):
                 ds = int(cfg.get("downsample", 4))
-                if ds <= 0:
-                    raise ValueError(f"fields.{key}.downsample must be > 0")
+                if ds <= 0: raise ValueError(f"fields.{key}.downsample must be > 0")
                 sc = float(cfg.get("scale", 1.0))
-                if sc <= 0:
-                    raise ValueError(f"fields.{key}.scale must be > 0")
+                if sc <= 0: raise ValueError(f"fields.{key}.scale must be > 0")
 
+        # --- ИЗМЕНЕНИЕ: Проверяем палитру по новому списку SURFACE_KINDS ---
         pal = dict(self.export.get("palette", {}))
-        for k in KIND_VALUES:
+        for k in SURFACE_KINDS:
             if k not in pal:
-                raise ValueError(f"export.palette must contain color for '{k}'")
+                # Мы не требуем наличия цвета для 'void', так как он не рисуется
+                if k == "void": continue
+                raise ValueError(f"export.palette must contain color for surface '{k}'")
             col = str(pal[k])
             if not col.startswith("#"):
                 raise ValueError(f"export.palette['{k}'] must be hex like '#RRGGBB' or '#AARRGGBB'")
 
+        # ... (остальные проверки без изменений) ...
         sc_cfg = dict(self.scatter)
         if sc_cfg.get("enabled", False):
             sc_dens = float(sc_cfg.get("density_threshold", 0.0))

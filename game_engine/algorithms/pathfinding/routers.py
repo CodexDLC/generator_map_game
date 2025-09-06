@@ -22,13 +22,15 @@ class BaseRoadRouter:
         return cls(policy=make_road_policy(pass_water=True, water_cost=water_cost))
 
     def find(
-        self,
-        kind_grid: List[List[str]],
-        height_grid: Optional[List[List[float]]],
-        start: Coord,
-        goal: Coord,
+            self,
+            surface_grid: List[List[str]],
+            nav_grid: List[List[str]],  # <-- Добавлен nav_grid
+            height_grid: Optional[List[List[float]]],
+            start: Coord,
+            goal: Coord,
     ) -> List[Coord] | None:
-        return astar_find(kind_grid, height_grid, start, goal, policy=self.policy)
+        # --- ИЗМЕНЕНИЕ: Передаем оба слоя в astar_find ---
+        return astar_find(surface_grid, nav_grid, height_grid, start, goal, policy=self.policy)
 
 
 class NavRouter(BaseRoadRouter):

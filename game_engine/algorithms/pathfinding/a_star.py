@@ -5,36 +5,32 @@ import math
 
 from .policies import PathPolicy, NAV_POLICY
 from .helpers import (
-    Coord, in_bounds, is_walkable, base_step_cost, elevation_penalty,
+    Coord, in_bounds, base_step_cost, elevation_penalty,
     no_corner_cut, reconstruct,
 )
 
 
 def find_path(
-        kind_grid: List[List[str]],
+        surface_grid: List[List[str]],
+        nav_grid: List[List[str]],  # <-- Добавляем nav_grid
         height_grid: Optional[List[List[float]]],
         start_pos: Tuple[int, int],
         end_pos: Tuple[int, int],
         policy: PathPolicy = NAV_POLICY,
-        # --- НОВЫЙ ПАРАМЕТР ---
         cost_grid: Optional[List[List[float]]] = None
 ) -> List[Tuple[int, int]] | None:
-    """
-    Универсальный A* с поддержкой дополнительной карты штрафов (cost_grid).
-    """
-    if not kind_grid or not kind_grid[0]:
+    if not surface_grid or not surface_grid[0]:
         return None
 
-    w, h = len(kind_grid[0]), len(kind_grid)
+    w, h = len(surface_grid[0]), len(surface_grid)
     sx, sz = start_pos
     gx, gz = end_pos
 
     if not (in_bounds(w, h, sx, sz) and in_bounds(w, h, gx, gz)):
         return None
-    if not is_walkable(kind_grid, sx, sz, policy.terrain_factor):
-        return None
-    if not is_walkable(kind_grid, gx, gz, policy.terrain_factor):
-        return None
+    # Проверяем проходимость по обоим слоям
+    if policy.nav_factor.get(nav_grid[sz][sx], 1.0) == math.inf: return None
+    if policy.nav_factor.get(nav_grid[gz][gx], 1.0) == math.inf: return None
 
     start: Coord = (sx, sz)
     goal: Coord = (gx, gz)
@@ -59,17 +55,25 @@ def find_path(
             nx, nz = cx + dx, cz + dz
             if not in_bounds(w, h, nx, nz):
                 continue
-            if not is_walkable(kind_grid, nx, nz, policy.terrain_factor):
+
+            # --- ГЛАВНОЕ ИЗМЕНЕНИЕ: Проверяем проходимость по обоим слоям ---
+            nav_kind = nav_grid[nz][nx]
+            if policy.nav_factor.get(nav_kind, 1.0) == math.inf:
                 continue
+
+            surface_kind = surface_grid[nz][nx]
+
+            # Проверка на срез углов (использует surface_grid, т.к. смотрит на стоимость)
             if (dx != 0 and dz != 0) and not policy.corner_cut:
-                if not no_corner_cut(kind_grid, cx, cz, nx, nz, policy.terrain_factor):
+                # Эта функция внутри себя проверяет стоимость, а не только проходимость
+                if not no_corner_cut(surface_grid, cx, cz, nx, nz, policy.terrain_factor):
                     continue
 
             base = base_step_cost(dx, dz)
             elev = elevation_penalty(height_grid, cx, cz, nx, nz, policy.slope_penalty_per_meter)
-            terr = policy.terrain_factor.get(kind_grid[nz][nx], 1.0)
+            # Стоимость берем из слоя поверхностей
+            terr = policy.terrain_factor.get(surface_kind, 1.0)
 
-            # --- НОВОЕ: Учитываем штраф из cost_grid ---
             additional_cost = cost_grid[nz][nx] if cost_grid else 1.0
             step_cost = (base * terr + elev) * additional_cost
 

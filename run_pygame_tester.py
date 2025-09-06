@@ -4,6 +4,8 @@ import pathlib
 import json
 import pygame
 
+
+
 # --- Настройка путей ---
 ROOT = pathlib.Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
@@ -37,9 +39,6 @@ def get_seed_from_console() -> int:
 
 def main():
     """Главная функция, управляющая всем процессом."""
-
-    # --- ЭТАП 1: ПОДГОТОВКА И ГЕНЕРАЦИЯ ---
-
     print("--- World Generation Initializing ---")
     city_seed = get_seed_from_console()
 
@@ -47,49 +46,32 @@ def main():
     preset = Preset.from_dict(preset_data)
     base_generator = BaseGenerator(preset)
     region_manager = RegionManager(city_seed, preset, base_generator, ARTIFACTS_ROOT)
-
-    # --- ИЗМЕНЕНИЕ: Возвращаем передачу progress_callback ---
     world_actor = WorldActor(city_seed, preset, ARTIFACTS_ROOT, progress_callback=print)
 
-    print(f"\nGenerating start region for seed: {city_seed}")
-    world_actor.ensure_region_is_ready(0, 0, region_manager)
+    # --- ИЗМЕНЕНИЕ: Просто просим "воркера" подготовить стартовую зону ---
+    world_actor.prepare_starting_area(region_manager)
+
     print("\n--- World Generation Complete. Starting Game Client ---")
 
-    # --- ЭТАП 2: ЗАПУСК КЛИЕНТА PYGAME ---
-
+    # --- (остальная часть функции main остается без изменений) ---
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     pygame.display.set_caption("Pygame World Tester")
     clock = pygame.time.Clock()
-
-    # Создаем игровые объекты
     game_world = GameWorld(city_seed)
     renderer = Renderer(screen)
     camera = Camera()
-
-    # Создаем UI
     side_menu = SideMenu(x=0, y=0, width=MENU_WIDTH, height=SCREEN_HEIGHT)
-    # Кнопка перезапуска теперь не нужна в таком виде, т.к. перезапуск требует остановки программы
-    # side_menu.add_button("Restart (R)", trigger_restart)
     side_menu.add_button("Toggle Minimap", side_menu.minimap.toggle_visibility)
-
-    # Настраиваем viewport
     viewport_width = VIEWPORT_WIDTH_TILES * TILE_SIZE
     viewport_height = VIEWPORT_HEIGHT_TILES * TILE_SIZE
     game_surface = pygame.Surface((viewport_width, viewport_height))
-
-    # --- ЭТАП 3: ГЛАВНЫЙ ИГРОВОЙ ЦИКЛ ---
-
     running = True
     while running:
         dt = clock.tick(60) / 1000.0
-
-        # Обработка событий
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            if side_menu.handle_event(event):
-                continue
+            if event.type == pygame.QUIT: running = False
+            if side_menu.handle_event(event): continue
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 mouse_x, mouse_y = event.pos
                 if mouse_x > MENU_WIDTH:
@@ -97,34 +79,25 @@ def main():
                     target_wx = camera.top_left_wx + game_surface_x // TILE_SIZE
                     target_wz = camera.top_left_wz + mouse_y // TILE_SIZE
                     game_world.set_player_target(target_wx, target_wz)
-
-        # Управление персонажем
         keys = pygame.key.get_pressed()
         if keys[pygame.K_w]: game_world.move_player_by(0, -1)
         if keys[pygame.K_s]: game_world.move_player_by(0, 1)
         if keys[pygame.K_a]: game_world.move_player_by(-1, 0)
         if keys[pygame.K_d]: game_world.move_player_by(1, 0)
-
-        # Обновление и отрисовка
         game_world.update(dt)
         state = game_world.get_render_state()
         player_wx, player_wz = state["player_wx"], state["player_wz"]
         camera.center_on_player(player_wx, player_wz)
-
         screen.fill(BACKGROUND_COLOR)
         renderer.draw_world(camera, state["game_world"], game_surface)
-        if state["path"]:
-            renderer.draw_path(state["path"], camera, game_surface)
+        if state["path"]: renderer.draw_path(state["path"], camera, game_surface)
         renderer.draw_player(player_wx, player_wz, camera, game_surface)
         screen.blit(game_surface, (MENU_WIDTH, 0))
-
         current_cx = player_wx // CHUNK_SIZE
         current_cz = player_wz // CHUNK_SIZE
         side_menu.draw(screen, state["world_manager"], current_cx, current_cz)
         renderer.draw_status(state["world_manager"], player_wx, player_wz)
-
         pygame.display.flip()
-
     pygame.quit()
     sys.exit()
 

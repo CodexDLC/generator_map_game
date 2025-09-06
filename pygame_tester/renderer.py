@@ -39,33 +39,41 @@ class Renderer:
         return int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16)
     # --- НАЧАЛО ИЗМЕНЕНИЯ: Методы теперь принимают target_surface ---
     def draw_world(self, camera: Camera, game_world, target_surface: pygame.Surface):
-        target_surface.fill(ERROR_COLOR)  # Заполняем фон, чтобы видеть, где наша поверхность
+        target_surface.fill(ERROR_COLOR)
         for screen_y in range(VIEWPORT_HEIGHT_TILES):
             for screen_x in range(VIEWPORT_WIDTH_TILES):
                 wx = camera.top_left_wx + screen_x
                 wz = camera.top_left_wz + screen_y
 
+                # --- ИЗМЕНЕНИЕ: Получаем тайл с новой структурой ---
                 tile_info = game_world.get_tile_at(wx, wz)
-                kind_name = tile_info.get("kind", "void")
+                surface_kind = tile_info.get("surface", "void")
+                nav_kind = tile_info.get("navigation", "passable")
                 height_val = tile_info.get("height", 0)
 
-                # --- ИЗМЕНЕНИЕ: Возвращаем простой, однотонный цвет по типу тайла ---
-                color = self.colors.get(kind_name, ERROR_COLOR)
-
+                # 1. Рисуем цвет поверхности
+                color = self.colors.get(surface_kind, ERROR_COLOR)
                 rect_obj = pygame.Rect(screen_x * TILE_SIZE, screen_y * TILE_SIZE, TILE_SIZE, TILE_SIZE)
                 pygame.draw.rect(target_surface, color, rect_obj)
 
-                # Рисуем текст с высотой (с тенью для лучшей читаемости)
+                # 2. Если в навигационной сетке есть что-то непроходимое, рисуем это поверх
+                if nav_kind != "passable":
+                    nav_color = self.colors.get(nav_kind)
+                    if nav_color:
+                        # Рисуем меньший квадрат в центре, чтобы было видно и поверхность, и объект
+                        nav_rect = pygame.Rect(
+                            rect_obj.x + TILE_SIZE // 4, rect_obj.y + TILE_SIZE // 4,
+                            TILE_SIZE // 2, TILE_SIZE // 2
+                        )
+                        pygame.draw.rect(target_surface, nav_color, nav_rect)
+
+                # Рисуем текст с высотой (без изменений)
                 if TILE_SIZE > 15:
                     text_str = f"{height_val:.1f}"
-
-                    # Тень (черный текст со смещением)
                     shadow_pos = rect_obj.centerx + 1, rect_obj.centery + 1
                     shadow_surf = self.font.render(text_str, True, (0, 0, 0))
                     shadow_rect = shadow_surf.get_rect(center=shadow_pos)
                     target_surface.blit(shadow_surf, shadow_rect)
-
-                    # Основной текст (белый)
                     text_surf = self.font.render(text_str, True, (255, 255, 255))
                     text_rect = text_surf.get_rect(center=rect_obj.center)
                     target_surface.blit(text_surf, text_rect)

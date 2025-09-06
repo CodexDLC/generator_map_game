@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import List
 from collections import deque
 
-from game_engine.core.constants import (
-    KIND_WATER, KIND_OBSTACLE
+# --- ИЗМЕНЕНИЕ: Импортируем новые константы для навигации ---
+from ..core.constants import (
+    NAV_WATER, NAV_OBSTACLE
 )
 
 
@@ -17,6 +18,7 @@ def carve_ramp_along_path(
 ) -> None:
     """
     Создает плавный пандус, "срезая" холмы, которые выше дороги.
+    (Эта функция не требует изменений, так как работает только с высотами)
     """
     if not path: return
     H, W = len(elev), len(elev[0]) if elev else 0
@@ -52,19 +54,21 @@ def carve_ramp_along_path(
                         elev[z][x] = (current_h * (1 - strength)) + (target_h * strength)
 
 
-def preprocess_water_bodies(grid: List[List[str]], max_water_crossing_size: int):
+def preprocess_water_bodies(nav_grid: List[List[str]], max_water_crossing_size: int):
     """
     Большие водоемы (больше max_water_crossing_size) помечаем как OBSTACLE.
+    Работает с навигационной сеткой (nav_grid).
     """
-    h = len(grid)
-    w = len(grid[0]) if h else 0
+    h = len(nav_grid)
+    w = len(nav_grid[0]) if h else 0
     if not (w and h): return
 
     visited = [[False for _ in range(w)] for _ in range(h)]
 
     for z in range(h):
         for x in range(w):
-            if grid[z][x] == KIND_WATER and not visited[z][x]:
+            # --- ИЗМЕНЕНИЕ: Ищем NAV_WATER в nav_grid ---
+            if nav_grid[z][x] == NAV_WATER and not visited[z][x]:
                 water_body_tiles = []
                 q = deque([(x, z)])
                 visited[z][x] = True
@@ -75,11 +79,11 @@ def preprocess_water_bodies(grid: List[List[str]], max_water_crossing_size: int)
                     for dx, dz in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                         nx, nz = cx + dx, cz + dz
                         if 0 <= nx < w and 0 <= nz < h and \
-                                not visited[nz][nx] and grid[nz][nx] == KIND_WATER:
+                                not visited[nz][nx] and nav_grid[nz][nx] == NAV_WATER:
                             visited[nz][nx] = True
                             q.append((nx, nz))
 
                 if len(water_body_tiles) > max_water_crossing_size:
                     for wx, wz in water_body_tiles:
-                        grid[wz][wx] = KIND_OBSTACLE
-
+                        # --- ИЗМЕНЕНИЕ: Помечаем как NAV_OBSTACLE ---
+                        nav_grid[wz][wx] = NAV_OBSTACLE

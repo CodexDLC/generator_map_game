@@ -9,8 +9,10 @@ class FeatureBrush:
     def __init__(self, result: GenResult, preset: Any):
         self.result = result
         self.preset = preset
-        self.kind_grid = result.layers["kind"]
-        self.size = len(self.kind_grid)
+        # --- ИЗМЕНЕНИЕ: Получаем доступ к обоим слоям ---
+        self.surface_grid = result.layers["surface"]
+        self.nav_grid = result.layers["navigation"]
+        self.size = len(self.surface_grid)
 
     def apply(self, **kwargs):
         raise NotImplementedError

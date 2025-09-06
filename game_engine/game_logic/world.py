@@ -1,174 +1,122 @@
 # game_engine/game_logic/world.py
-from typing import Dict, Any, Tuple, Optional
-# Убираем Queue, т.к. воркер больше не используется
-# from multiprocessing import Queue
+from typing import Dict, Any, Tuple
 from enum import Enum, auto
 
 from .player import Player
 from pygame_tester.world_manager import WorldManager
 from ..algorithms.pathfinding.a_star import find_path
 from pygame_tester.config import CHUNK_SIZE, PLAYER_MOVE_SPEED
-from ..core.constants import KIND_VOID
-
-
-class LoadingState(Enum):
-    IDLE = auto()
-    # Состояния, связанные с асинхронной загрузкой, больше не нужны в таком виде
-    # WAITING_FOR_PRIMARY_CHUNK = auto()
-    # PRE_GENERATING = auto()
+from ..core.constants import NAV_PASSABLE, KIND_GROUND
 
 
 class GameWorld:
-    # --- ИЗМЕНЕНИЕ: Убираем task_queue из конструктора ---
-    def __init__(self, city_seed: int):
-        self.world_manager = WorldManager(city_seed)
-        # self.task_queue = task_queue # <-- УДАЛЕНО
+    def __init__(self, world_seed: int):
+        self.world_manager = WorldManager(world_seed)  # <-- Переименовано для ясности
         self.player = Player(wx=CHUNK_SIZE // 2, wz=CHUNK_SIZE // 2)
-
         self.render_grid_radius = 1
         self.render_grid: Dict[Tuple[int, int], Dict] = {}
         self.last_player_chunk_pos = (-999, -999)
-        # pending_chunks и состояния загрузки больше не нужны, т.к. генерация синхронная
-        # self.pending_chunks = set()
-        # self.loading_state = LoadingState.IDLE
-        # self.pre_generation_complete = False
-        # self.chunks_to_pre_generate: set[Tuple[int, int]] = set()
-        # self.primary_chunk_to_load: Optional[Tuple[int, int]] = None
-
-        # Просто загружаем стартовый чанк
-        self._load_and_render_chunk_at((0, 0))
-
+        # --- ИЗМЕНЕНИЕ: Просто обновляем грид при старте ---
+        self._update_surrounding_grid(0, 0)
 
     def update(self, dt: float):
         player_cx = self.player.wx // CHUNK_SIZE
         player_cz = self.player.wz // CHUNK_SIZE
-
-        grid_needs_update = ((player_cx, player_cz) != self.last_player_chunk_pos)
-        if grid_needs_update:
+        if (player_cx, player_cz) != self.last_player_chunk_pos:
             self.last_player_chunk_pos = (player_cx, player_cz)
             self._update_surrounding_grid(player_cx, player_cz)
 
+        # --- УДАЛЕНО: вызов _check_world_transition ---
         self._handle_path_movement(dt)
-        self._check_world_transition()
 
     def _update_surrounding_grid(self, center_cx: int, center_cz: int):
-        """Поддерживает сетку чанков вокруг игрока."""
-        if self.world_manager.world_id == "city":
-            self._load_and_render_chunk_at((0, 0))
-            return
-
+        # --- ИЗМЕНЕНИЕ: Упрощено, всегда работает с процедурным миром ---
         needed_chunks = set()
         for dz in range(-self.render_grid_radius, self.render_grid_radius + 1):
             for dx in range(-self.render_grid_radius, self.render_grid_radius + 1):
-                pos = (center_cx + dx, center_cz + dz)
-                needed_chunks.add(pos)
-
+                needed_chunks.add((center_cx + dx, center_cz + dz))
         current_chunks_pos = set(self.render_grid.keys())
         for pos in current_chunks_pos - needed_chunks:
             del self.render_grid[pos]
-
         for pos in needed_chunks:
             self._load_and_render_chunk_at(pos)
 
     def _load_and_render_chunk_at(self, pos: Tuple[int, int]):
-        """Загружает чанк. Теперь он просто вызывает get_chunk_data, который сам вызовет генерацию если нужно."""
-        if pos in self.render_grid:
-            return
-
-        # get_chunk_data теперь содержит логику вызова RegionManager.ensure_region_is_generated
+        if pos in self.render_grid: return
         chunk_data = self.world_manager.get_chunk_data(pos[0], pos[1])
+        if chunk_data: self.render_grid[pos] = chunk_data
 
-        if chunk_data:
-            self.render_grid[pos] = chunk_data
-        # else:
-            # Логика постановки в очередь на генерацию удалена
+    # --- УДАЛЕНО: метод _check_world_transition ---
 
-    def _check_world_transition(self):
-        """Проверяет и выполняет переход между мирами."""
-        # --- ИЗМЕНЕНИЕ: передаем self, но убираем проверку pre_generation_complete ---
-        transition_result = self.world_manager.transition_manager.check_and_trigger_transition(
-            self.player.wx, self.player.wz, self
-        )
-        if transition_result:
-            self.player.wx, self.player.wz = transition_result
-            self.player.path = []
-            self.render_grid.clear()
-            new_cx = self.player.wx // CHUNK_SIZE
-            new_cz = self.player.wz // CHUNK_SIZE
-            # Просто сразу обновляем грид вокруг новой точки
-            self._update_surrounding_grid(new_cx, new_cz)
-            print(f"Transition triggered. New player position: ({self.player.wx}, {self.player.wz})")
-
-    # Остальные методы (get_tile_at, set_player_target, move_player_by, get_render_state, _handle_path_movement)
-    # остаются без существенных изменений, но я привожу их для полноты файла.
-
+    # ... (остальные методы get_tile_at, set_player_target и т.д. остаются без изменений) ...
     def get_tile_at(self, wx: int, wz: int) -> Dict:
-        cx, cz = wx // CHUNK_SIZE, wz // CHUNK_SIZE
-        if (cx, cz) not in self.render_grid:
-            return {"kind": "void", "height": 0}
-        chunk_data = self.render_grid[(cx, cz)]
+        cx, cz = wx // CHUNK_SIZE, wz // CHUNK_SIZE;
+        chunk_data = self.render_grid.get((cx, cz))
+        if not chunk_data: return {"surface": "void", "navigation": NAV_PASSABLE, "height": 0}
         lx, lz = wx % CHUNK_SIZE, wz % CHUNK_SIZE
-        kind_grid = chunk_data.get("kind", [])
+        surface_grid = chunk_data.get("surface", []);
+        nav_grid = chunk_data.get("navigation", []);
         height_grid = chunk_data.get("height", [])
-        is_in_bounds = (0 <= lz < len(kind_grid) and 0 <= lx < len(kind_grid[0]))
-        if not is_in_bounds:
-            return {"kind": "void", "height": 0}
-        kind = kind_grid[lz][lx]
-        height = height_grid[lz][lx] if (0 <= lz < len(height_grid) and 0 <= lx < len(height_grid[0])) else 0
-        return {"kind": kind, "height": height}
+        is_in_bounds = (0 <= lz < len(surface_grid) and 0 <= lx < len(surface_grid[0]))
+        if not is_in_bounds: return {"surface": "void", "navigation": NAV_PASSABLE, "height": 0}
+        return {"surface": surface_grid[lz][lx], "navigation": nav_grid[lz][lx],
+                "height": height_grid[lz][lx] if (0 <= lz < len(height_grid) and 0 <= lx < len(height_grid[0])) else 0}
 
     def set_player_target(self, target_wx: int, target_wz: int):
         player_cx, player_cz = self.player.wx // CHUNK_SIZE, self.player.wz // CHUNK_SIZE
         target_cx, target_cz = target_wx // CHUNK_SIZE, target_wz // CHUNK_SIZE
-        min_cx = min(player_cx, target_cx); max_cx = max(player_cx, target_cx)
-        min_cz = min(player_cz, target_cz); max_cz = max(player_cz, target_cz)
-        num_chunks_x = max_cx - min_cx + 1; num_chunks_z = max_cz - min_cz + 1
-        stitched_width = num_chunks_x * CHUNK_SIZE; stitched_height = num_chunks_z * CHUNK_SIZE
-        stitched_kind_grid = [[KIND_VOID for _ in range(stitched_width)] for _ in range(stitched_height)]
+        min_cx = min(player_cx, target_cx);
+        max_cx = max(player_cx, target_cx);
+        min_cz = min(player_cz, target_cz);
+        max_cz = max(player_cz, target_cz)
+        num_chunks_x = max_cx - min_cx + 1;
+        num_chunks_z = max_cz - min_cz + 1
+        stitched_width = num_chunks_x * CHUNK_SIZE;
+        stitched_height = num_chunks_z * CHUNK_SIZE
+        stitched_surface_grid = [[KIND_GROUND for _ in range(stitched_width)] for _ in range(stitched_height)]
+        stitched_nav_grid = [[NAV_PASSABLE for _ in range(stitched_width)] for _ in range(stitched_height)]
         stitched_height_grid = [[0.0 for _ in range(stitched_width)] for _ in range(stitched_height)]
         for cz_offset in range(num_chunks_z):
             for cx_offset in range(num_chunks_x):
                 cx, cz = min_cx + cx_offset, min_cz + cz_offset
                 chunk_data = self.render_grid.get((cx, cz))
                 if chunk_data:
-                    paste_x_start = cx_offset * CHUNK_SIZE; paste_z_start = cz_offset * CHUNK_SIZE
-                    kind = chunk_data.get('kind', []); height = chunk_data.get('height', [])
-                    if not kind or not height: continue
+                    paste_x_start = cx_offset * CHUNK_SIZE;
+                    paste_z_start = cz_offset * CHUNK_SIZE
+                    surface = chunk_data.get('surface', []);
+                    nav = chunk_data.get('navigation', []);
+                    height = chunk_data.get('height', [])
+                    if not surface or not nav or not height: continue
                     for z in range(CHUNK_SIZE):
                         for x in range(CHUNK_SIZE):
-                            stitched_kind_grid[paste_z_start + z][paste_x_start + x] = kind[z][x]
+                            stitched_surface_grid[paste_z_start + z][paste_x_start + x] = surface[z][x]
+                            stitched_nav_grid[paste_z_start + z][paste_x_start + x] = nav[z][x]
                             stitched_height_grid[paste_z_start + z][paste_x_start + x] = height[z][x]
-        start_stitched_x = self.player.wx - (min_cx * CHUNK_SIZE)
-        start_stitched_z = self.player.wz - (min_cz * CHUNK_SIZE)
-        goal_stitched_x = target_wx - (min_cx * CHUNK_SIZE)
-        goal_stitched_z = target_wz - (min_cz * CHUNK_SIZE)
-        stitched_path = find_path(
-            stitched_kind_grid, stitched_height_grid,
-            (start_stitched_x, start_stitched_z),
-            (goal_stitched_x, goal_stitched_z)
-        )
+        start_stitched = (self.player.wx - min_cx * CHUNK_SIZE, self.player.wz - min_cz * CHUNK_SIZE)
+        goal_stitched = (target_wx - min_cz * CHUNK_SIZE, target_wz - min_cz * CHUNK_SIZE)
+        stitched_path = find_path(stitched_surface_grid, stitched_nav_grid, stitched_height_grid, start_stitched,
+                                  goal_stitched)
         if stitched_path:
-            wx_offset = min_cx * CHUNK_SIZE; wz_offset = min_cz * CHUNK_SIZE
+            wx_offset = min_cx * CHUNK_SIZE;
+            wz_offset = min_cz * CHUNK_SIZE
             self.player.path = [(lx + wx_offset, lz + wz_offset) for lx, lz in stitched_path]
         else:
-            self.player.path = []
+            self.player.path = [];
             print("Path not found across chunks!")
 
     def move_player_by(self, dx: int, dz: int):
-        self.player.wx += dx; self.player.wz += dz
+        self.player.wx += dx;
+        self.player.wz += dz;
         self.player.path = []
 
     def get_render_state(self) -> Dict[str, Any]:
-        return {
-            "player_wx": self.player.wx, "player_wz": self.player.wz,
-            "path": self.player.path, "world_manager": self.world_manager,
-            "game_world": self,
-        }
+        return {"player_wx": self.player.wx, "player_wz": self.player.wz, "path": self.player.path,
+                "world_manager": self.world_manager, "game_world": self}
 
     def _handle_path_movement(self, dt: float):
         if not self.player.path: return
         self.player.move_timer += dt
         if self.player.move_timer >= PLAYER_MOVE_SPEED:
-            self.player.move_timer = 0
-            next_pos = self.player.path.pop(0)
+            self.player.move_timer = 0;
+            next_pos = self.player.path.pop(0);
             self.player.wx, self.player.wz = next_pos

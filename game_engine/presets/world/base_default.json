@@ -2,13 +2,15 @@
   "id": "world/base_default",
   "size": 256,
   "cell_size": 1.0,
+  "region_size": 5,
+  "initial_load_radius": 1,
 
   "elevation": {
     "enabled": true,
     "shaping_power": 1.8,
-    "quantization_step_m": 0.5,
+    "quantization_step_m": 0.1,
     "smoothing_passes": 2,
-    "noise_scale_tiles": 128.0,
+    "noise_scale_tiles": 1024.0,
     "max_height_m": 45.0,
     "sea_level_m": 9.0,
 

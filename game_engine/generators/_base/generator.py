@@ -3,13 +3,13 @@ import math
 import time
 from typing import Any, Dict
 
+from ...core.constants import KIND_SAND, NAV_OBSTACLE
 from ...core.types import GenResult
 from ...core.utils.rng import init_rng
 from ...core.utils.layers import make_empty_layers
 from ...core.utils.metrics import compute_metrics
 from ...algorithms.terrain.terrain import (
     generate_elevation, classify_terrain, apply_slope_obstacles,
-    generate_scatter_mask
 )
 # --- ИЗМЕНЕНИЕ: Убираем лишнее, импортируем новую функцию ---
 from .pregen_rules import early_fill_decision, apply_ocean_coast_rules
@@ -29,49 +29,41 @@ class BaseGenerator:
         size = int(getattr(self.preset, "size", 128))
         t0 = time.perf_counter()
         stage_seeds = init_rng(seed, cx, cz)
+
         layers = make_empty_layers(size)
 
-        # --- Этап 1: Быстрая заливка океана ---
         pre_fill = early_fill_decision(cx, cz, size, self.preset, seed)
         if pre_fill:
-            # ... (эта часть остается без изменений) ...
+            # ... (этот блок без изменений) ...
             kind_name, height_value = pre_fill
             elevation_grid = [[float(height_value) for _ in range(size)] for _ in range(size)]
             layers["height_q"]["grid"] = elevation_grid
-            layers["kind"] = [[kind_name for _ in range(size)] for _ in range(size)]
+            layers["surface"] = [[KIND_SAND for _ in range(size)] for _ in range(size)]
+            layers["navigation"] = [[NAV_OBSTACLE for _ in range(size)] for _ in range(size)]
             result = GenResult(version=self.VERSION, type=self.TYPE, seed=seed, cx=cx, cz=cz, size=size,
                                cell_size=getattr(self.preset, "cell_size", 1.0), layers=layers)
             return result
 
-        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
-
-        # --- Этап 2: Генерация базового рельефа ---
-        # Теперь получаем ДВЕ карты высот
         elevation_grid, elevation_grid_with_margin = generate_elevation(
             stage_seeds["elevation"], cx, cz, size, self.preset
         )
         layers["height_q"]["grid"] = elevation_grid
 
-        # --- Этап 3: Классификация и детализация (новый порядок) ---
         result = GenResult(
             version=self.VERSION, type=self.TYPE,
             seed=seed, cx=cx, cz=cz, size=size, cell_size=1.0,
             layers=layers, stage_seeds=stage_seeds
         )
 
-        # 3.1. Базовая классификация на воду и землю (используем ОБРЕЗАННУЮ карту)
-        classify_terrain(elevation_grid, result.layers["kind"], self.preset)
+        classify_terrain(elevation_grid, result.layers["surface"], result.layers["navigation"], self.preset)
 
-        # 3.2. Применяем особые правила для океанского побережья
+        # --- ИЗМЕНЕНИЕ: Возвращаем вызов функции ---
         apply_ocean_coast_rules(result, self.preset)
 
-        # 3.3. Создаем склоны у резких обрывов
-        apply_slope_obstacles(elevation_grid_with_margin, result.layers["kind"], self.preset)
+        apply_slope_obstacles(elevation_grid_with_margin, result.layers["surface"], self.preset)
 
-
-        # --- Этап 4: Финализация ---
         result.metrics["gen_timings_ms"] = {"total_ms": (time.perf_counter() - t0) * 1000.0}
-        metrics_cover: Dict[str, Any] = compute_metrics(result.layers["kind"])
+        metrics_cover: Dict[str, Any] = compute_metrics(result.layers["surface"], result.layers["navigation"])
         dist = float(math.hypot(cx, cz))
         metrics_cover["difficulty"] = {"value": dist / 10.0, "dist": dist}
         result.metrics = {**metrics_cover, **result.metrics}
