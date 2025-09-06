@@ -21,12 +21,10 @@ def build_local_roads(result: GenResult, region: Region, preset: Preset) -> None
     if not plan_for_chunk or not plan_for_chunk.waypoints:
         return
 
-    # --- ИЗМЕНЕНИЕ: Получаем region_size из пресета ---
     region_size = preset.region_size
     base_cx, base_cz = region_base(region.scx, region.scz, region_size)
     chunk_size = result.size
 
-    # ... (остальная часть функции без изменений) ...
     local_waypoints = []
     for wp in plan_for_chunk.waypoints:
         global_x, global_y = wp.pos
@@ -38,8 +36,10 @@ def build_local_roads(result: GenResult, region: Region, preset: Preset) -> None
     if len(local_waypoints) < 2:
         return
 
+    # --- ИЗМЕНЕНИЕ: Получаем все три слоя ---
     surface_grid = result.layers["surface"]
     nav_grid = result.layers["navigation"]
+    overlay_grid = result.layers["overlay"]  # <-- Добавлена эта строка
     height_grid = result.layers["height_q"]["grid"]
 
     policy = make_road_policy(allow_slopes=True, allow_water_as_bridge=True, water_bridge_cost=15.0)
@@ -55,5 +55,6 @@ def build_local_roads(result: GenResult, region: Region, preset: Preset) -> None
         if path:
             carve_ramp_along_path(height_grid, path)
 
-    apply_paths_to_grid(surface_grid, nav_grid, paths, width=3)
+    # --- ИЗМЕНЕНИЕ: Передаем overlay_grid в функцию ---
+    apply_paths_to_grid(surface_grid, nav_grid, overlay_grid, paths, width=3)
     print(f"[ROADS] chunk={chunk_key} Successfully applied paths.")

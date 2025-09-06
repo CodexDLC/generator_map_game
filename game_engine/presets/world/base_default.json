@@ -2,7 +2,7 @@
   "id": "world/base_default",
   "size": 256,
   "cell_size": 1.0,
-  "region_size": 5,
+  "region_size": 3,
   "initial_load_radius": 1,
 
   "elevation": {
@@ -11,12 +11,12 @@
     "quantization_step_m": 0.1,
     "smoothing_passes": 2,
     "noise_scale_tiles": 1024.0,
-    "max_height_m": 45.0,
-    "sea_level_m": 9.0,
+    "max_height_m": 90.0,
+    "sea_level_m": 18.0,
 
     "terracing": {
       "enabled": true,
-      "steps_m": [ 3, 6, 9.0, 12.0 ],
+      "steps_m": [6, 9.0, 12.0],
       "bins": [ 0.50, 0.75, 0.90],
       "mask": {
         "noise_scale_tiles": 2048,

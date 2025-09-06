@@ -7,13 +7,12 @@ from ..constants import KIND_GROUND, NAV_PASSABLE
 
 def make_empty_layers(size: int) -> Dict[str, Any]:
     """
-    Создает пустой контейнер слоёв с разделением на 'surface' и 'navigation'.
+    Создает пустой контейнер слоёв, теперь с 'overlay' слоем для дорог.
     """
     return {
-        # Слой для визуализации (текстуры Terrain3D)
         "surface": [[KIND_GROUND for _ in range(size)] for _ in range(size)],
-        # Слой для проходимости (Pathfinder и сервер)
         "navigation": [[NAV_PASSABLE for _ in range(size)] for _ in range(size)],
-        # Слой высот остается как есть
+        # --- НОВЫЙ СЛОЙ: 0 означает "нет оверлея" ---
+        "overlay": [[0 for _ in range(size)] for _ in range(size)],
         "height_q": {"grid": [[0.0 for _ in range(size)] for _ in range(size)]},
     }

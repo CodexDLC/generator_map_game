@@ -45,36 +45,38 @@ class Renderer:
                 wx = camera.top_left_wx + screen_x
                 wz = camera.top_left_wz + screen_y
 
-                # --- ИЗМЕНЕНИЕ: Получаем тайл с новой структурой ---
                 tile_info = game_world.get_tile_at(wx, wz)
                 surface_kind = tile_info.get("surface", "void")
                 nav_kind = tile_info.get("navigation", "passable")
+                overlay_id = tile_info.get("overlay", 0)  # <-- Получаем ID из оверлея
                 height_val = tile_info.get("height", 0)
 
-                # 1. Рисуем цвет поверхности
+                # --- ИЗМЕНЕНИЕ: Выбираем цвет с учётом оверлея ---
                 color = self.colors.get(surface_kind, ERROR_COLOR)
+                # Если в оверлее есть что-то (не 0), рисуем дорогу
+                if overlay_id != 0:
+                    color = self.colors.get("road", ERROR_COLOR)
+
                 rect_obj = pygame.Rect(screen_x * TILE_SIZE, screen_y * TILE_SIZE, TILE_SIZE, TILE_SIZE)
                 pygame.draw.rect(target_surface, color, rect_obj)
 
-                # 2. Если в навигационной сетке есть что-то непроходимое, рисуем это поверх
-                if nav_kind != "passable":
+                # Поверх рисуем маркеры препятствий
+                if nav_kind != "passable" and nav_kind != "bridge":
                     nav_color = self.colors.get(nav_kind)
                     if nav_color:
-                        # Рисуем меньший квадрат в центре, чтобы было видно и поверхность, и объект
                         nav_rect = pygame.Rect(
                             rect_obj.x + TILE_SIZE // 4, rect_obj.y + TILE_SIZE // 4,
-                            TILE_SIZE // 2, TILE_SIZE // 2
-                        )
+                            TILE_SIZE // 2, TILE_SIZE // 2)
                         pygame.draw.rect(target_surface, nav_color, nav_rect)
 
-                # Рисуем текст с высотой (без изменений)
+                # ... (код отрисовки текста без изменений) ...
                 if TILE_SIZE > 15:
-                    text_str = f"{height_val:.1f}"
+                    text_str = f"{height_val:.1f}";
                     shadow_pos = rect_obj.centerx + 1, rect_obj.centery + 1
-                    shadow_surf = self.font.render(text_str, True, (0, 0, 0))
+                    shadow_surf = self.font.render(text_str, True, (0, 0, 0));
                     shadow_rect = shadow_surf.get_rect(center=shadow_pos)
                     target_surface.blit(shadow_surf, shadow_rect)
-                    text_surf = self.font.render(text_str, True, (255, 255, 255))
+                    text_surf = self.font.render(text_str, True, (255, 255, 255));
                     text_rect = text_surf.get_rect(center=rect_obj.center)
                     target_surface.blit(text_surf, text_rect)
 

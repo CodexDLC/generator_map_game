@@ -7,7 +7,7 @@ import math
 from .routers import BaseRoadRouter
 from .helpers import Coord
 from ...core.constants import (
-    NAV_WATER, NAV_BRIDGE, KIND_ROAD, NAV_PASSABLE  # <-- Исправлено: KIND_ROAD вместо SURFACE_ROAD
+    NAV_WATER, NAV_BRIDGE, KIND_ROAD, NAV_PASSABLE, SURFACE_KIND_TO_ID  # <-- Исправлено: KIND_ROAD вместо SURFACE_ROAD
 )
 
 
@@ -64,36 +64,28 @@ def find_path_network(
 def apply_paths_to_grid(
         surface_grid: List[List[str]],
         nav_grid: List[List[str]],
+        overlay_grid: List[List[int]],  # <-- Добавлен overlay_grid
         paths: Iterable[List[Coord]],
         width: int = 1,
 ) -> None:
-    """
-    Применяет пути к обоим слоям: рисует дорогу/мост на слое поверхностей
-    и ОБЕСПЕЧИВАЕТ ПРОХОДИМОСТЬ на навигационном слое.
-    """
     h = len(surface_grid)
     w = len(surface_grid[0]) if h else 0
+    road_id = SURFACE_KIND_TO_ID[KIND_ROAD]  # Получаем ID дороги
 
     def paint(x: int, z: int):
         if 0 <= x < w and 0 <= z < h:
-            # Сначала проверяем, была ли здесь вода, чтобы понять, мост это или дорога.
-            is_bridge = nav_grid[z][x] == NAV_WATER
+            # --- ИЗМЕНЕНИЕ: Рисуем ID дороги в оверлейный слой ---
+            overlay_grid[z][x] = road_id
 
-            # 1. Обновляем слой поверхностей (визуальный)
-            surface_grid[z][x] = KIND_ROAD  # И мост, и дорога визуально выглядят как KIND_ROAD
-
-            # 2. Обновляем навигационный слой (логический)
-            # --- ГЛАВНОЕ ИЗМЕНЕНИЕ: Мы принудительно делаем клетку проходимой ---
-            if is_bridge:
+            # Обновляем навигацию, если под нами была вода
+            if nav_grid[z][x] == NAV_WATER:
                 nav_grid[z][x] = NAV_BRIDGE
             else:
-                nav_grid[z][x] = NAV_PASSABLE  # Убираем любое препятствие, которое могло здесь быть
+                nav_grid[z][x] = NAV_PASSABLE
 
     for path in paths:
-        if not path:
-            continue
+        if not path: continue
         for x, z in path:
-            # Рисуем дорогу заданной ширины
             for dz in range(width):
                 for dx in range(width):
                     paint(x + dx, z + dz)

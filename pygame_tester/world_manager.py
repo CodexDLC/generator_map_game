@@ -44,16 +44,24 @@ class WorldManager:
         try:
             with open(rle_path, "r", encoding="utf-8") as f:
                 doc = json.load(f)
-            surface_grid, nav_grid, height_grid = [], [], []
+
             if "layers" in doc:
                 layers = doc["layers"]
                 s_rows = layers.get("surface", {}).get("rows", [])
                 n_rows = layers.get("navigation", {}).get("rows", [])
                 h_rows = layers.get("height_q", {}).get("rows", [])
-                surface_grid = [[SURFACE_ID_TO_KIND.get(int(v), "void") for v in row] for row in
+                o_rows = layers.get("overlay", {}).get("rows", [])  # <-- ДОБАВИТЬ ЭТУ СТРОКУ
+
+                surface_grid = [[SURFACE_ID_TO_KIND.get(int(v), "ground") for v in row] for row in
                                 decode_rle_rows(s_rows)]
                 nav_grid = [[NAV_ID_TO_KIND.get(int(v), "passable") for v in row] for row in decode_rle_rows(n_rows)]
+                overlay_grid = decode_rle_rows(o_rows)  # <-- ДОБАВИТЬ ЭТУ СТРОКУ
                 height_grid = decode_rle_rows(h_rows)
+
+                decoded = {"surface": surface_grid, "navigation": nav_grid, "overlay": overlay_grid,
+                           "height": height_grid}  # <-- ДОБАВИТЬ "overlay"
+                self.cache[key] = decoded
+                return decoded
             else:
                 decoded_rows = decode_rle_rows(doc.get("rows", []))
                 old_id_map = {0: "ground", 1: "obstacle_prop", 2: "water", 3: "road", 7: "bridge"}

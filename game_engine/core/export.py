@@ -120,32 +120,59 @@ def write_heightmap_r16(path: str, height_grid: List[List[float]], max_height: f
         print(f"!!! LOG: КРИТИЧЕСКАЯ ОШИБКА при создании heightmap.r16: {e}")
 
 
-def _pack_control_data(base_id=0, nav=True) -> np.uint32:
+def _pack_control_data(base_id=0, overlay_id=0, blend=0, nav=True) -> np.uint32:
+    """Упаковывает все данные для control map в одно 32-битное число."""
     val = 0
-    val |= (base_id & 0x1F)
-    if nav: val |= 1 << 28
+    val |= (base_id & 0x1F)      # ID базовой текстуры (биты 0-4)
+    val |= (overlay_id & 0x1F) << 5 # ID оверлейной текстуры (биты 5-9)
+    val |= (blend & 0xFF) << 10 # Коэффициент смешивания (биты 10-17)
+    if nav: val |= 1 << 28      # Флаг проходимости
     return np.uint32(val)
 
 
-def write_control_map_r32(path: str, surface_grid: List[List[str]], nav_grid: List[List[str]]):
-    if not NUMPY_OK: print("!!! LOG: NumPy не найден, не могу сохранить .r32."); return
+def write_control_map_r32(
+        path: str,
+        surface_grid: List[List[str]],
+        nav_grid: List[List[str]],
+        overlay_grid: List[List[int]]
+):
+    """
+    Создает control.r32, смешивая surface и overlay слои.
+    """
+    if not NUMPY_OK: print("!!! LOG: NumPy не найден..."); return
     try:
         h = len(surface_grid)
         w = len(surface_grid[0]) if h > 0 else 0
         if w == 0 or h == 0: return
-        control_map = np.zeros((h, w), dtype=np.uint32)
+
+        # --- ГЛАВНОЕ ИСПРАВЛЕНИЕ: Явно указываем порядок байтов ---
+        # '<u4' означает "little-endian unsigned 4-byte integer"
+        control_map = np.zeros((h, w), dtype='<u4')
+
         for z in range(h):
             for x in range(w):
                 surface_kind = surface_grid[z][x]
                 nav_kind = nav_grid[z][x]
+                overlay_id = overlay_grid[z][x]
+
                 base_id = SURFACE_KIND_TO_ID.get(surface_kind, 0)
-                is_navigable = nav_kind == "passable" or nav_kind == "bridge"
-                control_map[z, x] = _pack_control_data(base_id=base_id, nav=is_navigable)
-        _ensure_path_exists(path) # <-- Используем новую функцию
+                is_navigable = nav_kind in ("passable", "bridge")
+
+                blend = 255 if overlay_id != 0 else 0
+
+                control_map[z, x] = _pack_control_data(
+                    base_id=base_id,
+                    overlay_id=overlay_id,
+                    blend=blend,
+                    nav=is_navigable
+                )
+
+        _ensure_path_exists(path)
         tmp_path = path + ".tmp"
         with open(tmp_path, 'wb') as f:
+            # Метод tobytes() теперь будет использовать правильный порядок байтов
             f.write(control_map.tobytes())
         os.replace(tmp_path, path)
-        print(f"--- EXPORT: Бинарная Control map (.r32) сохранена: {path}")
+        print(f"--- EXPORT: Бинарная Control map (.r32) с оверлеем сохранена: {path}")
     except Exception as e:
         print(f"!!! LOG: КРИТИЧЕСКАЯ ОШИБКА при создании control.r32: {e}")
