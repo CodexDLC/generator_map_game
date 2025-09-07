@@ -4,30 +4,32 @@ from typing import List, Dict, Tuple
 from collections import deque
 import math
 
-from ..core.constants import (
-    NAV_WATER, NAV_OBSTACLE
-)
+from ..core.constants import NAV_WATER, NAV_OBSTACLE
 
 
 def carve_ramp_along_path(
-        elev: list[list[float]],
-        path: list[tuple[int, int]],
-        *,
-        max_slope: float = 0.5,  # Максимальный подъем/спуск на 1 метр (тайл)
-        width: int = 7  # Общая ширина зоны выравнивания
+    elev: list[list[float]],
+    path: list[tuple[int, int]],
+    *,
+    max_slope: float = 0.5,  # Максимальный подъем/спуск на 1 метр (тайл)
+    width: int = 7,  # Общая ширина зоны выравнивания
 ) -> None:
     """
     Создает плавный пандус вдоль пути, гарантируя, что уклон никогда
     не превышает max_slope. (Версия 3.0 - Реализация по алгоритму пользователя)
     """
-    if not path: return
+    if not path:
+        return
     H, W = len(elev), len(elev[0]) if elev else 0
-    if not (H and W): return
+    if not (H and W):
+        return
 
     # --- ЭТАП 1: Создаем идеализированный профиль высот пути ---
 
     # Сначала просто считываем высоты ландшафта вдоль пути
-    path_heights: Dict[Tuple[int, int], float] = {pt: float(elev[pt[1]][pt[0]]) for pt in path}
+    path_heights: Dict[Tuple[int, int], float] = {
+        pt: float(elev[pt[1]][pt[0]]) for pt in path
+    }
 
     # Проход ВПЕРЕД: Срезаем слишком крутые подъемы
     for i in range(1, len(path)):
@@ -58,10 +60,12 @@ def carve_ramp_along_path(
         for dz_offset in range(-radius, radius + 1):
             for dx_offset in range(-radius, radius + 1):
                 dist = math.sqrt(dx_offset * dx_offset + dz_offset * dz_offset)
-                if dist > radius: continue
+                if dist > radius:
+                    continue
 
                 x, z = px + dx_offset, pz + dz_offset
-                if not (0 <= x < W and 0 <= z < H): continue
+                if not (0 <= x < W and 0 <= z < H):
+                    continue
 
                 original_h = elev[z][x]
                 target_h: float
@@ -83,7 +87,8 @@ def preprocess_water_bodies(nav_grid: List[List[str]], max_water_crossing_size: 
     # Эта функция без изменений
     h = len(nav_grid)
     w = len(nav_grid[0]) if h else 0
-    if not (w and h): return
+    if not (w and h):
+        return
     visited = [[False for _ in range(w)] for _ in range(h)]
     for z in range(h):
         for x in range(w):
@@ -96,8 +101,12 @@ def preprocess_water_bodies(nav_grid: List[List[str]], max_water_crossing_size: 
                     water_body_tiles.append((cx, cz))
                     for dx, dz in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                         nx, nz = cx + dx, cz + dz
-                        if 0 <= nx < w and 0 <= nz < h and \
-                                not visited[nz][nx] and nav_grid[nz][nx] == NAV_WATER:
+                        if (
+                            0 <= nx < w
+                            and 0 <= nz < h
+                            and not visited[nz][nx]
+                            and nav_grid[nz][nx] == NAV_WATER
+                        ):
                             visited[nz][nx] = True
                             q.append((nx, nz))
                 if len(water_body_tiles) > max_water_crossing_size:

@@ -18,7 +18,13 @@ from .grid_utils import region_base
 
 
 class RegionManager:
-    def __init__(self, world_seed: int, preset: Preset, base_generator: BaseGenerator, artifacts_root: Path):
+    def __init__(
+        self,
+        world_seed: int,
+        preset: Preset,
+        base_generator: BaseGenerator,
+        artifacts_root: Path,
+    ):
         self.world_seed = world_seed
         self.preset = preset
         self.base_generator = base_generator
@@ -29,7 +35,9 @@ class RegionManager:
         """
         Генерирует и сохраняет "сырую" версию региона (ЭТАП 1).
         """
-        region_meta_path = self.raw_data_path / "regions" / f"{scx}_{scz}" / "region_meta.json"
+        region_meta_path = (
+            self.raw_data_path / "regions" / f"{scx}_{scz}" / "region_meta.json"
+        )
         if region_meta_path.exists():
             print(f"[RegionManager] Raw data for region ({scx},{scz}) already exists.")
             return
@@ -57,8 +65,7 @@ class RegionManager:
         # --- ИСПРАВЛЕНИЕ: Мы создаем контракт с ОРИГИНАЛЬНЫМ road_plan (с кортежами) ---
         # Преобразованием в строки теперь будет заниматься функция write_region_meta
         meta_contract = RegionMetaContract(
-            scx=scx, scz=scz, world_seed=self.world_seed,
-            road_plan=road_plan
+            scx=scx, scz=scz, world_seed=self.world_seed, road_plan=road_plan
         )
         write_region_meta(str(region_meta_path), meta_contract)
 
@@ -67,14 +74,19 @@ class RegionManager:
             raw_chunk_path = self.raw_data_path / "chunks" / f"{cx}_{cz}.json"
             raw_chunk_path.parent.mkdir(parents=True, exist_ok=True)
             lean_raw_data = {
-                "version": chunk_data.version, "type": chunk_data.type,
-                "seed": chunk_data.seed, "cx": chunk_data.cx, "cz": chunk_data.cz,
-                "size": chunk_data.size, "cell_size": chunk_data.cell_size,
-                "layers": chunk_data.layers, "ports": chunk_data.ports,
+                "version": chunk_data.version,
+                "type": chunk_data.type,
+                "seed": chunk_data.seed,
+                "cx": chunk_data.cx,
+                "cz": chunk_data.cz,
+                "size": chunk_data.size,
+                "cell_size": chunk_data.cell_size,
+                "layers": chunk_data.layers,
+                "ports": chunk_data.ports,
                 "capabilities": chunk_data.capabilities,
-                "stage_seeds": chunk_data.stage_seeds
+                "stage_seeds": chunk_data.stage_seeds,
             }
-            with open(raw_chunk_path, 'w', encoding='utf-8') as f:
+            with open(raw_chunk_path, "w", encoding="utf-8") as f:
                 json.dump(lean_raw_data, f, indent=2)
 
         print(f"[RegionManager] FINISHED RAW generation for region ({scx}, {scz}).")

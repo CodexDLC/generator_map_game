@@ -6,7 +6,9 @@ from typing import Dict, List
 from ..constants import KIND_GROUND, NAV_OBSTACLE, NAV_WATER
 
 
-def compute_metrics(surface_grid: List[List[str]], nav_grid: List[List[str]]) -> Dict[str, float]:
+def compute_metrics(
+    surface_grid: List[List[str]], nav_grid: List[List[str]]
+) -> Dict[str, float]:
     """
     Считает метрики по чанку, используя оба слоя: surface и navigation.
     """

@@ -6,25 +6,35 @@ import math
 from opensimplex import OpenSimplex
 
 from .features import fbm2d
-from ...core.constants import KIND_ROAD, KIND_SAND, NAV_OBSTACLE, KIND_GROUND, NAV_PASSABLE, KIND_SLOPE, NAV_WATER
+from ...core.constants import (
+    KIND_ROAD,
+    KIND_SAND,
+    KIND_GROUND,
+    NAV_PASSABLE,
+    KIND_SLOPE,
+    NAV_WATER,
+)
 
 
 def _apply_shaping_curve(grid: List[List[float]], power: float):
-    if power == 1.0: return
+    if power == 1.0:
+        return
     for z in range(len(grid)):
         for x in range(len(grid[0])):
             grid[z][x] = math.pow(grid[z][x], power)
 
 
 def _smooth_grid(grid: List[List[float]], passes: int):
-    if passes <= 0: return grid
+    if passes <= 0:
+        return grid
     h, w = len(grid), len(grid[0])
     temp_grid = [row[:] for row in grid]
     for _ in range(passes):
         new_grid = [row[:] for row in temp_grid]
         for z in range(h):
             for x in range(w):
-                if x == 0 or x == w - 1 or z == 0 or z == h - 1: continue
+                if x == 0 or x == w - 1 or z == 0 or z == h - 1:
+                    continue
                 total, count = 0.0, 0
                 for dz in range(-1, 2):
                     for dx in range(-1, 2):
@@ -36,14 +46,17 @@ def _smooth_grid(grid: List[List[float]], passes: int):
 
 
 def _quantize_heights(grid: List[List[float]], step: float):
-    if step <= 0: return
+    if step <= 0:
+        return
     for z in range(len(grid)):
         for x in range(len(grid[0])):
             t = int(round(grid[z][x] / step))
             grid[z][x] = float(t) * step
 
 
-def _crop_grid(grid: List[List[float]], target_size: int, margin: int) -> List[List[float]]:
+def _crop_grid(
+    grid: List[List[float]], target_size: int, margin: int
+) -> List[List[float]]:
     cropped = [[0.0] * target_size for _ in range(target_size)]
     for z in range(target_size):
         for x in range(target_size):
@@ -52,8 +65,9 @@ def _crop_grid(grid: List[List[float]], target_size: int, margin: int) -> List[L
 
 
 # --- НАЧАЛО ИЗМЕНЕНИЙ: Полностью переписанная функция ---
-def generate_elevation(seed: int, cx: int, cz: int, size: int, preset: Any) -> Tuple[
-    List[List[float]], List[List[float]]]:
+def generate_elevation(
+    seed: int, cx: int, cz: int, size: int, preset: Any
+) -> Tuple[List[List[float]], List[List[float]]]:
     """
     Генерирует карту высот с новой системой "терраформинга".
     """
@@ -74,7 +88,9 @@ def generate_elevation(seed: int, cx: int, cz: int, size: int, preset: Any) -> T
     for z in range(working_size):
         for x in range(working_size):
             wx, wz = base_wx + x, base_wz + z
-            noise_val = fbm2d(noise_gen, float(wx), float(wz), freq, octaves=4, gain=0.5)
+            noise_val = fbm2d(
+                noise_gen, float(wx), float(wz), freq, octaves=4, gain=0.5
+            )
             grid[z][x] = max(0.0, min(1.0, noise_val))
 
     # --- ЭТАП 2: Применяем правила терраформинга ---
@@ -88,7 +104,8 @@ def generate_elevation(seed: int, cx: int, cz: int, size: int, preset: Any) -> T
                     if rule["noise_from"] <= noise_val < rule["noise_to"]:
                         # Нормализуем шум внутри его старого диапазона (от 0 до 1)
                         source_range = rule["noise_to"] - rule["noise_from"]
-                        if source_range <= 0: continue
+                        if source_range <= 0:
+                            continue
                         t = (noise_val - rule["noise_from"]) / source_range
 
                         # "Растягиваем" его до нового диапазона
@@ -118,12 +135,13 @@ def generate_elevation(seed: int, cx: int, cz: int, size: int, preset: Any) -> T
 
 # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
+
 # ... (остальные функции - classify_terrain, apply_slope_obstacles и т.д. - остаются без изменений) ...
 def classify_terrain(
-        elevation_grid: List[List[float]],
-        surface_grid: List[List[str]],
-        nav_grid: List[List[str]],
-        preset: Any
+    elevation_grid: List[List[float]],
+    surface_grid: List[List[str]],
+    nav_grid: List[List[str]],
+    preset: Any,
 ) -> None:
     size = len(surface_grid)
     cfg = getattr(preset, "elevation", None) or {}
@@ -140,16 +158,17 @@ def classify_terrain(
 
 
 def apply_slope_obstacles(
-        elevation_grid_with_margin: List[List[float]],
-        surface_grid: List[List[str]],
-        preset: Any,
-        cx: int,
-        cz: int
+    elevation_grid_with_margin: List[List[float]],
+    surface_grid: List[List[str]],
+    preset: Any,
+    cx: int,
+    cz: int,
 ) -> None:
     target_size = len(surface_grid)
     margin = (len(elevation_grid_with_margin) - target_size) // 2
     cfg = getattr(preset, "slope_obstacles", None) or {}
-    if not cfg.get("enabled", False): return
+    if not cfg.get("enabled", False):
+        return
 
     thr_ratio = math.tan(math.radians(float(cfg.get("angle_threshold_deg", 45.0))))
     protected_surfaces = {KIND_ROAD}
@@ -162,11 +181,14 @@ def apply_slope_obstacles(
     slope_mask = [[False for _ in range(target_size)] for _ in range(target_size)]
     for z in range(target_size):
         for x in range(target_size):
-            if surface_grid[z][x] in protected_surfaces: continue
+            if surface_grid[z][x] in protected_surfaces:
+                continue
             h0 = elevation_grid_with_margin[z + margin][x + margin]
             is_steep = False
             for dx, dz in NEI8:
-                h_neighbor = elevation_grid_with_margin[z + margin + dz][x + margin + dx]
+                h_neighbor = elevation_grid_with_margin[z + margin + dz][
+                    x + margin + dx
+                ]
                 if abs(h0 - h_neighbor) >= thr_ratio:
                     is_steep = True
                     break
@@ -186,11 +208,14 @@ def apply_slope_obstacles(
 
     for z in range(target_size):
         for x in range(target_size):
-            if surface_grid[z][x] in protected_surfaces: continue
+            if surface_grid[z][x] in protected_surfaces:
+                continue
             h0 = elevation_grid_with_margin[z + margin][x + margin]
             is_final_cliff = False
             for dx, dz in NEI8:
-                h_neighbor = elevation_grid_with_margin[z + margin + dz][x + margin + dx]
+                h_neighbor = elevation_grid_with_margin[z + margin + dz][
+                    x + margin + dx
+                ]
                 if abs(h0 - h_neighbor) >= 1.5:
                     is_final_cliff = True
                     break
@@ -199,20 +224,22 @@ def apply_slope_obstacles(
 
 
 def apply_beaches(
-        elevation_grid: List[List[float]],
-        surface_grid: List[List[str]],
-        nav_grid: List[List[str]],
-        preset: Any
+    elevation_grid: List[List[float]],
+    surface_grid: List[List[str]],
+    nav_grid: List[List[str]],
+    preset: Any,
 ) -> None:
     size = len(surface_grid)
-    if size == 0: return
+    if size == 0:
+        return
     elev_cfg = getattr(preset, "elevation", {}) or {}
     step = float(elev_cfg.get("quantization_step_m", 1.0))
     height_threshold = step * 0.5
     new_surface_grid = [row[:] for row in surface_grid]
     for z in range(size):
         for x in range(size):
-            if surface_grid[z][x] != KIND_GROUND: continue
+            if surface_grid[z][x] != KIND_GROUND:
+                continue
             is_beach = False
             for dx, dz in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                 nx, nz = x + dx, z + dz
@@ -222,15 +249,14 @@ def apply_beaches(
                     if abs(h_ground - h_water) < height_threshold:
                         is_beach = True
                         break
-            if is_beach: new_surface_grid[z][x] = KIND_SAND
+            if is_beach:
+                new_surface_grid[z][x] = KIND_SAND
     for z in range(size):
         surface_grid[z][x] = new_surface_grid[z][x]
 
 
 def generate_scatter_mask(
-        seed: int, cx: int, cz: int, size: int,
-        surface_grid: List[List[str]],
-        preset: Any
+    seed: int, cx: int, cz: int, size: int, surface_grid: List[List[str]], preset: Any
 ) -> List[List[bool]]:
     cfg = getattr(preset, "scatter", {})
     obstacle_mask = [[False for _ in range(size)] for _ in range(size)]
@@ -250,9 +276,14 @@ def generate_scatter_mask(
         for x in range(size):
             if surface_grid[z][x] in (KIND_GROUND, KIND_SAND):
                 wx, wz = cx * size + x, cz * size + z
-                group_val = (group_noise_gen.noise2(wx * group_freq, wz * group_freq) + 1.0) / 2.0
+                group_val = (
+                    group_noise_gen.noise2(wx * group_freq, wz * group_freq) + 1.0
+                ) / 2.0
                 if group_val > group_threshold:
-                    detail_val = (detail_noise_gen.noise2(wx * detail_freq, wz * detail_freq) + 1.0) / 2.0
+                    detail_val = (
+                        detail_noise_gen.noise2(wx * detail_freq, wz * detail_freq)
+                        + 1.0
+                    ) / 2.0
                     if detail_val > detail_threshold:
                         obstacle_mask[z][x] = True
     return obstacle_mask

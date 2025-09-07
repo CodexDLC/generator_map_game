@@ -7,7 +7,11 @@ import math
 from .routers import BaseRoadRouter
 from .helpers import Coord
 from ...core.constants import (
-    NAV_WATER, NAV_BRIDGE, KIND_ROAD, NAV_PASSABLE, SURFACE_KIND_TO_ID  # <-- Исправлено: KIND_ROAD вместо SURFACE_ROAD
+    NAV_WATER,
+    NAV_BRIDGE,
+    KIND_ROAD,
+    NAV_PASSABLE,
+    SURFACE_KIND_TO_ID,  # <-- Исправлено: KIND_ROAD вместо SURFACE_ROAD
 )
 
 
@@ -18,7 +22,8 @@ def _l1(a: Coord, b: Coord) -> int:
 def _build_mst(points: List[Coord]) -> List[Tuple[int, int]]:
     # ... (код этой функции остается без изменений) ...
     n = len(points)
-    if n <= 1: return []
+    if n <= 1:
+        return []
     used = [False] * n
     used[0] = True
     edges: List[Tuple[int, int]] = []
@@ -31,22 +36,24 @@ def _build_mst(points: List[Coord]) -> List[Tuple[int, int]]:
             if not used[i] and best[i][0] < best_cost:
                 best_cost = best[i][0]
                 j = i
-        if j == -1: break
+        if j == -1:
+            break
         used[j] = True
         edges.append((best[j][1], j))
         for i in range(n):
             if not used[i]:
                 d = _l1(points[j], points[i])
-                if d < best[i][0]: best[i] = (d, j)
+                if d < best[i][0]:
+                    best[i] = (d, j)
     return edges
 
 
 def find_path_network(
-        surface_grid: List[List[str]],
-        nav_grid: List[List[str]],
-        height_grid: Optional[List[List[float]]],
-        points: List[Coord],
-        router: Optional[BaseRoadRouter] = None,
+    surface_grid: List[List[str]],
+    nav_grid: List[List[str]],
+    height_grid: Optional[List[List[float]]],
+    points: List[Coord],
+    router: Optional[BaseRoadRouter] = None,
 ) -> List[List[Coord]]:
     if not points:
         return []
@@ -62,11 +69,11 @@ def find_path_network(
 
 
 def apply_paths_to_grid(
-        surface_grid: List[List[str]],
-        nav_grid: List[List[str]],
-        overlay_grid: List[List[int]],  # <-- Добавлен overlay_grid
-        paths: Iterable[List[Coord]],
-        width: int = 1,
+    surface_grid: List[List[str]],
+    nav_grid: List[List[str]],
+    overlay_grid: List[List[int]],  # <-- Добавлен overlay_grid
+    paths: Iterable[List[Coord]],
+    width: int = 1,
 ) -> None:
     h = len(surface_grid)
     w = len(surface_grid[0]) if h else 0
@@ -84,7 +91,8 @@ def apply_paths_to_grid(
                 nav_grid[z][x] = NAV_PASSABLE
 
     for path in paths:
-        if not path: continue
+        if not path:
+            continue
         for x, z in path:
             for dz in range(width):
                 for dx in range(width):

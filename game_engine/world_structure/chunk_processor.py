@@ -6,21 +6,17 @@ from typing import Any, Dict
 
 from ..core.types import GenResult
 from ..core.preset import Preset
-from ..story_features.biome_rules import apply_biome_rules
-from ..story_features.local_roads import build_local_roads
 from .context import Region
 
 
 def _load_raw_chunk_data(path: Path) -> Dict[str, Any]:
     """Вспомогательная функция для загрузки сырого чанка с диска."""
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def process_chunk(
-        preset: Preset,
-        raw_chunk_path: Path,
-        region_context: Region
+    preset: Preset, raw_chunk_path: Path, region_context: Region
 ) -> GenResult:
     """
     Главный конвейер детализации (ЭТАП 2).

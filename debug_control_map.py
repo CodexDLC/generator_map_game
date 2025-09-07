@@ -14,6 +14,7 @@ ID_TO_SURFACE_KIND = {
     5: "void",
 }
 
+
 def analyze_control_map(file_path):
     """Читает и расшифровывает файл control.r32."""
     if not os.path.exists(file_path):
@@ -22,7 +23,7 @@ def analyze_control_map(file_path):
 
     try:
         # Читаем все байты из файла
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             raw_bytes = f.read()
 
         # Преобразуем байты в массив 32-битных чисел
@@ -32,7 +33,7 @@ def analyze_control_map(file_path):
         # Определяем размер чанка (например, 128x128 или 256x256)
         side = int(np.sqrt(len(data)))
         if side * side != len(data):
-            print(f"ОШИБКА: Некорректный размер файла. Не является квадратом.")
+            print("ОШИБКА: Некорректный размер файла. Не является квадратом.")
             return
 
         print(f"--- Анализ файла {os.path.basename(file_path)} ({side}x{side}) ---")
@@ -71,4 +72,6 @@ if __name__ == "__main__":
         analyze_control_map(path_to_check)
     else:
         print("\nПожалуйста, укажите путь к файлу control.r32.")
-        print(r"Пример: python debug_control_map.py artifacts\world\world_location\25\0_0\control.r32")
+        print(
+            r"Пример: python debug_control_map.py artifacts\world\world_location\25\0_0\control.r32"
+        )

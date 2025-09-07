@@ -5,19 +5,23 @@ import math
 
 from .policies import PathPolicy, NAV_POLICY
 from .helpers import (
-    Coord, in_bounds, base_step_cost, elevation_penalty,
-    no_corner_cut, reconstruct,
+    Coord,
+    in_bounds,
+    base_step_cost,
+    elevation_penalty,
+    no_corner_cut,
+    reconstruct,
 )
 
 
 def find_path(
-        surface_grid: List[List[str]],
-        nav_grid: List[List[str]],  # <-- Добавляем nav_grid
-        height_grid: Optional[List[List[float]]],
-        start_pos: Tuple[int, int],
-        end_pos: Tuple[int, int],
-        policy: PathPolicy = NAV_POLICY,
-        cost_grid: Optional[List[List[float]]] = None
+    surface_grid: List[List[str]],
+    nav_grid: List[List[str]],  # <-- Добавляем nav_grid
+    height_grid: Optional[List[List[float]]],
+    start_pos: Tuple[int, int],
+    end_pos: Tuple[int, int],
+    policy: PathPolicy = NAV_POLICY,
+    cost_grid: Optional[List[List[float]]] = None,
 ) -> List[Tuple[int, int]] | None:
     if not surface_grid or not surface_grid[0]:
         return None
@@ -29,8 +33,10 @@ def find_path(
     if not (in_bounds(w, h, sx, sz) and in_bounds(w, h, gx, gz)):
         return None
     # Проверяем проходимость по обоим слоям
-    if policy.nav_factor.get(nav_grid[sz][sx], 1.0) == math.inf: return None
-    if policy.nav_factor.get(nav_grid[gz][gx], 1.0) == math.inf: return None
+    if policy.nav_factor.get(nav_grid[sz][sx], 1.0) == math.inf:
+        return None
+    if policy.nav_factor.get(nav_grid[gz][gx], 1.0) == math.inf:
+        return None
 
     start: Coord = (sx, sz)
     goal: Coord = (gx, gz)
@@ -66,11 +72,15 @@ def find_path(
             # Проверка на срез углов (использует surface_grid, т.к. смотрит на стоимость)
             if (dx != 0 and dz != 0) and not policy.corner_cut:
                 # Эта функция внутри себя проверяет стоимость, а не только проходимость
-                if not no_corner_cut(surface_grid, cx, cz, nx, nz, policy.terrain_factor):
+                if not no_corner_cut(
+                    surface_grid, cx, cz, nx, nz, policy.terrain_factor
+                ):
                     continue
 
             base = base_step_cost(dx, dz)
-            elev = elevation_penalty(height_grid, cx, cz, nx, nz, policy.slope_penalty_per_meter)
+            elev = elevation_penalty(
+                height_grid, cx, cz, nx, nz, policy.slope_penalty_per_meter
+            )
             # Стоимость берем из слоя поверхностей
             terr = policy.terrain_factor.get(surface_kind, 1.0)
 

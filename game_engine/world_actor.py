@@ -5,7 +5,10 @@ import json
 
 from .core.preset import Preset
 from .core.export import (
-    write_client_chunk, write_chunk_preview, write_heightmap_r16, write_control_map_r32
+    write_client_chunk,
+    write_chunk_preview,
+    write_heightmap_r16,
+    write_control_map_r32,
 )
 from .world_structure.grid_utils import region_key, region_base
 from .world_structure.regions import RegionManager
@@ -16,12 +19,16 @@ from .world_structure.serialization import ClientChunkContract
 
 
 class WorldActor:
-    def __init__(self, seed: int, preset: Preset, artifacts_root: Path, progress_callback=None):
+    def __init__(
+        self, seed: int, preset: Preset, artifacts_root: Path, progress_callback=None
+    ):
         self.seed = seed
         self.preset = preset
         self.artifacts_root = artifacts_root
         self.raw_data_path = self.artifacts_root / "world_raw" / str(self.seed)
-        self.final_data_path = self.artifacts_root / "world" / "world_location" / str(self.seed)
+        self.final_data_path = (
+            self.artifacts_root / "world" / "world_location" / str(self.seed)
+        )
         self.progress_callback = progress_callback
 
     def _log(self, message: str):
@@ -43,7 +50,9 @@ class WorldActor:
             for cx in range(-radius, radius + 1):
                 regions_to_ensure.add(region_key(cx, cz, self.preset.region_size))
 
-        print(f"[WorldActor] Found {len(regions_to_ensure)} regions to generate: {regions_to_ensure}")
+        print(
+            f"[WorldActor] Found {len(regions_to_ensure)} regions to generate: {regions_to_ensure}"
+        )
 
         # 2. Генерируем каждый необходимый регион
         for scx, scz in regions_to_ensure:
@@ -66,22 +75,34 @@ class WorldActor:
             pass
 
         self._log(f"[WorldActor] Detailing required for region ({scx},{scz})...")
-        region_meta_path = self.raw_data_path / "regions" / f"{scx}_{scz}" / "region_meta.json"
+        region_meta_path = (
+            self.raw_data_path / "regions" / f"{scx}_{scz}" / "region_meta.json"
+        )
         if not region_meta_path.exists():
-            self._log(f"!!! [WorldActor] ERROR: Meta file for region ({scx},{scz}) not found. Skipping detailing.")
+            self._log(
+                f"!!! [WorldActor] ERROR: Meta file for region ({scx},{scz}) not found. Skipping detailing."
+            )
             return
 
-        with open(region_meta_path, 'r', encoding='utf-8') as f:
+        with open(region_meta_path, "r", encoding="utf-8") as f:
             meta_data = json.load(f)
             deserialized_road_plan = {}
             road_plan_from_json = meta_data.get("road_plan", {})
             for key_str, plan_dict in road_plan_from_json.items():
-                cx_str, cz_str = key_str.split(',')
+                cx_str, cz_str = key_str.split(",")
                 chunk_key = (int(cx_str), int(cz_str))
                 new_plan = ChunkRoadPlan()
-                new_plan.waypoints = [RoadWaypoint(**wp_dict) for wp_dict in plan_dict.get("waypoints", [])]
+                new_plan.waypoints = [
+                    RoadWaypoint(**wp_dict)
+                    for wp_dict in plan_dict.get("waypoints", [])
+                ]
                 deserialized_road_plan[chunk_key] = new_plan
-            region_context = Region(scx=scx, scz=scz, biome_type="placeholder_biome", road_plan=deserialized_road_plan)
+            region_context = Region(
+                scx=scx,
+                scz=scz,
+                biome_type="placeholder_biome",
+                road_plan=deserialized_road_plan,
+            )
 
         region_size = self.preset.region_size
         base_cx, base_cz = region_base(scx, scz, region_size)
@@ -90,9 +111,13 @@ class WorldActor:
             for dx in range(region_size):
                 chunk_cx, chunk_cz = base_cx + dx, base_cz + dz
                 self._log(f"  -> Detailing chunk ({chunk_cx},{chunk_cz})...")
-                raw_chunk_path = self.raw_data_path / "chunks" / f"{chunk_cx}_{chunk_cz}.json"
+                raw_chunk_path = (
+                    self.raw_data_path / "chunks" / f"{chunk_cx}_{chunk_cz}.json"
+                )
                 if not raw_chunk_path.exists():
-                    self._log(f"!!! [WorldActor] WARN: Raw chunk file not found for ({chunk_cx},{chunk_cz}). Skipping.")
+                    self._log(
+                        f"!!! [WorldActor] WARN: Raw chunk file not found for ({chunk_cx},{chunk_cz}). Skipping."
+                    )
                     continue
 
                 final_chunk = process_chunk(self.preset, raw_chunk_path, region_context)
@@ -104,7 +129,8 @@ class WorldActor:
 
                 if not surface_grid or not nav_grid or not height_grid:
                     self._log(
-                        f"!!! [WorldActor] ERROR: Chunk ({chunk_cx},{chunk_cz}) missing essential layers. Skipping export.")
+                        f"!!! [WorldActor] ERROR: Chunk ({chunk_cx},{chunk_cz}) missing essential layers. Skipping export."
+                    )
                     continue
 
                 client_chunk_dir = self.final_data_path / f"{chunk_cx}_{chunk_cz}"
@@ -114,11 +140,15 @@ class WorldActor:
                 preview_path = client_chunk_dir / "preview.png"
                 palette = self.preset.export.get("palette", {})
                 max_height = float(self.preset.elevation.get("max_height_m", 1.0))
-                client_contract = ClientChunkContract(cx=chunk_cx, cz=chunk_cz, layers=final_chunk.layers)
+                client_contract = ClientChunkContract(
+                    cx=chunk_cx, cz=chunk_cz, layers=final_chunk.layers
+                )
 
                 write_client_chunk(str(client_rle_path), client_contract)
                 write_heightmap_r16(str(heightmap_path), height_grid, max_height)
-                write_control_map_r32(str(controlmap_path), surface_grid, nav_grid, overlay_grid)
+                write_control_map_r32(
+                    str(controlmap_path), surface_grid, nav_grid, overlay_grid
+                )
                 write_chunk_preview(str(preview_path), surface_grid, nav_grid, palette)
 
         self._log(f"[WorldActor] Detailing for region ({scx},{scz}) is complete.")

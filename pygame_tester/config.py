@@ -12,7 +12,7 @@ MENU_WIDTH = 220
 
 TILE_SIZE = 35
 VIEWPORT_WIDTH_TILES = 48  # <-- Увеличиваем количество тайлов по ширине
-VIEWPORT_HEIGHT_TILES = 32 # <-- Увеличиваем количество тайлов по высоте
+VIEWPORT_HEIGHT_TILES = 32  # <-- Увеличиваем количество тайлов по высоте
 
 SCREEN_WIDTH = VIEWPORT_WIDTH_TILES * TILE_SIZE + MENU_WIDTH
 SCREEN_HEIGHT = VIEWPORT_HEIGHT_TILES * TILE_SIZE

@@ -7,7 +7,9 @@ from .base_feature import FeatureBrush
 
 
 class RockBrush(FeatureBrush):
-    def apply(self, density: float = 0.05, near_slope_multiplier: float = 5.0, **kwargs):
+    def apply(
+        self, density: float = 0.05, near_slope_multiplier: float = 5.0, **kwargs
+    ):
         """
         Применяет "кисть" для генерации камней.
         Теперь работает с двумя слоями: surface и navigation.
@@ -23,13 +25,19 @@ class RockBrush(FeatureBrush):
                     is_near_slope = False
                     for dz in range(-1, 2):
                         for dx in range(-1, 2):
-                            if dx == 0 and dz == 0: continue
+                            if dx == 0 and dz == 0:
+                                continue
                             nx, nz = x + dx, z + dz
                             # --- ИЗМЕНЕНИЕ: Проверяем СЛОЙ ПОВЕРХНОСТЕЙ на наличие склона ---
-                            if 0 <= nx < self.size and 0 <= nz < self.size and self.surface_grid[nz][nx] == KIND_SLOPE:
+                            if (
+                                0 <= nx < self.size
+                                and 0 <= nz < self.size
+                                and self.surface_grid[nz][nx] == KIND_SLOPE
+                            ):
                                 is_near_slope = True
                                 break
-                        if is_near_slope: break
+                        if is_near_slope:
+                            break
 
                     chance_multiplier = near_slope_multiplier if is_near_slope else 1.0
                     noise_val = (rock_noise_gen.noise2(x * 0.5, z * 0.5) + 1.0) / 2.0
@@ -43,4 +51,6 @@ class RockBrush(FeatureBrush):
                         rock_count += 1
 
         if rock_count > 0:
-            print(f"--- ROCK BRUSH: Painted {rock_count} rocks for chunk ({self.result.cx}, {self.result.cz})")
+            print(
+                f"--- ROCK BRUSH: Painted {rock_count} rocks for chunk ({self.result.cx}, {self.result.cz})"
+            )

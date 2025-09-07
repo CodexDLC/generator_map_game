@@ -5,6 +5,7 @@ from typing import Any, Dict
 # Импортируем наши новые константы
 from ..constants import KIND_GROUND, NAV_PASSABLE
 
+
 def make_empty_layers(size: int) -> Dict[str, Any]:
     """
     Создает пустой контейнер слоёв, теперь с 'overlay' слоем для дорог.

@@ -20,8 +20,16 @@ def _lerp(a: float, b: float, t: float) -> float:
 def _smoothstep(t: float) -> float:
     return t * t * (3.0 - 2.0 * t)
 
-def fbm2d(noise: OpenSimplex, x: float, z: float, base_freq: float,
-          octaves: int = 3, lacunarity: float = 2.0, gain: float = 0.5) -> float:
+
+def fbm2d(
+    noise: OpenSimplex,
+    x: float,
+    z: float,
+    base_freq: float,
+    octaves: int = 3,
+    lacunarity: float = 2.0,
+    gain: float = 0.5,
+) -> float:
     amp = 1.0
     freq = base_freq
     total = 0.0
@@ -36,8 +44,16 @@ def fbm2d(noise: OpenSimplex, x: float, z: float, base_freq: float,
 
     return total / max(1e-9, norm)
 
-def _mask_from_noise(seed: int, cx: int, cz: int, size: int,
-                     density: float, base_freq: float, octaves: int) -> List[List[int]]:
+
+def _mask_from_noise(
+    seed: int,
+    cx: int,
+    cz: int,
+    size: int,
+    density: float,
+    base_freq: float,
+    octaves: int,
+) -> List[List[int]]:
     grid = [[0 for _ in range(size)] for _ in range(size)]
     d = max(0.0, min(1.0, float(density)))
     noise_gen = OpenSimplex(seed)

@@ -4,18 +4,21 @@ from dataclasses import dataclass, replace
 from typing import Callable, Dict, Tuple
 
 from .helpers import (
-    Coord, NEI8,
+    Coord,
+    NEI8,
     heuristic_octile,
 )
+
 # --- ИЗМЕНЕНИЕ: Импортируем новые константы ---
 from ...core.constants import (
-    DEFAULT_TERRAIN_FACTOR, NAV_OBSTACLE, NAV_WATER, NAV_BRIDGE
+    DEFAULT_TERRAIN_FACTOR,
 )
 
 
 @dataclass(frozen=True)
 class PathPolicy:
     """Профиль поиска пути (и для дорог, и для ИИ)."""
+
     neighbors: Tuple[Coord, ...]
     corner_cut: bool
     terrain_factor: Dict[str, float]  # Стоимость движения по ПОВЕРХНОСТИ
@@ -47,10 +50,10 @@ def make_base_policy() -> PathPolicy:
 
 
 def make_road_policy(
-        allow_slopes: bool = True,
-        slope_cost: float = 5.0,
-        allow_water_as_bridge: bool = True,
-        water_bridge_cost: float = 15.0,
+    allow_slopes: bool = True,
+    slope_cost: float = 5.0,
+    allow_water_as_bridge: bool = True,
+    water_bridge_cost: float = 15.0,
 ) -> PathPolicy:
     """Политика для ГЕНЕРАЦИИ ДОРОГ."""
     policy = make_base_policy()

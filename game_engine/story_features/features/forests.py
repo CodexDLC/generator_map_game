@@ -5,7 +5,13 @@ from opensimplex import OpenSimplex
 
 
 from .base_feature import FeatureBrush
-from ...core.constants import KIND_GROUND, KIND_SAND, KIND_FOREST_GROUND, NAV_OBSTACLE, KIND_SLOPE
+from ...core.constants import (
+    KIND_GROUND,
+    KIND_SAND,
+    KIND_FOREST_GROUND,
+    NAV_OBSTACLE,
+    KIND_SLOPE,
+)
 
 
 class ForestBrush(FeatureBrush):
@@ -16,16 +22,17 @@ class ForestBrush(FeatureBrush):
         2. Расставляет внутри пятна деревья и камни как непроходимые объекты.
         """
         cfg = getattr(self.preset, "scatter", {})
-        if not cfg.get("enabled", False): return
+        if not cfg.get("enabled", False):
+            return
 
         # --- ЭТАП 1: Создание маски леса (остаётся без изменений) ---
-        groups_cfg = cfg.get("groups", {});
+        groups_cfg = cfg.get("groups", {})
         details_cfg = cfg.get("details", {})
-        group_scale = float(groups_cfg.get("noise_scale_tiles", 64.0));
-        group_threshold = float(groups_cfg.get("threshold", 0.45));
+        group_scale = float(groups_cfg.get("noise_scale_tiles", 64.0))
+        group_threshold = float(groups_cfg.get("threshold", 0.45))
         group_freq = 1.0 / group_scale
-        detail_scale = float(details_cfg.get("noise_scale_tiles", 7.0));
-        detail_threshold = float(details_cfg.get("threshold", 0.55));
+        detail_scale = float(details_cfg.get("noise_scale_tiles", 7.0))
+        detail_threshold = float(details_cfg.get("threshold", 0.55))
         detail_freq = 1.0 / detail_scale
         group_noise_gen = OpenSimplex((self.result.seed ^ 0xABCDEFAB) & 0x7FFFFFFF)
         detail_noise_gen = OpenSimplex((self.result.seed ^ 0x12345678) & 0x7FFFFFFF)
@@ -34,11 +41,16 @@ class ForestBrush(FeatureBrush):
         for z in range(self.size):
             for x in range(self.size):
                 if self.surface_grid[z][x] in (KIND_GROUND, KIND_SAND):
-                    wx = self.result.cx * self.size + x;
+                    wx = self.result.cx * self.size + x
                     wz = self.result.cz * self.size + z
-                    group_val = (group_noise_gen.noise2(wx * group_freq, wz * group_freq) + 1.0) / 2.0
+                    group_val = (
+                        group_noise_gen.noise2(wx * group_freq, wz * group_freq) + 1.0
+                    ) / 2.0
                     if group_val > group_threshold:
-                        detail_val = (detail_noise_gen.noise2(wx * detail_freq, wz * detail_freq) + 1.0) / 2.0
+                        detail_val = (
+                            detail_noise_gen.noise2(wx * detail_freq, wz * detail_freq)
+                            + 1.0
+                        ) / 2.0
                         if detail_val > detail_threshold:
                             scatter_mask[z][x] = True
 
@@ -53,7 +65,9 @@ class ForestBrush(FeatureBrush):
         # --- ЭТАП 3: Прореживаем и расставляем НЕПРОХОДИМЫЕ объекты на СЛОЕ НАВИГАЦИИ ---
         rng = random.Random(self.result.stage_seeds.get("obstacles", self.result.seed))
         rng.shuffle(possible_points)
-        placement_forbidden = [[False for _ in range(self.size)] for _ in range(self.size)]
+        placement_forbidden = [
+            [False for _ in range(self.size)] for _ in range(self.size)
+        ]
         tree_count = 0
         rock_count = 0
 
@@ -81,4 +95,5 @@ class ForestBrush(FeatureBrush):
         total = tree_count + rock_count
         if total > 0:
             print(
-                f"--- FOREST BRUSH: Painted forest area and placed {tree_count} trees, {rock_count} rocks in chunk ({self.result.cx}, {self.result.cz})")
+                f"--- FOREST BRUSH: Painted forest area and placed {tree_count} trees, {rock_count} rocks in chunk ({self.result.cx}, {self.result.cz})"
+            )

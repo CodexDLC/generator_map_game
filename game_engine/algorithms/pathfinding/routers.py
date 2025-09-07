@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Tuple, Optional
+from typing import List, Optional
 
 from .a_star import find_path as astar_find
 from .policies import PathPolicy, ROAD_POLICY, NAV_POLICY, make_road_policy
@@ -8,11 +8,13 @@ from .policies import PathPolicy, ROAD_POLICY, NAV_POLICY, make_road_policy
 from .helpers import Coord
 # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
+
 class BaseRoadRouter:
     """
     Базовый «роутер» для ПРОКЛАДКИ ДОРОГ.
     По умолчанию: 4-соседей, без срезания углов, дорога дешевле, вода запрещена.
     """
+
     def __init__(self, policy: Optional[PathPolicy] = None):
         self.policy: PathPolicy = policy or ROAD_POLICY
 
@@ -22,15 +24,17 @@ class BaseRoadRouter:
         return cls(policy=make_road_policy(pass_water=True, water_cost=water_cost))
 
     def find(
-            self,
-            surface_grid: List[List[str]],
-            nav_grid: List[List[str]],  # <-- Добавлен nav_grid
-            height_grid: Optional[List[List[float]]],
-            start: Coord,
-            goal: Coord,
+        self,
+        surface_grid: List[List[str]],
+        nav_grid: List[List[str]],  # <-- Добавлен nav_grid
+        height_grid: Optional[List[List[float]]],
+        start: Coord,
+        goal: Coord,
     ) -> List[Coord] | None:
         # --- ИЗМЕНЕНИЕ: Передаем оба слоя в astar_find ---
-        return astar_find(surface_grid, nav_grid, height_grid, start, goal, policy=self.policy)
+        return astar_find(
+            surface_grid, nav_grid, height_grid, start, goal, policy=self.policy
+        )
 
 
 class NavRouter(BaseRoadRouter):
@@ -39,7 +43,10 @@ class NavRouter(BaseRoadRouter):
     По умолчанию: 8-соседей, без срезания углов, вода/склоны/горы непроходимы,
     дорога дешевле.
     """
-    def __init__(self, policy: Optional[PathPolicy] = None, slope_penalty: float = 0.08):
+
+    def __init__(
+        self, policy: Optional[PathPolicy] = None, slope_penalty: float = 0.08
+    ):
         if policy is None:
             policy = NAV_POLICY.with_overrides(slope_penalty_per_meter=slope_penalty)
         super().__init__(policy=policy)

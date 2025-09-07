@@ -1,6 +1,5 @@
 # Файл: game_engine/story_features/local_roads.py
 from __future__ import annotations
-from typing import Any
 
 from ..core.types import GenResult
 from ..world_structure.context import Region
@@ -42,10 +41,14 @@ def build_local_roads(result: GenResult, region: Region, preset: Preset) -> None
     overlay_grid = result.layers["overlay"]
     height_grid = result.layers["height_q"]["grid"]
 
-    policy = make_road_policy(allow_slopes=True, allow_water_as_bridge=True, water_bridge_cost=15.0)
+    policy = make_road_policy(
+        allow_slopes=True, allow_water_as_bridge=True, water_bridge_cost=15.0
+    )
     router = BaseRoadRouter(policy=policy)
 
-    paths = find_path_network(surface_grid, nav_grid, height_grid, local_waypoints, router=router)
+    paths = find_path_network(
+        surface_grid, nav_grid, height_grid, local_waypoints, router=router
+    )
 
     if not paths:
         print(f"[ROADS][WARN] chunk={chunk_key} Could not connect waypoints.")
@@ -54,7 +57,9 @@ def build_local_roads(result: GenResult, region: Region, preset: Preset) -> None
     for path in paths:
         if path:
             # --- ИЗМЕНЕНИЕ: Передаем новую ширину зоны выравнивания ---
-            carve_ramp_along_path(height_grid, path, width=7) # 3 (дорога) + 2*2 (откосы) = 7
+            carve_ramp_along_path(
+                height_grid, path, width=7
+            )  # 3 (дорога) + 2*2 (откосы) = 7
 
     # --- ИЗМЕНЕНИЕ: Возвращаем визуальную ширину дороги к 3 ---
     apply_paths_to_grid(surface_grid, nav_grid, overlay_grid, paths, width=3)

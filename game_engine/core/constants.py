@@ -1,6 +1,5 @@
 # game_engine/core/constants.py
 from __future__ import annotations
-import math
 from typing import Dict
 
 # =======================================================================
@@ -15,10 +14,7 @@ KIND_FOREST_GROUND = "forest_ground"
 # --- УДАЛЕНО: KIND_VOID ---
 
 # Список всех возможных ПОВЕРХНОСТЕЙ
-SURFACE_KINDS = (
-    KIND_GROUND, KIND_SAND, KIND_ROAD, KIND_SLOPE,
-    KIND_FOREST_GROUND
-)
+SURFACE_KINDS = (KIND_GROUND, KIND_SAND, KIND_ROAD, KIND_SLOPE, KIND_FOREST_GROUND)
 
 # ID для записи в control.r32. Идут строго по порядку от 0.
 SURFACE_KIND_TO_ID: Dict[str, int] = {

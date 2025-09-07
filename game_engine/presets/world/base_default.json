@@ -1,18 +1,42 @@
 {
   "id": "world/base_default",
+  "version": 2,
   "size": 256,
   "cell_size": 1.0,
   "region_size": 3,
-  "initial_load_radius": 3,
+  "initial_load_radius": 1,
 
   "elevation": {
     "enabled": true,
-    "shaping_power": 1.2,
+
+    "max_height_m": 150.0,
+    "shaping_power": 1.02,
+    "smoothing_passes": 1,
     "quantization_step_m": 0.0,
-    "smoothing_passes": 2,
-    "noise_scale_tiles": 384.0,
-    "max_height_m": 90.0,
-    "sea_level_m": 30.0
+
+    "spectral": {
+      "continents": {
+        "scale_tiles": 8000,
+        "amp_m": 120.0,
+        "ridge": true,
+        "octaves": 2
+      },
+      "hills": {
+        "scale_tiles": 1400,
+        "amp_m": 40.0,
+        "octaves": 2
+      },
+      "detail": {
+        "scale_tiles": 150,
+        "amp_m": 7.0,
+        "octaves": 1
+      }
+    },
+
+    "warp": {
+      "scale_tiles": 4000,
+      "strength_m": 200.0
+    }
   },
 
   "terraform": {
@@ -30,12 +54,50 @@
       {
         "enabled": false,
         "type": "flatten",
-        "comment": "Делаем идеально плоские соляные озера (пока выключено)",
+        "comment": "Идеально плоские соляные озера (выкл)",
         "noise_from": 0.12,
         "noise_to": 0.15,
         "target_noise": 0.10
       }
     ]
+  },
+
+  "climate": {
+    "enabled": false,
+
+    "temperature": {
+      "enabled": false,
+      "base_c": 18.0,
+      "latitude_axis": "Z",
+      "gradient_c_per_km": -0.02,
+      "noise_scale_tiles": 9000,
+      "noise_amp_c": 6.0,
+      "lapse_rate_c_per_m": -0.0065,
+      "clamp_c": [-15.0, 35.0]
+    },
+
+    "humidity": {
+      "enabled": false,
+      "base": 0.45,
+      "noise_scale_tiles": 10000,
+      "noise_amp": 0.35,
+      "orographic": {
+        "enabled": false,
+        "wind_source": "global",
+        "wind_deg": 260,
+        "upwind_gain": 0.25,
+        "leeward_loss": 0.20
+      },
+      "clamp": [0.0, 1.0]
+    },
+
+    "wind": {
+      "enabled": false,
+      "mode": "global",
+      "deg": 260,
+      "variability_deg": 20,
+      "variability_scale_tiles": 12000
+    }
   },
 
   "scatter": {
@@ -54,7 +116,11 @@
     }
   },
 
-  "slope_obstacles": { "enabled": true, "angle_threshold_deg": 45, "band_cells": 3 },
+  "slope_obstacles": {
+    "enabled": true,
+    "angle_threshold_deg": 45,
+    "band_cells": 3
+  },
 
   "export": {
     "palette": {
@@ -66,21 +132,25 @@
       "void": "#00000000",
       "wall": "#808080",
       "bridge": "#b8b8b8",
-      "sand": "#e0cda8"
+      "sand": "#e0cda8",
+      "forest_ground": "#6b8f6b"
     }
   },
 
   "pre_rules": {
-      "south_ocean": {
-        "cz_min_ocean": 8,
-        "initial_depth_factor": 0.1,
-        "max_depth_factor": 0.33,
-        "deepen_range_chunks": 3
-      },
-      "cz0_coast": {
-        "depth_min_tiles": 4,
-        "depth_max_tiles": 7,
-        "smooth_passes": 4
-      }
+    "enabled": false,
+    "south_ocean": {
+      "enabled": false,
+      "cz_min_ocean": 8,
+      "initial_depth_factor": 0.1,
+      "max_depth_factor": 0.33,
+      "deepen_range_chunks": 3
+    },
+    "cz0_coast": {
+      "enabled": false,
+      "depth_min_tiles": 4,
+      "depth_max_tiles": 7,
+      "smooth_passes": 4
     }
+  }
 }

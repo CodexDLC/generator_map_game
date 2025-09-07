@@ -4,13 +4,18 @@ import random
 from typing import Any, Optional, Tuple
 
 from ...core.constants import (
-    NAV_WATER, NAV_OBSTACLE, KIND_GROUND, KIND_SAND, KIND_SLOPE
+    NAV_WATER,
+    KIND_GROUND,
+    KIND_SAND,
+    KIND_SLOPE,
 )
 
 FillDecision = Tuple[str, float]
 
 
-def early_fill_decision(cx: int, cz: int, size: int, preset: Any, seed: int) -> Optional[FillDecision]:
+def early_fill_decision(
+    cx: int, cz: int, size: int, preset: Any, seed: int
+) -> Optional[FillDecision]:
     ocean_cfg = getattr(preset, "pre_rules", {}).get("south_ocean", {})
     cz_min = int(ocean_cfg.get("cz_min_ocean", 1))
     if cz >= cz_min:
@@ -48,8 +53,9 @@ def apply_ocean_coast_rules(result: Any, preset: Any):
 
     depth = [rng.randint(dmin, dmax) for _ in range(size)]
     for _ in range(smooth_passes):
-        new = depth[:];
-        for x in range(1, size - 1): new[x] = int(round((depth[x - 1] + 2 * depth[x] + depth[x + 1]) / 4.0))
+        new = depth[:]
+        for x in range(1, size - 1):
+            new[x] = int(round((depth[x - 1] + 2 * depth[x] + depth[x + 1]) / 4.0))
         depth = new
 
     for x in range(size):

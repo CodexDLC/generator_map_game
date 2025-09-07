@@ -5,7 +5,6 @@ import json
 import pygame
 
 
-
 # --- Настройка путей ---
 ROOT = pathlib.Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
@@ -13,7 +12,7 @@ if str(ROOT) not in sys.path:
 
 # --- Основные компоненты нашей архитектуры ---
 from game_engine.world_actor import WorldActor
-from game_engine.core.preset import Preset
+from game_engine.core.preset import load_preset
 from game_engine.generators._base.generator import BaseGenerator
 from game_engine.world_structure.regions import RegionManager
 from game_engine.game_logic.world import GameWorld
@@ -21,8 +20,16 @@ from game_engine.game_logic.world import GameWorld
 # --- Компоненты Pygame ---
 from pygame_tester.renderer import Renderer, Camera
 from pygame_tester.config import (
-    SCREEN_WIDTH, SCREEN_HEIGHT, BACKGROUND_COLOR, TILE_SIZE, CHUNK_SIZE,
-    MENU_WIDTH, ARTIFACTS_ROOT, PRESET_PATH, VIEWPORT_HEIGHT_TILES, VIEWPORT_WIDTH_TILES
+    SCREEN_WIDTH,
+    SCREEN_HEIGHT,
+    BACKGROUND_COLOR,
+    TILE_SIZE,
+    CHUNK_SIZE,
+    MENU_WIDTH,
+    ARTIFACTS_ROOT,
+    PRESET_PATH,
+    VIEWPORT_HEIGHT_TILES,
+    VIEWPORT_WIDTH_TILES,
 )
 from pygame_tester.ui import SideMenu
 
@@ -43,7 +50,7 @@ def main():
     city_seed = get_seed_from_console()
 
     preset_data = json.loads(PRESET_PATH.read_text())
-    preset = Preset.from_dict(preset_data)
+    preset = load_preset(preset_data)
     base_generator = BaseGenerator(preset)
     region_manager = RegionManager(city_seed, preset, base_generator, ARTIFACTS_ROOT)
     world_actor = WorldActor(city_seed, preset, ARTIFACTS_ROOT, progress_callback=print)
@@ -70,8 +77,10 @@ def main():
     while running:
         dt = clock.tick(60) / 1000.0
         for event in pygame.event.get():
-            if event.type == pygame.QUIT: running = False
-            if side_menu.handle_event(event): continue
+            if event.type == pygame.QUIT:
+                running = False
+            if side_menu.handle_event(event):
+                continue
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 mouse_x, mouse_y = event.pos
                 if mouse_x > MENU_WIDTH:
@@ -80,17 +89,22 @@ def main():
                     target_wz = camera.top_left_wz + mouse_y // TILE_SIZE
                     game_world.set_player_target(target_wx, target_wz)
         keys = pygame.key.get_pressed()
-        if keys[pygame.K_w]: game_world.move_player_by(0, -1)
-        if keys[pygame.K_s]: game_world.move_player_by(0, 1)
-        if keys[pygame.K_a]: game_world.move_player_by(-1, 0)
-        if keys[pygame.K_d]: game_world.move_player_by(1, 0)
+        if keys[pygame.K_w]:
+            game_world.move_player_by(0, -1)
+        if keys[pygame.K_s]:
+            game_world.move_player_by(0, 1)
+        if keys[pygame.K_a]:
+            game_world.move_player_by(-1, 0)
+        if keys[pygame.K_d]:
+            game_world.move_player_by(1, 0)
         game_world.update(dt)
         state = game_world.get_render_state()
         player_wx, player_wz = state["player_wx"], state["player_wz"]
         camera.center_on_player(player_wx, player_wz)
         screen.fill(BACKGROUND_COLOR)
         renderer.draw_world(camera, state["game_world"], game_surface)
-        if state["path"]: renderer.draw_path(state["path"], camera, game_surface)
+        if state["path"]:
+            renderer.draw_path(state["path"], camera, game_surface)
         renderer.draw_player(player_wx, player_wz, camera, game_surface)
         screen.blit(game_surface, (MENU_WIDTH, 0))
         current_cx = player_wx // CHUNK_SIZE

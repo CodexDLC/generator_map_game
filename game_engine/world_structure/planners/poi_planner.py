@@ -12,13 +12,15 @@ POI_RECIPES = {
             "tile_types": [KIND_GROUND, KIND_SAND],
             "search_radius": 5,
             "min_density": 0.8,
-            "poi_type": "ruin"
+            "poi_type": "ruin",
         }
     }
 }
 
 
-def _find_clearing(stitched_map: List[List[str]], recipe: dict, rng: random.Random) -> Tuple[int, int] | None:
+def _find_clearing(
+    stitched_map: List[List[str]], recipe: dict, rng: random.Random
+) -> Tuple[int, int] | None:
     """Ищет подходящую поляну, используя детерминированный RNG."""
     height = len(stitched_map)
     width = len(stitched_map[0])
@@ -45,7 +47,9 @@ def _find_clearing(stitched_map: List[List[str]], recipe: dict, rng: random.Rand
     return None
 
 
-def plan_pois_for_region(stitched_map: List[List[str]], biome_type: str, seed: int) -> List[RoadWaypoint]:
+def plan_pois_for_region(
+    stitched_map: List[List[str]], biome_type: str, seed: int
+) -> List[RoadWaypoint]:
     """
     Главная функция планировщика POI. Теперь использует seed.
     """

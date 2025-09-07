@@ -4,6 +4,7 @@ from typing import Dict, List, Any, Tuple
 
 from .road_types import ChunkRoadPlan
 
+
 # --- Контракт 1: Метаданные для сервера ---
 @dataclass
 class RegionMetaContract:
@@ -11,6 +12,7 @@ class RegionMetaContract:
     Структура файла region_meta.json.
     Содержит всю информацию, нужную для генерации соседних регионов.
     """
+
     version: str = "1.0"
     scx: int = 0
     scz: int = 0
@@ -28,6 +30,7 @@ class ClientChunkContract:
     Структура файла chunk_X_Y.json.
     Содержит только ту информацию, которая нужна клиенту для отрисовки и игры.
     """
+
     version: str = "1.0"
     cx: int = 0
     cz: int = 0
