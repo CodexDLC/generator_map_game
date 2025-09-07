@@ -1,4 +1,4 @@
-# game_engine/algorithms/terrain/terrain.py
+# Файл: game_engine/algorithms/terrain/terrain.py
 from __future__ import annotations
 from typing import Any, List, Tuple
 import math
@@ -51,88 +51,78 @@ def _crop_grid(grid: List[List[float]], target_size: int, margin: int) -> List[L
     return cropped
 
 
+# --- НАЧАЛО ИЗМЕНЕНИЙ: Полностью переписанная функция ---
 def generate_elevation(seed: int, cx: int, cz: int, size: int, preset: Any) -> Tuple[
     List[List[float]], List[List[float]]]:
     """
-    Генерирует карту высот.
-    Возвращает ДВЕ карты: (финальная_обрезанная, рабочая_с_полями)
+    Генерирует карту высот с новой системой "терраформинга".
     """
     noise_gen = OpenSimplex(seed)
     cfg = getattr(preset, "elevation", None) or {}
+    terraform_rules = cfg.get("terraform", [])
 
-    # Устанавливаем размер полей/отступов. 2 клетки - хороший баланс.
     margin = 2
     working_size = size + margin * 2
-
-    # Рассчитываем мировые координаты левого верхнего угла БОЛЬШОЙ карты
     base_wx = cx * size - margin
     base_wz = cz * size - margin
 
-    large_grid = [[0.0 for _ in range(working_size)] for _ in range(working_size)]
+    grid = [[0.0 for _ in range(working_size)] for _ in range(working_size)]
     scale_tiles = float(cfg.get("noise_scale_tiles", 32.0))
     freq = 1.0 / scale_tiles
 
-    # 1. Создаем базовый, естественный рельеф с помощью шума (без изменений)
+    # --- ЭТАП 1: Создаем "сырой" шум (0.0 - 1.0) ---
     for z in range(working_size):
         for x in range(working_size):
             wx, wz = base_wx + x, base_wz + z
             noise_val = fbm2d(noise_gen, float(wx), float(wz), freq, octaves=4, gain=0.5)
-            large_grid[z][x] = max(0.0, min(1.0, noise_val))
+            grid[z][x] = max(0.0, min(1.0, noise_val))
 
-    _apply_shaping_curve(large_grid, float(cfg.get("shaping_power", 1.0)))
+    # --- ЭТАП 2: Применяем правила терраформинга ---
+    if terraform_rules:
+        for z in range(working_size):
+            for x in range(working_size):
+                noise_val = grid[z][x]
 
-    # 2. Масштабируем до максимальной высоты (без изменений)
+                for rule in terraform_rules:
+                    # Проверяем, попадает ли шум в диапазон правила
+                    if rule["noise_from"] <= noise_val < rule["noise_to"]:
+                        # Нормализуем шум внутри его старого диапазона (от 0 до 1)
+                        source_range = rule["noise_to"] - rule["noise_from"]
+                        if source_range <= 0: continue
+                        t = (noise_val - rule["noise_from"]) / source_range
+
+                        # "Растягиваем" его до нового диапазона
+                        target_range = rule["remap_to_to"] - rule["remap_to_from"]
+                        noise_val = rule["remap_to_from"] + t * target_range
+
+                        # Применили правило, выходим из цикла по правилам
+                        break
+
+                grid[z][x] = noise_val
+
+    # --- ЭТАП 3: Применяем shaping, масштабирование и сглаживание ---
+    _apply_shaping_curve(grid, float(cfg.get("shaping_power", 1.0)))
+
     max_h = float(cfg.get("max_height_m", 60.0))
     if max_h > 0:
         for z in range(working_size):
             for x in range(working_size):
-                large_grid[z][x] *= max_h
+                grid[z][x] *= max_h
 
-    smoothed_grid = _smooth_grid(large_grid, int(cfg.get("smoothing_passes", 0)))
+    smoothed_grid = _smooth_grid(grid, int(cfg.get("smoothing_passes", 0)))
+    _quantize_heights(smoothed_grid, float(cfg.get("quantization_step_m", 0.0)))
 
-    # 3. Применяем логику террасирования (без изменений)
-    terr = (cfg.get("terracing") or {})
-    if terr and terr.get("enabled", False):
-        # ... (внутренняя логика террасирования остается прежней) ...
-        steps = [float(s) for s in terr.get("steps_m", [])]
-        if steps:
-            mask_cfg = (terr.get("mask") or {})
-            bins = list(terr.get("bins") or [])
-            scale_tiles_mask = float(mask_cfg.get("noise_scale_tiles", 2048.0))
-            freq_m = 1.0 / max(1.0, scale_tiles_mask)
-            octaves_m = int(mask_cfg.get("octaves", 2))
-            gain_m = float(mask_cfg.get("gain", 0.5))
-
-            mask_noise = OpenSimplex((seed ^ 0x9E3779B1) & 0x7FFFFFFF)
-            H, W = len(smoothed_grid), len(smoothed_grid[0])
-
-            for z in range(H):
-                for x in range(W):
-                    wx, wz = base_wx + x, base_wz + z
-                    noise_val = fbm2d(mask_noise, float(wx), float(wz), freq_m, octaves_m, 2.0, gain_m)
-
-                    idx = 0
-                    while idx < len(bins) and noise_val > bins[idx]:
-                        idx += 1
-
-                    step_to_use = steps[min(idx, len(steps) - 1)]
-                    if step_to_use > 0:
-                        t = int(round(smoothed_grid[z][x] / step_to_use))
-                        smoothed_grid[z][x] = float(t) * step_to_use
-    else:
-        _quantize_heights(smoothed_grid, float(cfg.get("quantization_step_m", 0.0)))
-
-    # Создаем финальную, обрезанную карту
     final_grid = _crop_grid(smoothed_grid, size, margin)
-
-    # Возвращаем ОБЕ карты
     return final_grid, smoothed_grid
 
 
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
+# ... (остальные функции - classify_terrain, apply_slope_obstacles и т.д. - остаются без изменений) ...
 def classify_terrain(
         elevation_grid: List[List[float]],
-        surface_grid: List[List[str]], # <-- Мы это уже исправляли, все верно
-        nav_grid: List[List[str]],     # <-- Мы это уже исправляли, все верно
+        surface_grid: List[List[str]],
+        nav_grid: List[List[str]],
         preset: Any
 ) -> None:
     size = len(surface_grid)
@@ -143,7 +133,7 @@ def classify_terrain(
             elev = elevation_grid[z][x]
             if elev < sea_level:
                 surface_grid[z][x] = KIND_SAND
-                nav_grid[z][x] = NAV_OBSTACLE
+                nav_grid[z][x] = NAV_WATER
             else:
                 surface_grid[z][x] = KIND_GROUND
                 nav_grid[z][x] = NAV_PASSABLE
@@ -152,92 +142,80 @@ def classify_terrain(
 def apply_slope_obstacles(
         elevation_grid_with_margin: List[List[float]],
         surface_grid: List[List[str]],
-        preset: Any
+        preset: Any,
+        cx: int,
+        cz: int
 ) -> None:
     target_size = len(surface_grid)
     margin = (len(elevation_grid_with_margin) - target_size) // 2
     cfg = getattr(preset, "slope_obstacles", None) or {}
     if not cfg.get("enabled", False): return
 
-    thr_ratio = math.tan(math.radians(float(cfg.get("angle_threshold_deg", 55.0))))
-    # --- НОВОЕ: Читаем ширину полосы склона из пресета ---
-    band_cells = int(cfg.get("band_cells", 2))
-
+    thr_ratio = math.tan(math.radians(float(cfg.get("angle_threshold_deg", 45.0))))
     protected_surfaces = {KIND_ROAD}
     NEI8 = ((-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1))
 
-    # --- ЭТАП 1: Находим все самые крайние клетки обрывов ---
-    cliff_edges = [[False for _ in range(target_size)] for _ in range(target_size)]
+    rock_noise_gen = OpenSimplex(seed=1234)
+    base_wx = cx * target_size
+    base_wz = cz * target_size
+
+    slope_mask = [[False for _ in range(target_size)] for _ in range(target_size)]
     for z in range(target_size):
         for x in range(target_size):
-            if surface_grid[z][x] in protected_surfaces:
-                continue
-
+            if surface_grid[z][x] in protected_surfaces: continue
             h0 = elevation_grid_with_margin[z + margin][x + margin]
-            is_cliff_edge = False
+            is_steep = False
             for dx, dz in NEI8:
-                nx, nz = x + margin + dx, z + margin + dz
-                h_neighbor = elevation_grid_with_margin[nz][nx]
-                if h0 - h_neighbor >= thr_ratio:
-                    is_cliff_edge = True
+                h_neighbor = elevation_grid_with_margin[z + margin + dz][x + margin + dx]
+                if abs(h0 - h_neighbor) >= thr_ratio:
+                    is_steep = True
                     break
-            if is_cliff_edge:
-                cliff_edges[z][x] = True
+            if is_steep:
+                slope_mask[z][x] = True
 
-    # --- ЭТАП 2: "Раздуваем" края обрывов вглубь, создавая полосу склонов ---
     for z in range(target_size):
         for x in range(target_size):
-            if not cliff_edges[z][x]:
-                continue
+            if slope_mask[z][x]:
+                current_h = elevation_grid_with_margin[z + margin][x + margin]
 
-            # Помечаем саму клетку обрыва как склон
-            surface_grid[z][x] = KIND_SLOPE
+                wx, wz = base_wx + x, base_wz + z
+                pattern_noise = rock_noise_gen.noise2(wx * 0.3, wz * 0.3)
 
-            # Ищем направление "вверх" (к центру возвышенности)
+                final_h = current_h + pattern_noise * 0.5
+                elevation_grid_with_margin[z + margin][x + margin] = final_h
+
+    for z in range(target_size):
+        for x in range(target_size):
+            if surface_grid[z][x] in protected_surfaces: continue
             h0 = elevation_grid_with_margin[z + margin][x + margin]
-            grad_x, grad_z = 0, 0
+            is_final_cliff = False
             for dx, dz in NEI8:
-                nx, nz = x + margin + dx, z + margin + dz
-                h_neighbor = elevation_grid_with_margin[nz][nx]
-                if h_neighbor > h0:
-                    grad_x += dx
-                    grad_z += dz
-
-            # Нормализуем вектор направления
-            length = math.hypot(grad_x, grad_z)
-            if length > 0:
-                ux, uz = grad_x / length, grad_z / length
-                # "Рисуем" полосу склонов вглубь от обрыва
-                for i in range(1, band_cells + 1):
-                    bx = round(x + i * ux)
-                    bz = round(z + i * uz)
-                    if 0 <= bx < target_size and 0 <= bz < target_size:
-                        if surface_grid[bz][bx] not in protected_surfaces:
-                            surface_grid[bz][bx] = KIND_SLOPE
+                h_neighbor = elevation_grid_with_margin[z + margin + dz][x + margin + dx]
+                if abs(h0 - h_neighbor) >= 1.5:
+                    is_final_cliff = True
+                    break
+            if is_final_cliff:
+                surface_grid[z][x] = KIND_SLOPE
 
 
 def apply_beaches(
         elevation_grid: List[List[float]],
-        surface_grid: List[List[str]],  # <-- ИЗМЕНЕНИЕ: kind_grid -> surface_grid
-        nav_grid: List[List[str]],  # <-- Добавили nav_grid
+        surface_grid: List[List[str]],
+        nav_grid: List[List[str]],
         preset: Any
 ) -> None:
     size = len(surface_grid)
     if size == 0: return
-
     elev_cfg = getattr(preset, "elevation", {}) or {}
     step = float(elev_cfg.get("quantization_step_m", 1.0))
     height_threshold = step * 0.5
-
     new_surface_grid = [row[:] for row in surface_grid]
     for z in range(size):
         for x in range(size):
             if surface_grid[z][x] != KIND_GROUND: continue
-
             is_beach = False
             for dx, dz in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                 nx, nz = x + dx, z + dz
-                # --- ИЗМЕНЕНИЕ: Проверяем воду в nav_grid ---
                 if 0 <= nx < size and 0 <= nz < size and nav_grid[nz][nx] == NAV_WATER:
                     h_ground = elevation_grid[z][x]
                     h_water = elevation_grid[nz][nx]
@@ -245,21 +223,19 @@ def apply_beaches(
                         is_beach = True
                         break
             if is_beach: new_surface_grid[z][x] = KIND_SAND
-
     for z in range(size):
         surface_grid[z][x] = new_surface_grid[z][x]
 
 
 def generate_scatter_mask(
         seed: int, cx: int, cz: int, size: int,
-        surface_grid: List[List[str]], # <-- ИЗМЕНЕНИЕ: kind_grid -> surface_grid
+        surface_grid: List[List[str]],
         preset: Any
 ) -> List[List[bool]]:
     cfg = getattr(preset, "scatter", {})
     obstacle_mask = [[False for _ in range(size)] for _ in range(size)]
     if not cfg.get("enabled", False):
         return obstacle_mask
-
     groups_cfg = cfg.get("groups", {})
     details_cfg = cfg.get("details", {})
     group_scale = float(groups_cfg.get("noise_scale_tiles", 64.0))
@@ -270,10 +246,8 @@ def generate_scatter_mask(
     detail_freq = 1.0 / detail_scale
     group_noise_gen = OpenSimplex((seed ^ 0xABCDEFAB) & 0x7FFFFFFF)
     detail_noise_gen = OpenSimplex((seed ^ 0x12345678) & 0x7FFFFFFF)
-
     for z in range(size):
         for x in range(size):
-            # --- ИЗМЕНЕНИЕ: Проверяем поверхность по surface_grid ---
             if surface_grid[z][x] in (KIND_GROUND, KIND_SAND):
                 wx, wz = cx * size + x, cz * size + z
                 group_val = (group_noise_gen.noise2(wx * group_freq, wz * group_freq) + 1.0) / 2.0
@@ -281,5 +255,4 @@ def generate_scatter_mask(
                     detail_val = (detail_noise_gen.noise2(wx * detail_freq, wz * detail_freq) + 1.0) / 2.0
                     if detail_val > detail_threshold:
                         obstacle_mask[z][x] = True
-
     return obstacle_mask

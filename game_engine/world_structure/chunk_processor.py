@@ -1,4 +1,4 @@
-# НОВЫЙ ФАЙЛ: game_engine/world_structure/chunk_processor.py
+# Файл: game_engine/world_structure/chunk_processor.py
 from __future__ import annotations
 import json
 from pathlib import Path
@@ -24,16 +24,18 @@ def process_chunk(
 ) -> GenResult:
     """
     Главный конвейер детализации (ЭТАП 2).
+    Временно отключены биомы и дороги для отладки базового ландшафта.
     """
     raw_data = _load_raw_chunk_data(raw_chunk_path)
     chunk = GenResult(**raw_data)
 
-    apply_biome_rules(chunk, preset, region_context)
+    # --- ВРЕМЕННО ОТКЛЮЧЕНО ДЛЯ ОТЛАДКИ ---
+    # apply_biome_rules(chunk, preset, region_context)
+    # build_local_roads(chunk, region_context, preset)
+    # -------------------------------------
 
-    # --- ИЗМЕНЕНИЕ: Передаем 'preset' в build_local_roads ---
-    build_local_roads(chunk, region_context, preset)
-
-    chunk.capabilities["has_biomes"] = True
-    chunk.capabilities["has_roads"] = True
+    # Просто выставляем флаги в False, т.к. этапы были пропущены
+    chunk.capabilities["has_biomes"] = False
+    chunk.capabilities["has_roads"] = False
 
     return chunk

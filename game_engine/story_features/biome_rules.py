@@ -18,15 +18,27 @@ BRUSH_REGISTRY = {
 # Реестр биомов (наша "партитура")
 BIOME_REGISTRY = {
     "placeholder_biome": [
-        ("forests", {"tree_rock_ratio": 0.95, "min_distance": 2}),
-        ("rocks", {"density": 0.05, "near_slope_multiplier": 4.0}),
+        # В этом биоме терраформинга нет
+        ("forests", {"min_distance": 2}),
+        ("rocks", {"density": 0.05}),
     ],
-    "dense_forest": [
-        ("forests", {"tree_rock_ratio": 0.98, "min_distance": 1}),
+    "canyon_lands": [
+        # А в этом биоме мы сначала "вдавливаем" каньоны, а потом ставим камни
+        ("terraform", {
+            "rules": [
+                { "enabled": True, "type": "flatten", "noise_from": 0.4, "noise_to": 0.5, "target_noise": 0.1 }
+            ]
+        }),
+        ("rocks", {"density": 0.3}),
     ],
-    "rocky_plains": [
-        ("forests", {"tree_rock_ratio": 0.20, "min_distance": 4}),
-        ("rocks", {"density": 0.3, "near_slope_multiplier": 2.0}),
+    "high_plateaus": [
+        # А здесь - "выдавливаем" плато и сажаем редкий лес
+        ("terraform", {
+            "rules": [
+                { "enabled": True, "type": "remap", "noise_from": 0.6, "noise_to": 0.7, "remap_to_from": 0.8, "remap_to_to": 0.9 }
+            ]
+        }),
+        ("forests", {"min_distance": 4}),
     ],
 }
 

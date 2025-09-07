@@ -1,9 +1,8 @@
-# game_engine/core/preset.py
+# Файл: game_engine/core/preset.py
 from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, Mapping
 
-# --- ИЗМЕНЕНИЕ: Импортируем SURFACE_KINDS вместо KIND_VALUES ---
 from .constants import SURFACE_KINDS, DEFAULT_PALETTE
 
 
@@ -21,10 +20,10 @@ class Preset:
         "enabled": True,
         "max_height_m": 60.0,
         "sea_level_m": 20.0,
-        "mountain_level_m": 45.0,
         "shaping_power": 1.5,
         "quantization_step_m": 1.0,
-        "smoothing_passes": 1
+        "smoothing_passes": 1,
+        "terraform": [] # <-- ДОБАВЛЕНО: Значение по умолчанию для терраформинга
     })
 
     slope_obstacles: Dict[str, Any] = field(default_factory=lambda: {
@@ -74,7 +73,7 @@ class Preset:
         merged = cls._deep_merge(default, dict(data))
         obj = cls(
             id=merged["id"], size=int(merged["size"]), cell_size=float(merged["cell_size"]),
-            region_size=int(merged["region_size"]), # <-- ЧИТАЕМ НОВЫЙ ПАРАМЕТР
+            region_size=int(merged["region_size"]),
             initial_load_radius=int(merged["initial_load_radius"]),
             city_wall=dict(merged.get("city_wall", {})),
             elevation=dict(merged["elevation"]),
@@ -87,8 +86,10 @@ class Preset:
         )
         obj.validate()
         return obj
+
+
     def validate(self) -> None:
-        # ... (проверки до палитры остаются без изменений) ...
+
         if not isinstance(self.id, str) or not self.id:
             raise ValueError("Preset.id must be non-empty string")
         if self.size < 8:

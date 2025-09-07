@@ -1,3 +1,4 @@
+# Файл: game_engine/story_features/local_roads.py
 from __future__ import annotations
 from typing import Any
 
@@ -36,10 +37,9 @@ def build_local_roads(result: GenResult, region: Region, preset: Preset) -> None
     if len(local_waypoints) < 2:
         return
 
-    # --- ИЗМЕНЕНИЕ: Получаем все три слоя ---
     surface_grid = result.layers["surface"]
     nav_grid = result.layers["navigation"]
-    overlay_grid = result.layers["overlay"]  # <-- Добавлена эта строка
+    overlay_grid = result.layers["overlay"]
     height_grid = result.layers["height_q"]["grid"]
 
     policy = make_road_policy(allow_slopes=True, allow_water_as_bridge=True, water_bridge_cost=15.0)
@@ -53,8 +53,9 @@ def build_local_roads(result: GenResult, region: Region, preset: Preset) -> None
 
     for path in paths:
         if path:
-            carve_ramp_along_path(height_grid, path)
+            # --- ИЗМЕНЕНИЕ: Передаем новую ширину зоны выравнивания ---
+            carve_ramp_along_path(height_grid, path, width=7) # 3 (дорога) + 2*2 (откосы) = 7
 
-    # --- ИЗМЕНЕНИЕ: Передаем overlay_grid в функцию ---
+    # --- ИЗМЕНЕНИЕ: Возвращаем визуальную ширину дороги к 3 ---
     apply_paths_to_grid(surface_grid, nav_grid, overlay_grid, paths, width=3)
     print(f"[ROADS] chunk={chunk_key} Successfully applied paths.")

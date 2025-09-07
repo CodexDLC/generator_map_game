@@ -1,3 +1,4 @@
+# Файл: game_engine/generators/_base/generator.py
 from __future__ import annotations
 import math
 import time
@@ -11,7 +12,6 @@ from ...core.utils.metrics import compute_metrics
 from ...algorithms.terrain.terrain import (
     generate_elevation, classify_terrain, apply_slope_obstacles,
 )
-# --- ИЗМЕНЕНИЕ: Убираем лишнее, импортируем новую функцию ---
 from .pregen_rules import early_fill_decision, apply_ocean_coast_rules
 
 
@@ -34,7 +34,6 @@ class BaseGenerator:
 
         pre_fill = early_fill_decision(cx, cz, size, self.preset, seed)
         if pre_fill:
-            # ... (этот блок без изменений) ...
             kind_name, height_value = pre_fill
             elevation_grid = [[float(height_value) for _ in range(size)] for _ in range(size)]
             layers["height_q"]["grid"] = elevation_grid
@@ -56,11 +55,10 @@ class BaseGenerator:
         )
 
         classify_terrain(elevation_grid, result.layers["surface"], result.layers["navigation"], self.preset)
-
-        # --- ИЗМЕНЕНИЕ: Возвращаем вызов функции ---
         apply_ocean_coast_rules(result, self.preset)
 
-        apply_slope_obstacles(elevation_grid_with_margin, result.layers["surface"], self.preset)
+        # --- ИЗМЕНЕНИЕ: Передаем cx и cz в функцию ---
+        apply_slope_obstacles(elevation_grid_with_margin, result.layers["surface"], self.preset, cx, cz)
 
         result.metrics["gen_timings_ms"] = {"total_ms": (time.perf_counter() - t0) * 1000.0}
         metrics_cover: Dict[str, Any] = compute_metrics(result.layers["surface"], result.layers["navigation"])

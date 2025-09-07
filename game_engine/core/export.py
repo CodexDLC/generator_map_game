@@ -66,6 +66,10 @@ def write_client_chunk(path: str, chunk_contract: ClientChunkContract):
     if "height_q" in chunk_contract.layers and isinstance(chunk_contract.layers["height_q"], dict):
         height_grid = chunk_contract.layers["height_q"].get("grid", [])
         output_data["layers"]["height_q"] = encode_rle_rows(height_grid)
+    # --- ДОБАВЛЕНО: Сохраняем overlay слой ---
+    if "overlay" in chunk_contract.layers:
+        overlay_grid = chunk_contract.layers["overlay"]
+        output_data["layers"]["overlay"] = encode_rle_rows(overlay_grid)
     _atomic_write_json(path, output_data)
 
 
@@ -121,12 +125,16 @@ def write_heightmap_r16(path: str, height_grid: List[List[float]], max_height: f
 
 
 def _pack_control_data(base_id=0, overlay_id=0, blend=0, nav=True) -> np.uint32:
-    """Упаковывает все данные для control map в одно 32-битное число."""
+    """
+    Упаковывает все данные для control map в одно 32-битное число.
+    ИСПРАВЛЕНА ЛОГИКА СДВИГОВ.
+    """
     val = 0
-    val |= (base_id & 0x1F)      # ID базовой текстуры (биты 0-4)
-    val |= (overlay_id & 0x1F) << 5 # ID оверлейной текстуры (биты 5-9)
-    val |= (blend & 0xFF) << 10 # Коэффициент смешивания (биты 10-17)
-    if nav: val |= 1 << 28      # Флаг проходимости
+    # --- ИЗМЕНЕНИЕ: Сдвигаем ID в старшие биты ---
+    val |= (base_id & 0x1F) << 27      # ID базовой текстуры (биты 27-31)
+    val |= (overlay_id & 0x1F) << 22 # ID оверлейной текстуры (биты 22-26)
+    val |= (blend & 0xFF) << 14      # Коэффициент смешивания (биты 14-21)
+    if nav: val |= 1 << 3             # Флаг проходимости (бит 3)
     return np.uint32(val)
 
 
@@ -145,8 +153,7 @@ def write_control_map_r32(
         w = len(surface_grid[0]) if h > 0 else 0
         if w == 0 or h == 0: return
 
-        # --- ГЛАВНОЕ ИСПРАВЛЕНИЕ: Явно указываем порядок байтов ---
-        # '<u4' означает "little-endian unsigned 4-byte integer"
+        # Явно указываем порядок байтов little-endian
         control_map = np.zeros((h, w), dtype='<u4')
 
         for z in range(h):
@@ -158,6 +165,7 @@ def write_control_map_r32(
                 base_id = SURFACE_KIND_TO_ID.get(surface_kind, 0)
                 is_navigable = nav_kind in ("passable", "bridge")
 
+                # Если есть оверлей (дорога), делаем полное смешивание
                 blend = 255 if overlay_id != 0 else 0
 
                 control_map[z, x] = _pack_control_data(
@@ -170,7 +178,6 @@ def write_control_map_r32(
         _ensure_path_exists(path)
         tmp_path = path + ".tmp"
         with open(tmp_path, 'wb') as f:
-            # Метод tobytes() теперь будет использовать правильный порядок байтов
             f.write(control_map.tobytes())
         os.replace(tmp_path, path)
         print(f"--- EXPORT: Бинарная Control map (.r32) с оверлеем сохранена: {path}")
