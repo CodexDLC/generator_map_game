@@ -1,5 +1,9 @@
 # Файл: game_engine/story_features/local_roads.py
 from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from game_engine.core.preset import Preset
 
 from ..core.types import GenResult
 from ..world_structure.context import Region

@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Tuple
 from pathlib import Path
 import dataclasses
 
+from ..world_structure.serialization import RegionMetaContract, ClientChunkContract
+from .constants import SURFACE_KIND_TO_ID, NAV_KIND_TO_ID
 from .utils.rle import encode_rle_rows
 
 NUMPY_OK = False
@@ -23,9 +25,6 @@ try:
     PIL_OK = True
 except ImportError:
     pass
-
-from ..world_structure.serialization import RegionMetaContract, ClientChunkContract
-from .constants import SURFACE_KIND_TO_ID, NAV_KIND_TO_ID
 
 
 # --- НОВАЯ ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ---

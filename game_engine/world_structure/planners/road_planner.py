@@ -151,7 +151,6 @@ def plan_roads_for_region(
         )
 
         margin = 5
-        center_coord = region_pixel_size // 2
         end_points = {
             "N": (start_pos[0], margin),
             "S": (start_pos[0], region_pixel_size - 1 - margin),

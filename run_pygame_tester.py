@@ -1,14 +1,8 @@
-# ПЕРЕПИШИТЕ ФАЙЛ: run_pygame_tester.py
+from __future__ import annotations
 import sys
 import pathlib
 import json
 import pygame
-
-
-# --- Настройка путей ---
-ROOT = pathlib.Path(__file__).resolve().parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 # --- Основные компоненты нашей архитектуры ---
 from game_engine.world_actor import WorldActor
@@ -32,6 +26,12 @@ from pygame_tester.config import (
     VIEWPORT_WIDTH_TILES,
 )
 from pygame_tester.ui import SideMenu
+
+
+# --- Настройка путей ---
+ROOT = pathlib.Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 def get_seed_from_console() -> int:

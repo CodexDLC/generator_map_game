@@ -110,6 +110,7 @@ DEFAULT_BASE_PRESET_V2: Dict[str, Any] = {
             "wall": "#808080",
             "bridge": "#b8b8b8",
             "sand": "#e0cda8",
+            "forest_ground": "#6b8f6b",  # добавлен цвет для forest_ground
         },
         "thick": True,
     },

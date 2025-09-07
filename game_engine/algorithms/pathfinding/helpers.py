@@ -1,13 +1,12 @@
-# game_engine/algorithms/pathfinding/helpers.py
 from __future__ import annotations
 from typing import Dict, Tuple, Optional
 import math
 
-# Координата клетки (x, z)
-Coord = Tuple[int, int]
-
 # --- ИЗМЕНЕНИЕ: Импортируем все из единого центра ---
 from game_engine.core.constants import DEFAULT_TERRAIN_FACTOR
+
+# Координата клетки (x, z)
+Coord = Tuple[int, int]
 
 # Наборы соседей
 NEI4: Tuple[Coord, ...] = ((-1, 0), (1, 0), (0, -1), (0, 1))
