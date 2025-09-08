@@ -4,7 +4,7 @@
   "size": 256,
   "cell_size": 1.0,
   "region_size": 3,
-  "initial_load_radius": 1,
+  "initial_load_radius": 3,
 
   "elevation": {
     "enabled": true,
@@ -18,7 +18,7 @@
       "continents": {
         "scale_tiles": 8000,
         "amp_m": 120.0,
-        "ridge": true,
+        "ridge": false,
         "octaves": 2
       },
       "hills": {

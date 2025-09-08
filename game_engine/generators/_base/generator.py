@@ -34,6 +34,7 @@ class BaseGenerator:
 
         layers = make_empty_layers(size)
 
+        # Логика pre-fill остается, она может быть полезна для других правил в будущем
         pre_fill = early_fill_decision(cx, cz, size, self.preset, seed)
         if pre_fill:
             kind_name, height_value = pre_fill
@@ -57,6 +58,7 @@ class BaseGenerator:
             )
             return result
 
+        # 1. Генерируем рельеф по новому алгоритму из ТЗ
         elevation_grid, elevation_grid_with_margin = generate_elevation(
             stage_seeds["elevation"], cx, cz, size, self.preset
         )
@@ -74,18 +76,25 @@ class BaseGenerator:
             stage_seeds=stage_seeds,
         )
 
+        # 2. Базовая классификация поверхности (все - земля)
         classify_terrain(
             elevation_grid,
             result.layers["surface"],
             result.layers["navigation"],
             self.preset,
         )
+
+        # Правила для океана/побережья отключены в пресете, но вызов можно оставить
+        # на случай, если они понадобятся в будущем.
         apply_ocean_coast_rules(result, self.preset)
 
-        # --- ИЗМЕНЕНИЕ: Передаем cx и cz в функцию ---
+        # --- НАЧАЛО ИЗМЕНЕНИЙ: Исправляем вызов apply_slope_obstacles ---
+        # 3. Применяем маску склонов, используя карту высот С БОРДЮРОМ
+        # Убираем лишние аргументы cx и cz, они больше не нужны.
         apply_slope_obstacles(
-            elevation_grid_with_margin, result.layers["surface"], self.preset, cx, cz
+            elevation_grid_with_margin, result.layers["surface"], self.preset
         )
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
         result.metrics["gen_timings_ms"] = {
             "total_ms": (time.perf_counter() - t0) * 1000.0

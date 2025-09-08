@@ -9,158 +9,164 @@ from opensimplex import OpenSimplex
 from .features import fbm2d
 from .slope import compute_slope_mask
 from ...core.constants import (
-    KIND_ROAD,
     KIND_SAND,
     KIND_GROUND,
     NAV_PASSABLE,
     KIND_SLOPE,
-    NAV_WATER, SURFACE_KIND_TO_ID,
+    NAV_WATER,
+    SURFACE_KIND_TO_ID,
 )
 
 
-def _apply_shaping_curve(grid: List[List[float]], power: float):
+def _apply_shaping_curve(grid: np.ndarray, power: float):
     if power == 1.0:
         return
-    for z in range(len(grid)):
-        for x in range(len(grid[0])):
-            grid[z][x] = math.pow(grid[z][x], power)
+    sign = np.sign(grid)
+    normalized_abs = np.abs(grid)
+    shaped_abs = np.power(normalized_abs, power)
+    np.copyto(grid, shaped_abs * sign)
 
 
-def _smooth_grid(grid: List[List[float]], passes: int):
+def _smooth_grid(grid: np.ndarray, passes: int) -> np.ndarray:
     if passes <= 0:
         return grid
-    h, w = len(grid), len(grid[0])
-    temp_grid = [row[:] for row in grid]
+
+    smoothed = grid.copy()
     for _ in range(passes):
-        new_grid = [row[:] for row in temp_grid]
-        for z in range(h):
-            for x in range(w):
-                if x == 0 or x == w - 1 or z == 0 or z == h - 1:
-                    continue
-                total, count = 0.0, 0
-                for dz in range(-1, 2):
-                    for dx in range(-1, 2):
-                        total += temp_grid[z + dz][x + dx]
-                        count += 1
-                new_grid[z][x] = total / count
-        temp_grid = new_grid
-    return temp_grid
+        temp = np.pad(smoothed, pad_width=1, mode='edge')
+        blurred = (temp[:-2, :-2] + temp[:-2, 1:-1] + temp[:-2, 2:] +
+                   temp[1:-1, :-2] + temp[1:-1, 1:-1] + temp[1:-1, 2:] +
+                   temp[2:, :-2] + temp[2:, 1:-1] + temp[2:, 2:]) / 9.0
+        smoothed = blurred
+    return smoothed
 
 
-def _quantize_heights(grid: List[List[float]], step: float):
+def _quantize_heights(grid: np.ndarray, step: float):
     if step <= 0:
         return
-    for z in range(len(grid)):
-        for x in range(len(grid[0])):
-            t = int(round(grid[z][x] / step))
-            grid[z][x] = float(t) * step
+    np.round(grid / step, out=grid)
+    grid *= step
 
 
-def _crop_grid(
-    grid: List[List[float]], target_size: int, margin: int
-) -> List[List[float]]:
-    cropped = [[0.0] * target_size for _ in range(target_size)]
-    for z in range(target_size):
-        for x in range(target_size):
-            cropped[z][x] = grid[z + margin][x + margin]
-    return cropped
+def _apply_terraform_rules(grid: np.ndarray, max_theoretical_height: float, rules: List[Any]):
+    if not rules or max_theoretical_height <= 0:
+        return
+
+    normalized_grid = grid / max_theoretical_height
+
+    for rule in rules:
+        if not rule.get("enabled", False):
+            continue
+
+        mask = (normalized_grid >= rule["noise_from"]) & (normalized_grid < rule["noise_to"])
+        if not np.any(mask):
+            continue
+
+        if rule["type"] == "remap":
+            source_range = rule["noise_to"] - rule["noise_from"]
+            if source_range <= 0: continue
+
+            t = (normalized_grid[mask] - rule["noise_from"]) / source_range
+            target_range = rule["remap_to_to"] - rule["remap_to_from"]
+            normalized_grid[mask] = rule["remap_to_from"] + t * target_range
+
+        elif rule["type"] == "flatten":
+            normalized_grid[mask] = rule["target_noise"]
+
+    np.multiply(normalized_grid, max_theoretical_height, out=grid)
 
 
-# --- НАЧАЛО ИЗМЕНЕНИЙ: Полностью переписанная функция ---
 def generate_elevation(
-    seed: int, cx: int, cz: int, size: int, preset: Any
-) -> Tuple[List[List[float]], List[List[float]]]:
-    """
-    Генерирует карту высот с новой системой "терраформинга".
-    """
-    noise_gen = OpenSimplex(seed)
-    cfg = getattr(preset, "elevation", None) or {}
-    terraform_rules = cfg.get("terraform", [])
+        seed: int, cx: int, cz: int, size: int, preset: Any
+) -> Tuple[List[List[float]], np.ndarray]:
+    cfg = getattr(preset, "elevation", {})
+    spectral_cfg = cfg.get("spectral", {})
+    warp_cfg = cfg.get("warp", {})
 
-    margin = 2
+    noise_gen = OpenSimplex(seed)
+    warp_noise_x = OpenSimplex(seed ^ 0xCAFEF00D)
+    warp_noise_z = OpenSimplex(seed ^ 0xDEADBEEF)
+
+    margin = 1
     working_size = size + margin * 2
     base_wx = cx * size - margin
     base_wz = cz * size - margin
 
-    grid = [[0.0 for _ in range(working_size)] for _ in range(working_size)]
-    scale_tiles = float(cfg.get("noise_scale_tiles", 32.0))
-    freq = 1.0 / scale_tiles
+    height_grid = np.zeros((working_size, working_size), dtype=np.float32)
 
-    # --- ЭТАП 1: Создаем "сырой" шум (0.0 - 1.0) ---
-    for z in range(working_size):
-        for x in range(working_size):
-            wx, wz = base_wx + x, base_wz + z
-            noise_val = fbm2d(
-                noise_gen, float(wx), float(wz), freq, octaves=4, gain=0.5
-            )
-            grid[z][x] = max(0.0, min(1.0, noise_val))
+    total_max_amp = sum(float(layer_cfg.get("amp_m", 0.0)) for layer_cfg in spectral_cfg.values())
+    if total_max_amp == 0: total_max_amp = 1.0
 
-    # --- ЭТАП 2: Применяем правила терраформинга ---
-    if terraform_rules:
-        for z in range(working_size):
-            for x in range(working_size):
-                noise_val = grid[z][x]
+    # --- НАЧАЛО ИЗМЕНЕНИЙ: Переход на циклы вместо `noise2array` ---
+    for z_idx in range(working_size):
+        for x_idx in range(working_size):
+            wx, wz = float(base_wx + x_idx), float(base_wz + z_idx)
 
-                for rule in terraform_rules:
-                    # Проверяем, попадает ли шум в диапазон правила
-                    if rule["noise_from"] <= noise_val < rule["noise_to"]:
-                        # Нормализуем шум внутри его старого диапазона (от 0 до 1)
-                        source_range = rule["noise_to"] - rule["noise_from"]
-                        if source_range <= 0:
-                            continue
-                        t = (noise_val - rule["noise_from"]) / source_range
+            # --- ЭТАП 1: WARP (скалярный режим) ---
+            warp_scale = float(warp_cfg.get("scale_tiles", 1.0))
+            warp_strength = float(warp_cfg.get("strength_m", 0.0))
 
-                        # "Растягиваем" его до нового диапазона
-                        target_range = rule["remap_to_to"] - rule["remap_to_from"]
-                        noise_val = rule["remap_to_from"] + t * target_range
+            warped_wx, warped_wz = wx, wz
+            if warp_scale > 0 and warp_strength > 0:
+                warp_freq = 1.0 / warp_scale
+                offset_x = warp_noise_x.noise2(wx * warp_freq, wz * warp_freq) * warp_strength
+                offset_z = warp_noise_z.noise2(wx * warp_freq, wz * warp_freq) * warp_strength
+                warped_wx += offset_x
+                warped_wz += offset_z
 
-                        # Применили правило, выходим из цикла по правилам
-                        break
+            # --- ЭТАП 2: SPECTRAL (скалярный режим) ---
+            final_height = 0.0
+            for layer_cfg in spectral_cfg.values():
+                scale = float(layer_cfg.get("scale_tiles", 1.0))
+                amp = float(layer_cfg.get("amp_m", 0.0))
+                if scale <= 0 or amp <= 0: continue
 
-                grid[z][x] = noise_val
+                freq = 1.0 / scale
+                octaves = int(layer_cfg.get("octaves", 1))
+                ridge = bool(layer_cfg.get("ridge", False))
 
+                layer_noise = fbm2d(
+                    noise_gen, warped_wx, warped_wz, freq, octaves=octaves, ridge=ridge
+                )
+                final_height += layer_noise * amp
 
-    _apply_shaping_curve(grid, float(cfg.get("shaping_power", 1.0)))
+            height_grid[z_idx, x_idx] = final_height
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
-    max_h = float(cfg.get("max_height_m", 60.0))
-    if max_h > 0:
-        for z in range(working_size):
-            for x in range(working_size):
-                grid[z][x] *= max_h
+    # --- ЭТАП 3: Пост-обработка (остается без изменений) ---
+    if total_max_amp > 0:
+        normalized_grid = height_grid / total_max_amp
+        _apply_shaping_curve(normalized_grid, float(cfg.get("shaping_power", 1.0)))
+        height_grid = normalized_grid * total_max_amp
 
-    smoothed_grid = _smooth_grid(grid, int(cfg.get("smoothing_passes", 0)))
-    _quantize_heights(smoothed_grid, float(cfg.get("quantization_step_m", 0.0)))
+    tf_cfg = getattr(preset, "terraform", {})
+    if tf_cfg.get("enabled", False):
+        _apply_terraform_rules(height_grid, total_max_amp, tf_cfg.get("rules", []))
 
-    final_grid = _crop_grid(smoothed_grid, size, margin)
-    return final_grid, smoothed_grid
+    height_grid = _smooth_grid(height_grid, int(cfg.get("smoothing_passes", 0)))
+    _quantize_heights(height_grid, float(cfg.get("quantization_step_m", 0.0)))
+
+    max_h = float(cfg.get("max_height_m", 150.0))
+    np.clip(height_grid, None, max_h, out=height_grid)
+
+    final_grid_list = height_grid[margin:-margin, margin:-margin].tolist()
+    return final_grid_list, height_grid
 
 
 def classify_terrain(
-    elevation_grid: List[List[float]],
-    surface_grid: List[List[str]],
-    nav_grid: List[List[str]],
-    preset: Any,
+        elevation_grid: List[List[float]],
+        surface_grid: List[List[str]],
+        nav_grid: List[List[str]],
+        preset: Any,
 ) -> None:
     size = len(surface_grid)
-    cfg = getattr(preset, "elevation", None) or {}
-    sea_level = float(cfg.get("sea_level_m", 9.0))
     for z in range(size):
         for x in range(size):
-            elev = elevation_grid[z][x]
-            if elev < sea_level:
-                surface_grid[z][x] = KIND_SAND
-                nav_grid[z][x] = NAV_WATER
-            else:
-                surface_grid[z][x] = KIND_GROUND
-                nav_grid[z][x] = NAV_PASSABLE
+            surface_grid[z][x] = KIND_GROUND
+            nav_grid[z][x] = NAV_PASSABLE
 
 
-def apply_slope_obstacles(height_grid_with_margin, surface_grid, preset, cx: int, cz: int) -> None:
-    """
-    Красим клетки 'slope' там, где угол >= порога.
-    height_grid_with_margin: список списков высот (метры), как правило (size+2)x(size+2)
-    surface_grid: список списков int (surface-kind ids), размер size x size
-    """
+def apply_slope_obstacles(height_grid_with_margin: np.ndarray, surface_grid: List[List[str]], preset: Any) -> None:
     s_cfg = dict(getattr(preset, "slope_obstacles", {}) or {})
     if not s_cfg.get("enabled", False):
         return
@@ -169,84 +175,24 @@ def apply_slope_obstacles(height_grid_with_margin, surface_grid, preset, cx: int
     band = int(s_cfg.get("band_cells", 0))
     cell = float(getattr(preset, "cell_size", 1.0))
 
-    H = np.array(height_grid_with_margin, dtype=np.float32)
-    full_mask = compute_slope_mask(H, cell, angle, band)
+    H = height_grid_with_margin  # Уже является numpy array
+    gz, gx = np.gradient(H, cell)
 
-    size = len(surface_grid)
-    # Учтём маргинальный бордюр: чаще всего H.shape = (size+2, size+2)
-    if full_mask.shape[0] == size + 2 and full_mask.shape[1] == size + 2:
-        mask = full_mask[1:-1, 1:-1]
-    else:
-        # если размеров ровно size x size — берём как есть
-        mask = full_mask[:size, :size]
+    tangent_slope = np.sqrt(gx ** 2 + gz ** 2)
+    threshold = math.tan(math.radians(angle))
 
-    slope_id = SURFACE_KIND_TO_ID.get("slope", SURFACE_KIND_TO_ID["obstacle"])
-    ys, xs = np.where(mask)
-    for y, x in zip(ys.tolist(), xs.tolist()):
-        surface_grid[y][x] = slope_id
+    mask = tangent_slope >= threshold
 
+    if band > 0:
+        try:
+            from scipy.ndimage import binary_dilation
+            mask = binary_dilation(mask, iterations=band)
+        except ImportError:
+            print("!!! WARNING: `scipy` not installed. Cannot perform slope band dilation.")
 
-def apply_beaches(
-    elevation_grid: List[List[float]],
-    surface_grid: List[List[str]],
-    nav_grid: List[List[str]],
-    preset: Any,
-) -> None:
-    size = len(surface_grid)
-    if size == 0:
-        return
-    elev_cfg = getattr(preset, "elevation", {}) or {}
-    step = float(elev_cfg.get("quantization_step_m", 1.0))
-    height_threshold = step * 0.5
-    new_surface_grid = [row[:] for row in surface_grid]
-    for z in range(size):
-        for x in range(size):
-            if surface_grid[z][x] != KIND_GROUND:
-                continue
-            is_beach = False
-            for dx, dz in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                nx, nz = x + dx, z + dz
-                if 0 <= nx < size and 0 <= nz < size and nav_grid[nz][nx] == NAV_WATER:
-                    h_ground = elevation_grid[z][x]
-                    h_water = elevation_grid[nz][nx]
-                    if abs(h_ground - h_water) < height_threshold:
-                        is_beach = True
-                        break
-            if is_beach:
-                new_surface_grid[z][x] = KIND_SAND
-    for z in range(size):
-        surface_grid[z][x] = new_surface_grid[z][x]
+    margin = (mask.shape[0] - len(surface_grid)) // 2
+    if margin > 0:
+        mask = mask[margin:-margin, margin:-margin]
 
-
-def generate_scatter_mask(
-    seed: int, cx: int, cz: int, size: int, surface_grid: List[List[str]], preset: Any
-) -> List[List[bool]]:
-    cfg = getattr(preset, "scatter", {})
-    obstacle_mask = [[False for _ in range(size)] for _ in range(size)]
-    if not cfg.get("enabled", False):
-        return obstacle_mask
-    groups_cfg = cfg.get("groups", {})
-    details_cfg = cfg.get("details", {})
-    group_scale = float(groups_cfg.get("noise_scale_tiles", 64.0))
-    group_threshold = float(groups_cfg.get("threshold", 0.5))
-    group_freq = 1.0 / group_scale
-    detail_scale = float(details_cfg.get("noise_scale_tiles", 8.0))
-    detail_threshold = float(details_cfg.get("threshold", 0.6))
-    detail_freq = 1.0 / detail_scale
-    group_noise_gen = OpenSimplex((seed ^ 0xABCDEFAB) & 0x7FFFFFFF)
-    detail_noise_gen = OpenSimplex((seed ^ 0x12345678) & 0x7FFFFFFF)
-    for z in range(size):
-        for x in range(size):
-            if surface_grid[z][x] in (KIND_GROUND, KIND_SAND):
-                wx, wz = cx * size + x, cz * size + z
-                group_val = (
-                    group_noise_gen.noise2(wx * group_freq, wz * group_freq) + 1.0
-                ) / 2.0
-                if group_val > group_threshold:
-                    detail_val = (
-                        detail_noise_gen.noise2(wx * detail_freq, wz * detail_freq)
-                        + 1.0
-                    ) / 2.0
-                    if detail_val > detail_threshold:
-                        obstacle_mask[z][x] = True
-    return obstacle_mask
+    for z, x in np.argwhere(mask):
+        surface_grid[z][x] = KIND_SLOPE

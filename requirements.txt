@@ -4,3 +4,4 @@ numpy
 imageio
 opensimplex
 Pillow
+scipy

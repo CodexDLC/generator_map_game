@@ -1,50 +1,60 @@
-# game_engine/algorithms/terrain/1features.py
+# Файл: game_engine/algorithms/terrain/features.py
 from __future__ import annotations
 from typing import List
-
 from opensimplex import OpenSimplex
 
-# --- ИЗМЕНЕНИЯ: Правильные пути ---
 from ...core.utils.rng import hash64, RNG
-
 
 def _val_at(seed: int, xi: int, zi: int) -> float:
     h = hash64(seed, xi, zi) & 0xFFFFFFFF
     return h / 0xFFFFFFFF
 
-
 def _lerp(a: float, b: float, t: float) -> float:
     return a + (b - a) * t
-
 
 def _smoothstep(t: float) -> float:
     return t * t * (3.0 - 2.0 * t)
 
-
+# --- НАЧАЛО ИЗМЕНЕНИЙ: fbm2d теперь всегда возвращает [0, 1] ---
 def fbm2d(
     noise: OpenSimplex,
     x: float,
     z: float,
     base_freq: float,
-    octaves: int = 3,
+    octaves: int = 1,
     lacunarity: float = 2.0,
     gain: float = 0.5,
+    ridge: bool = False,
 ) -> float:
+    """
+    Генерирует фрактальный шум, нормализованный в диапазоне [0, 1].
+    """
     amp = 1.0
     freq = base_freq
     total = 0.0
     norm = 0.0
 
     for _ in range(max(1, octaves)):
-        sample = (noise.noise2(x * freq, z * freq) + 1.0) / 2.0
+        sample = noise.noise2(x * freq, z * freq) # Исходный шум в диапазоне [-1, 1]
+
+        if ridge:
+            # Ridge noise: 1 - |noise|. Результат уже в диапазоне [0, 1].
+            sample = 1.0 - abs(sample)
+        else:
+            # Обычный шум: смещаем и масштабируем диапазон [-1, 1] к [0, 1].
+            sample = (sample + 1.0) / 2.0
+
         total += sample * amp
         norm += amp
         amp *= gain
         freq *= lacunarity
 
-    return total / max(1e-9, norm)
+    if norm == 0: return 0.0
+    # Итоговый результат также будет в диапазоне [0, 1]
+    return total / norm
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
-
+# ... (остальные функции в файле остаются без изменений)
 def _mask_from_noise(
     seed: int,
     cx: int,
@@ -65,7 +75,6 @@ def _mask_from_noise(
             n = fbm2d(noise_gen, float(wx), float(wz), base_freq, octaves=octaves)
             row[x] = 1 if n < d else 0
     return grid
-
 
 def _ensure_nonempty_mask(mask: List[List[int]], rng: RNG, min_cells: int = 1) -> None:
     h = len(mask)
