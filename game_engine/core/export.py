@@ -83,6 +83,8 @@ def write_client_chunk(path: str, chunk_contract: ClientChunkContract):
     ):
         height_grid = chunk_contract.layers["height_q"].get("grid", [])
         output_data["layers"]["height_q"] = encode_rle_rows(height_grid)
+
+
     # --- ДОБАВЛЕНО: Сохраняем overlay слой ---
     if "overlay" in chunk_contract.layers:
         overlay_grid = chunk_contract.layers["overlay"]
@@ -224,3 +226,55 @@ def write_control_map_r32(
         print(f"--- EXPORT: Бинарная Control map (.r32) с оверлеем сохранена: {path}")
     except Exception as e:
         print(f"!!! LOG: КРИТИЧЕСКАЯ ОШИБКА при создании control.r32: {e}")
+
+
+def write_world_meta_json(
+    path: str,
+    *,
+    world_id: int,
+    hex_edge_m: float,
+    meters_per_pixel: float,
+    chunk_px: int,
+    height_min_m: float,
+    height_max_m: float,
+    grid_orientation: str = "pointy-top",
+    coord_logic: str = "axial",
+    coord_storage: str = "odd-r",
+    stream_window_cols: int = 5,
+    stream_window_rows: int = 5,
+    url_pattern: str = "/world/v2_hex/{world_id}/{scx}_{scz}/{cx}_{cz}/",
+    height_filename: str = "height_rev{rev}.r16",
+    control_filename: str = "control_rev{rev}.r32"
+) -> None:
+    """
+    Пишет маленький JSON для автоконфигурации клиента (Terrain3D/стриминг).
+    Кладёшь, например, по пути: world/world_location/{world_id}/_world_meta.json
+    """
+    _ensure_path_exists(path)
+    data = {
+        "version": "world_meta_v1",
+        "world_id": world_id,
+        "grid": {
+            "type": "hex",
+            "orientation": grid_orientation,
+            "coord_logic": coord_logic,
+            "coord_storage": coord_storage,
+            "hex_edge_m": hex_edge_m
+        },
+        "terrain": {
+            "chunk_px": chunk_px,
+            "meters_per_pixel": meters_per_pixel,
+            "height_encoding": {
+                "format": "R16_raw_norm_max",
+                "height_min_m": height_min_m,
+                "height_max_m": height_max_m
+            },
+            "stream_window": {"cols": stream_window_cols, "rows": stream_window_rows}
+        },
+        "assets": {
+            "url_pattern": url_pattern.replace("{world_id}", str(world_id)),
+            "filenames": {"height": height_filename, "control": control_filename}
+        }
+    }
+    _atomic_write_json(path, data)
+    print(f"--- EXPORT: world meta сохранён: {path}")
