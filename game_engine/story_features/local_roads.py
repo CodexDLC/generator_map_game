@@ -1,18 +1,19 @@
 # Файл: game_engine/story_features/local_roads.py
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Tuple
 
 if TYPE_CHECKING:
     from game_engine.core.preset import Preset
 
 from ..core.types import GenResult
 from ..world_structure.context import Region
-from ..world_structure.regions import region_base
+from ..world_structure.grid_utils import region_base
 
 from ..algorithms.pathfinding.routers import BaseRoadRouter
 from ..algorithms.pathfinding.network import apply_paths_to_grid, find_path_network
 from ..algorithms.pathfinding.policies import make_road_policy
 from .road_helpers import carve_ramp_along_path
+from game_engine.core.grid.hex import HexGridSpec  # <-- НОВЫЙ ИМПОРТ
 
 
 def build_local_roads(result: GenResult, region: Region, preset: Preset) -> None:
@@ -24,6 +25,13 @@ def build_local_roads(result: GenResult, region: Region, preset: Preset) -> None
 
     if not plan_for_chunk or not plan_for_chunk.waypoints:
         return
+
+    # --- ИЗМЕНЕНИЯ: Получаем спецификацию гекс-сетки ---
+    grid_spec = HexGridSpec(
+        edge_m=0.63,
+        meters_per_pixel=0.8,
+        chunk_px=result.size
+    )
 
     region_size = preset.region_size
     base_cx, base_cz = region_base(region.scx, region.scz, region_size)
@@ -50,6 +58,9 @@ def build_local_roads(result: GenResult, region: Region, preset: Preset) -> None
     )
     router = BaseRoadRouter(policy=policy)
 
+    # --- ИЗМЕНЕНИЯ: Используем новый HexGridSpec для перевода координат ---
+    # Мы пока не используем гексовую сетку для pathfinding напрямую,
+    # поэтому просто передаем существующие данные
     paths = find_path_network(
         surface_grid, nav_grid, height_grid, local_waypoints, router=router
     )

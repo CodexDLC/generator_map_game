@@ -4,6 +4,8 @@ import math
 import time
 from typing import Any, Dict
 
+from game_engine.core.grid.hex import HexGridSpec
+
 from ...core.constants import KIND_SAND, NAV_OBSTACLE
 from ...core.types import GenResult
 from ...core.utils.rng import init_rng
@@ -29,6 +31,17 @@ class BaseGenerator:
         cx = int(params.get("cx", 0))
         cz = int(params.get("cz", 0))
         size = int(getattr(self.preset, "size", 128))
+        
+                # --- НАЧАЛО ИЗМЕНЕНИЙ (Фаза 1.2) ---
+        grid_spec = HexGridSpec(
+            edge_m=0.63,
+            meters_per_pixel=0.8,
+            chunk_px=size
+        )
+        cols, rows = grid_spec.dims_for_chunk()
+        print(f"[HEX] HEX grid dims: {cols}x{rows}")
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+        
         t0 = time.perf_counter()
         stage_seeds = init_rng(seed, cx, cz)
 

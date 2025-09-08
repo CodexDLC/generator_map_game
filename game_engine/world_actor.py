@@ -1,14 +1,17 @@
 # Файл: game_engine/world_actor.py
 from __future__ import annotations
+
+import os
 from pathlib import Path
 import json
 
+from .core.grid.hex import HexGridSpec
 from .core.preset import Preset
 from .core.export import (
     write_client_chunk,
     write_chunk_preview,
     write_heightmap_r16,
-    write_control_map_r32,
+    write_control_map_r32, write_world_meta_json,
 )
 from .world_structure.grid_utils import region_key, region_base
 from .world_structure.regions import RegionManager
@@ -74,6 +77,20 @@ class WorldActor:
             # В будущем можно сделать более надежную проверку
             pass
 
+        # --- НАЧАЛО ИЗМЕНЕНИЙ (Фаза 1.1): Создание мета-файла мира ---
+        WORLD_ID = "world_location" # Определяем ID мира
+        meta_path = str(self.final_data_path.parent / "_world_meta.json")
+        if not os.path.exists(meta_path):
+            write_world_meta_json(
+                meta_path,
+                world_id=WORLD_ID,
+                hex_edge_m=0.63,
+                meters_per_pixel=0.80,
+                chunk_px=self.preset.size,
+                height_min_m=0.0,
+                height_max_m=self.preset.elevation.get("max_height_m", 150.0),
+            )
+
         self._log(f"[WorldActor] Detailing required for region ({scx},{scz})...")
         region_meta_path = (
             self.raw_data_path / "regions" / f"{scx}_{scz}" / "region_meta.json"
@@ -112,7 +129,7 @@ class WorldActor:
                 chunk_cx, chunk_cz = base_cx + dx, base_cz + dz
                 self._log(f"  -> Detailing chunk ({chunk_cx},{chunk_cz})...")
                 raw_chunk_path = (
-                    self.raw_data_path / "chunks" / f"{chunk_cx}_{chunk_cz}.json"
+                        self.raw_data_path / "chunks" / f"{chunk_cx}_{chunk_cz}.json"
                 )
                 if not raw_chunk_path.exists():
                     self._log(
@@ -133,6 +150,7 @@ class WorldActor:
                     )
                     continue
 
+                # --- НАЧАЛО ИЗМЕНЕНИЙ: Единое создание контракта и вызов экспорта ---
                 client_chunk_dir = self.final_data_path / f"{chunk_cx}_{chunk_cz}"
                 client_rle_path = client_chunk_dir / "chunk.rle.json"
                 heightmap_path = client_chunk_dir / "heightmap.r16"
@@ -140,9 +158,30 @@ class WorldActor:
                 preview_path = client_chunk_dir / "preview.png"
                 palette = self.preset.export.get("palette", {})
                 max_height = float(self.preset.elevation.get("max_height_m", 1.0))
+
+                # Создаем контракт только один раз и добавляем в него все данные
                 client_contract = ClientChunkContract(
-                    cx=chunk_cx, cz=chunk_cz, layers=final_chunk.layers
+                    cx=chunk_cx,
+                    cz=chunk_cz,
+                    layers=final_chunk.layers,
+                    version="chunk_v2_hex"
                 )
+
+                chunk_size_px = self.preset.size
+                grid_spec = HexGridSpec(
+                    edge_m=0.63,
+                    meters_per_pixel=0.8,
+                    chunk_px=chunk_size_px
+                )
+                cols, rows = grid_spec.dims_for_chunk()
+                client_contract.grid = {
+                    "type": "hex",
+                    "orientation": "pointy-top",
+                    "coord_storage": "odd-r",
+                    "cols": cols,
+                    "rows": rows
+                }
+                # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
                 write_client_chunk(str(client_rle_path), client_contract)
                 write_heightmap_r16(str(heightmap_path), height_grid, max_height)
@@ -150,7 +189,6 @@ class WorldActor:
                     str(controlmap_path), surface_grid, nav_grid, overlay_grid
                 )
                 write_chunk_preview(str(preview_path), surface_grid, nav_grid, palette)
-
         self._log(f"[WorldActor] Detailing for region ({scx},{scz}) is complete.")
 
     # --- ИЗМЕНЕНИЕ: Ненужная функция ensure_region_is_ready полностью удалена ---

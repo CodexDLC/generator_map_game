@@ -1,16 +1,21 @@
+# game_engine/algorithms/pathfinding/helpers.py
+
 from __future__ import annotations
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, List
 import math
 
 # --- ИЗМЕНЕНИЕ: Импортируем все из единого центра ---
 from game_engine.core.constants import DEFAULT_TERRAIN_FACTOR
+from game_engine.core.grid.hex import HexGridSpec
 
-# Координата клетки (x, z)
+# Координата клетки (q, r)
 Coord = Tuple[int, int]
 
 # Наборы соседей
-NEI4: Tuple[Coord, ...] = ((-1, 0), (1, 0), (0, -1), (0, 1))
-NEI8: Tuple[Coord, ...] = NEI4 + ((-1, -1), (1, -1), (-1, 1), (1, 1))
+NEI6_AXIAL: List[Coord] = [
+    (1, 0), (1, -1), (0, -1),
+    (-1, 0), (-1, 1), (0, 1)
+]
 
 # ------------------------- УТИЛИТЫ ЯЧЕЕК/СОСЕДЕЙ -------------------------
 
@@ -29,7 +34,7 @@ def terrain_factor_of(
 
 
 def is_walkable(
-    kind_grid, x: int, z: int, terrain_factor: Optional[Dict[str, float]] = None
+    kind_grid: List[List[str]], x: int, z: int, terrain_factor: Optional[Dict[str, float]] = None
 ) -> bool:
     """Проходимость клетки определяется конечной стоимостью (< inf)."""
     k = kind_grid[z][x]
@@ -37,12 +42,12 @@ def is_walkable(
 
 
 def base_step_cost(dx: int, dz: int) -> float:
-    """Цена шага: прямой = 1, диагональ = sqrt(2)."""
-    return math.sqrt(2.0) if (dx != 0 and dz != 0) else 1.0
+    """Цена шага для гекса: всегда 1.0 (за один переход)."""
+    return 1.0
 
 
 def elevation_penalty(
-    height_grid: Optional[list[list[float]]],
+    height_grid: Optional[List[List[float]]],
     x: int,
     z: int,
     nx: int,
@@ -55,53 +60,18 @@ def elevation_penalty(
     try:
         h1 = float(height_grid[z][x])
         h2 = float(height_grid[nz][nx])
-    except Exception:
+    except (IndexError, TypeError):
         return 0.0
     dh = abs(h2 - h1)
     return penalty_per_meter * dh
 
 
-def no_corner_cut(
-    kind_grid,
-    x: int,
-    z: int,
-    nx: int,
-    nz: int,
-    terrain_factor: Optional[Dict[str, float]] = None,
-) -> bool:
-    """
-    Запрет «резать углы»:
-    диагональный ход допустим только если обе ортогональные клетки также проходимы.
-    """
-    dx = nx - x
-    dz = nz - z
-    if dx != 0 and dz != 0:  # диагональ
-        a = (x + dx, z)
-        b = (x, z + dz)
-        w = len(kind_grid[0])
-        h = len(kind_grid)
-        if not (in_bounds(w, h, *a) and in_bounds(w, h, *b)):
-            return False
-        return is_walkable(kind_grid, *a, terrain_factor) and is_walkable(
-            kind_grid, *b, terrain_factor
-        )
-    return True
-
-
 # ------------------------------ ЭВРИСТИКИ ------------------------------
 
 
-def heuristic_l1(a: Coord, b: Coord) -> float:
-    """Манхэттен (для 4-соседей)."""
-    return abs(a[0] - b[0]) + abs(a[1] - b[1])
-
-
-def heuristic_octile(a: Coord, b: Coord) -> float:
-    """Octile (для 8-соседей, допустимая и согласованная)."""
-    dx = abs(a[0] - b[0])
-    dz = abs(a[1] - b[1])
-    D, D2 = 1.0, math.sqrt(2.0)
-    return D * (dx + dz) + (D2 - 2.0 * D) * min(dx, dz)
+def heuristic_hex(a: Coord, b: Coord) -> float:
+    """Эвристика для гексагонов (cube-distance)."""
+    return float(HexGridSpec.cube_distance(a[0], a[1], b[0], b[1]))
 
 
 # ------------------------------ ПУТИ ------------------------------
@@ -117,7 +87,7 @@ def reconstruct(came_from: Dict[Coord, Coord], current: Coord) -> list[Coord]:
     return path
 
 
-def _side_of_gate(p: tuple[int, int], w: int, h: int) -> str:
+def _side_of_gate(p: Tuple[int, int], w: int, h: int) -> str:
     x, z = p
     if x == 1:
         return "W"

@@ -1,6 +1,5 @@
-from __future__ import annotations
-import math
 from dataclasses import dataclass
+import math
 from typing import Iterable, List, Tuple
 
 SQRT3 = math.sqrt(3.0)

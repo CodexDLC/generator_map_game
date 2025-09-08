@@ -1,15 +1,14 @@
 # game_engine/algorithms/pathfinding/policies.py
 from __future__ import annotations
 from dataclasses import dataclass, replace
-from typing import Callable, Dict, Tuple
+from typing import Callable, Dict, Tuple, Optional, List
 
+# --- ИЗМЕНЕНИЕ: Импортируем гексагональные хелперы ---
 from .helpers import (
     Coord,
-    NEI8,
-    heuristic_octile,
+    NEI6_AXIAL,
+    heuristic_hex,
 )
-
-# --- ИЗМЕНЕНИЕ: Импортируем новые константы ---
 from ...core.constants import (
     DEFAULT_TERRAIN_FACTOR,
 )
@@ -17,10 +16,12 @@ from ...core.constants import (
 
 @dataclass(frozen=True)
 class PathPolicy:
-    """Профиль поиска пути (и для дорог, и для ИИ)."""
-
-    neighbors: Tuple[Coord, ...]
-    corner_cut: bool
+    """
+    Профиль поиска пути (и для дорог, и для ИИ)
+    с поддержкой разных типов сеток.
+    """
+    grid_type: str
+    neighbors: List[Coord]
     terrain_factor: Dict[str, float]  # Стоимость движения по ПОВЕРХНОСТИ
     nav_factor: Dict[str, float]  # Стоимость движения по НАВИГАЦИОННОЙ сетке
     slope_penalty_per_meter: float
@@ -31,21 +32,20 @@ class PathPolicy:
 
 
 def make_base_policy() -> PathPolicy:
-    """Создает базовую политику с общими настройками."""
-    # Стоимость в nav_grid: ходить можно везде, кроме препятствий и воды. По мосту можно.
+    """Создает базовую политику для гексагональной сетки."""
     nav_factor = {
         "passable": 1.0,
         "obstacle_prop": float("inf"),
         "water": float("inf"),
-        "bridge": 1.0,  # Мост проходим
+        "bridge": 1.0,
     }
     return PathPolicy(
-        neighbors=NEI8,
-        corner_cut=False,
+        grid_type="hex",
+        neighbors=NEI6_AXIAL,
         terrain_factor=DEFAULT_TERRAIN_FACTOR.copy(),
         nav_factor=nav_factor,
         slope_penalty_per_meter=0.1,
-        heuristic=heuristic_octile,
+        heuristic=heuristic_hex,
     )
 
 
@@ -58,15 +58,12 @@ def make_road_policy(
     """Политика для ГЕНЕРАЦИИ ДОРОГ."""
     policy = make_base_policy()
 
-    # Дороги предпочитают строиться по уже существующим дорогам
     policy.terrain_factor["road"] = 0.5
-    # Склоны для дорог очень дорогие, но возможны
     if allow_slopes:
         policy.terrain_factor["slope"] = slope_cost
     else:
         policy.terrain_factor["slope"] = float("inf")
 
-    # Разрешаем строить "мосты" (логические) через воду
     if allow_water_as_bridge:
         policy.nav_factor["water"] = water_bridge_cost
 
@@ -76,9 +73,7 @@ def make_road_policy(
 def make_nav_policy() -> PathPolicy:
     """Политика для ПЕРСОНАЖА/ИИ."""
     policy = make_base_policy()
-    # Персонаж предпочитает дороги
     policy.terrain_factor["road"] = 0.6
-    # Но по склонам ходить не умеет
     policy.terrain_factor["slope"] = float("inf")
 
     return policy

@@ -12,7 +12,7 @@ from game_engine.world_structure.regions import RegionManager
 from game_engine.game_logic.world import GameWorld
 
 # --- Компоненты Pygame ---
-from pygame_tester.renderer import Renderer, Camera
+from pygame_tester.renderer import Renderer
 from pygame_tester.config import (
     SCREEN_WIDTH,
     SCREEN_HEIGHT,
@@ -26,7 +26,7 @@ from pygame_tester.config import (
     VIEWPORT_WIDTH_TILES,
 )
 from pygame_tester.ui import SideMenu
-
+from game_engine.core.grid.hex import HexGridSpec
 
 # --- Настройка путей ---
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -55,25 +55,25 @@ def main():
     region_manager = RegionManager(city_seed, preset, base_generator, ARTIFACTS_ROOT)
     world_actor = WorldActor(city_seed, preset, ARTIFACTS_ROOT, progress_callback=print)
 
-    # --- ИЗМЕНЕНИЕ: Просто просим "воркера" подготовить стартовую зону ---
     world_actor.prepare_starting_area(region_manager)
 
     print("\n--- World Generation Complete. Starting Game Client ---")
 
-    # --- (остальная часть функции main остается без изменений) ---
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     pygame.display.set_caption("Pygame World Tester")
     clock = pygame.time.Clock()
     game_world = GameWorld(city_seed)
     renderer = Renderer(screen)
-    camera = Camera()
-    side_menu = SideMenu(x=0, y=0, width=MENU_WIDTH, height=SCREEN_HEIGHT)
+    side_menu = SideMenu(x=0, y=0, width=MENU_WIDTH, height=SCREEN_HEIGHT, renderer=renderer)
     side_menu.add_button("Toggle Minimap", side_menu.minimap.toggle_visibility)
-    viewport_width = VIEWPORT_WIDTH_TILES * TILE_SIZE
-    viewport_height = VIEWPORT_HEIGHT_TILES * TILE_SIZE
+    viewport_width = SCREEN_WIDTH - MENU_WIDTH
+    viewport_height = SCREEN_HEIGHT
     game_surface = pygame.Surface((viewport_width, viewport_height))
     running = True
+
+    grid_spec = HexGridSpec(0.63, 0.8, CHUNK_SIZE)
+
     while running:
         dt = clock.tick(60) / 1000.0
         for event in pygame.event.get():
@@ -84,10 +84,10 @@ def main():
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 mouse_x, mouse_y = event.pos
                 if mouse_x > MENU_WIDTH:
-                    game_surface_x = mouse_x - MENU_WIDTH
-                    target_wx = camera.top_left_wx + game_surface_x // TILE_SIZE
-                    target_wz = camera.top_left_wz + mouse_y // TILE_SIZE
-                    game_world.set_player_target(target_wx, target_wz)
+                    world_x = renderer.camera.top_left_wx + (mouse_x - MENU_WIDTH) * grid_spec.meters_per_pixel
+                    world_z = renderer.camera.top_left_wz + mouse_y * grid_spec.meters_per_pixel
+                    game_world.set_player_target(world_x, world_z)
+
         keys = pygame.key.get_pressed()
         if keys[pygame.K_w]:
             game_world.move_player_by(0, -1)
@@ -97,20 +97,26 @@ def main():
             game_world.move_player_by(-1, 0)
         if keys[pygame.K_d]:
             game_world.move_player_by(1, 0)
+
         game_world.update(dt)
         state = game_world.get_render_state()
-        player_wx, player_wz = state["player_wx"], state["player_wz"]
-        camera.center_on_player(player_wx, player_wz)
+
+        player_q, player_r = state["player_q"], state["player_r"]
+
+        renderer.camera.center_on_player(player_q, player_r, game_world.grid_spec)
+
         screen.fill(BACKGROUND_COLOR)
-        renderer.draw_world(camera, state["game_world"], game_surface)
+        renderer.draw_world(state["game_world"], game_surface)
         if state["path"]:
-            renderer.draw_path(state["path"], camera, game_surface)
-        renderer.draw_player(player_wx, player_wz, camera, game_surface)
+            renderer.draw_path(state["path"], game_surface)
+
+        renderer.draw_player(player_q, player_r, game_surface)
+
         screen.blit(game_surface, (MENU_WIDTH, 0))
-        current_cx = player_wx // CHUNK_SIZE
-        current_cz = player_wz // CHUNK_SIZE
-        side_menu.draw(screen, state["world_manager"], current_cx, current_cz)
+
+        player_wx, player_wz = grid_spec.axial_to_world(player_q, player_r)
         renderer.draw_status(state["world_manager"], player_wx, player_wz)
+
         pygame.display.flip()
     pygame.quit()
     sys.exit()

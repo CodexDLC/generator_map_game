@@ -5,14 +5,14 @@ from collections import deque
 import math
 
 from ..core.constants import NAV_WATER, NAV_OBSTACLE
-
+from ..core.grid.hex import HexGridSpec # <-- НОВЫЙ ИМПОРТ
 
 def carve_ramp_along_path(
     elev: list[list[float]],
     path: list[tuple[int, int]],
     *,
-    max_slope: float = 0.5,  # Максимальный подъем/спуск на 1 метр (тайл)
-    width: int = 7,  # Общая ширина зоны выравнивания
+    max_slope: float = 0.5,
+    width: int = 7,
 ) -> None:
     """
     Создает плавный пандус вдоль пути, гарантируя, что уклон никогда
@@ -26,7 +26,6 @@ def carve_ramp_along_path(
 
     # --- ЭТАП 1: Создаем идеализированный профиль высот пути ---
 
-    # Сначала просто считываем высоты ландшафта вдоль пути
     path_heights: Dict[Tuple[int, int], float] = {
         pt: float(elev[pt[1]][pt[0]]) for pt in path
     }
@@ -37,7 +36,6 @@ def carve_ramp_along_path(
         h_prev = path_heights[p_prev]
         h_curr = path_heights[p_curr]
 
-        # Если текущая точка слишком высокая, принудительно опускаем ее
         if h_curr > h_prev + max_slope:
             path_heights[p_curr] = h_prev + max_slope
 
@@ -47,14 +45,13 @@ def carve_ramp_along_path(
         h_next = path_heights[p_next]
         h_curr = path_heights[p_curr]
 
-        # Если текущая точка оказывается слишком высокой по сравнению со следующей, опускаем ее
         if h_curr > h_next + max_slope:
             path_heights[p_curr] = h_next + max_slope
 
     # --- ЭТАП 2: Применяем идеальный профиль к ландшафту с откосами ---
     modifications: Dict[Tuple[int, int], float] = {}
     radius = (width - 1) // 2
-    road_radius = 1  # Центральная часть дороги (ширина 3 тайла)
+    road_radius = 1
 
     for (px, pz), road_h in path_heights.items():
         for dz_offset in range(-radius, radius + 1):
@@ -74,7 +71,7 @@ def carve_ramp_along_path(
                     target_h = road_h
                 else:
                     t = (dist - road_radius) / (radius - road_radius)
-                    t = t * t * (3.0 - 2.0 * t)  # Smoothstep
+                    t = t * t * (3.0 - 2.0 * t)
                     target_h = road_h * (1 - t) + original_h * t
 
                 modifications[(x, z)] = target_h

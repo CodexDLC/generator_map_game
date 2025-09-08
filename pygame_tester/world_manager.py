@@ -14,8 +14,9 @@ from game_engine.core.constants import (
     NAV_WATER,
     NAV_BRIDGE,
 )
+from game_engine.core.grid.hex import HexGridSpec  # <-- НОВЫЙ ИМПОРТ
 
-from .config import PRESET_PATH, ARTIFACTS_ROOT
+from .config import PRESET_PATH, ARTIFACTS_ROOT, CHUNK_SIZE
 
 
 class WorldManager:
@@ -24,22 +25,25 @@ class WorldManager:
         self.preset = self._load_preset()
         self.cache: Dict[Tuple, Dict | None] = {}
         self.world_id = "world_location"
-        self.current_seed = world_seed  # <--- Атрибут определён здесь
+        self.current_seed = world_seed
+        # --- НАЧАЛО ИЗМЕНЕНИЙ: Создаем spec для гексов ---
+        self.grid_spec = HexGridSpec(
+            edge_m=0.63, meters_per_pixel=0.8, chunk_px=CHUNK_SIZE
+        )
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
-    def get_chunk_data(self, cx: int, cz: int) -> Dict | None:
+    # --- ИЗМЕНЕНИЯ: Теперь принимаем гексагональные координаты ---
+    def get_chunk_data(self, q: int, r: int) -> Dict | None:
+        cx = q // self.preset.size
+        cz = r // self.preset.size
+
         key = (self.world_id, self.current_seed, cx, cz)
         if key in self.cache:
             return self.cache[key]
 
-        # ... остальная часть функции get_chunk_data, как в предыдущих ответах ...
-        if self.world_id == "city":
-            print(
-                f"\n[Client] Loading static asset: ({self.world_id}, pos=({cx},{cz}))..."
-            )
-        else:
-            print(
-                f"\n[Client] Loading procedural chunk: ({self.world_id}, seed={self.current_seed}, pos=({cx},{cz}))..."
-            )
+        print(
+            f"\n[Client] Loading procedural chunk: ({self.world_id}, seed={self.current_seed}, pos=({cx},{cz}))..."
+        )
 
         chunk_path = self._get_chunk_path(self.world_id, self.current_seed, cx, cz)
         rle_path = chunk_path / "chunk.rle.json"
@@ -56,9 +60,7 @@ class WorldManager:
                 s_rows = layers.get("surface", {}).get("rows", [])
                 n_rows = layers.get("navigation", {}).get("rows", [])
                 h_rows = layers.get("height_q", {}).get("rows", [])
-                o_rows = layers.get("overlay", {}).get(
-                    "rows", []
-                )  # <-- ДОБАВИТЬ ЭТУ СТРОКУ
+                o_rows = layers.get("overlay", {}).get("rows", [])
 
                 surface_grid = [
                     [SURFACE_ID_TO_KIND.get(int(v), "ground") for v in row]
@@ -68,7 +70,7 @@ class WorldManager:
                     [NAV_ID_TO_KIND.get(int(v), "passable") for v in row]
                     for row in decode_rle_rows(n_rows)
                 ]
-                overlay_grid = decode_rle_rows(o_rows)  # <-- ДОБАВИТЬ ЭТУ СТРОКУ
+                overlay_grid = decode_rle_rows(o_rows)
                 height_grid = decode_rle_rows(h_rows)
 
                 decoded = {
@@ -76,7 +78,7 @@ class WorldManager:
                     "navigation": nav_grid,
                     "overlay": overlay_grid,
                     "height": height_grid,
-                }  # <-- ДОБАВИТЬ "overlay"
+                }
                 self.cache[key] = decoded
                 return decoded
             else:
@@ -128,9 +130,8 @@ class WorldManager:
             data = json.load(f)
         return load_preset(data)
 
-    def _get_chunk_path(
-        self, world_id: str, seed: int, cx: int, cz: int
-    ) -> pathlib.Path:
+    # Эта функция остается без изменений, т.к. пути к файлам все еще зависят от cx/cz
+    def _get_chunk_path(self, world_id: str, seed: int, cx: int, cz: int) -> pathlib.Path:
         if world_id == "city":
             return ARTIFACTS_ROOT / "world" / "city" / "static" / f"{cx}_{cz}"
         else:

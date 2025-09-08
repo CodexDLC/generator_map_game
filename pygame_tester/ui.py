@@ -14,13 +14,13 @@ class Minimap:
         self.visible = False
 
     def _get_preview_image(
-        self, world_manager, cx: int, cz: int
+            self, world_manager, cx: int, cz: int
     ) -> pygame.Surface | None:
         path = (
-            world_manager._get_chunk_path(
-                world_manager.world_id, world_manager.current_seed, cx, cz
-            )
-            / "preview.png"
+                world_manager._get_chunk_path(
+                    world_manager.world_id, world_manager.current_seed, cx, cz
+                )
+                / "preview.png"
         )
         if path in self.image_cache:
             return self.image_cache[path]
@@ -100,30 +100,32 @@ class Button:
 
 
 class SideMenu:
-    def __init__(self, x, y, width, height):
+    def __init__(self, x, y, width, height, renderer):  # <-- ДОБАВЛЕН АРГУМЕНТ renderer
         self.rect = pygame.Rect(x, y, width, height)
         self.buttons = []
         self.button_height = 40
         self.padding = 10
-        # --- НАЧАЛО ИЗМЕНЕНИЯ: Делаем фон непрозрачным ---
         self.bg_color = pygame.Color(40, 45, 55)
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
-        # --- НАЧАЛО ИЗМЕНЕНИЯ: Добавляем миникарту ---
+        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+        # Добавляем кнопку "Toggle Debug"
+        self.renderer = renderer
+        self.add_button("Toggle Debug", self.toggle_debug_mode)
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
         minimap_y = (
-            self.rect.y
-            + self.padding
-            + 2 * (self.button_height + self.padding)
-            + self.padding
+                self.rect.y
+                + self.padding
+                + 2 * (self.button_height + self.padding)
+                + self.padding
         )
         self.minimap = Minimap(self.rect.x + (self.rect.width - 160) // 2, minimap_y)
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     def add_button(self, text, callback):
         button_y = (
-            self.rect.y
-            + self.padding
-            + len(self.buttons) * (self.button_height + self.padding)
+                self.rect.y
+                + self.padding
+                + len(self.buttons) * (self.button_height + self.padding)
         )
         button_x = self.rect.x + self.padding
         button_width = self.rect.width - (2 * self.padding)
@@ -144,6 +146,8 @@ class SideMenu:
         for button in self.buttons:
             button.draw(screen)
 
-        # --- НАЧАЛО ИЗМЕНЕНИЯ: Отрисовываем миникарту ---
         self.minimap.draw(screen, world_manager, player_cx, player_cz)
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+    # --- НОВЫЙ МЕТОД ---
+    def toggle_debug_mode(self):
+        self.renderer.debug_mode = not self.renderer.debug_mode
