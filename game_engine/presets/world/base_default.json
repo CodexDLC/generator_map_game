@@ -117,7 +117,7 @@
   },
 
   "slope_obstacles": {
-    "enabled": true,
+    "enabled": false,
     "angle_threshold_deg": 45,
     "band_cells": 3
   },

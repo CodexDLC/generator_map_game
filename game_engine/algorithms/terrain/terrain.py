@@ -3,16 +3,18 @@ from __future__ import annotations
 from typing import Any, List, Tuple
 import math
 
+import numpy as np
 from opensimplex import OpenSimplex
 
 from .features import fbm2d
+from .slope import compute_slope_mask
 from ...core.constants import (
     KIND_ROAD,
     KIND_SAND,
     KIND_GROUND,
     NAV_PASSABLE,
     KIND_SLOPE,
-    NAV_WATER,
+    NAV_WATER, SURFACE_KIND_TO_ID,
 )
 
 
@@ -117,7 +119,7 @@ def generate_elevation(
 
                 grid[z][x] = noise_val
 
-    # --- ЭТАП 3: Применяем shaping, масштабирование и сглаживание ---
+
     _apply_shaping_curve(grid, float(cfg.get("shaping_power", 1.0)))
 
     max_h = float(cfg.get("max_height_m", 60.0))
@@ -133,10 +135,6 @@ def generate_elevation(
     return final_grid, smoothed_grid
 
 
-# --- КОНЕЦ ИЗМЕНЕНИЙ ---
-
-
-# ... (остальные функции - classify_terrain, apply_slope_obstacles и т.д. - остаются без изменений) ...
 def classify_terrain(
     elevation_grid: List[List[float]],
     surface_grid: List[List[str]],
@@ -157,70 +155,35 @@ def classify_terrain(
                 nav_grid[z][x] = NAV_PASSABLE
 
 
-def apply_slope_obstacles(
-    elevation_grid_with_margin: List[List[float]],
-    surface_grid: List[List[str]],
-    preset: Any,
-    cx: int,
-    cz: int,
-) -> None:
-    target_size = len(surface_grid)
-    margin = (len(elevation_grid_with_margin) - target_size) // 2
-    cfg = getattr(preset, "slope_obstacles", None) or {}
-    if not cfg.get("enabled", False):
+def apply_slope_obstacles(height_grid_with_margin, surface_grid, preset, cx: int, cz: int) -> None:
+    """
+    Красим клетки 'slope' там, где угол >= порога.
+    height_grid_with_margin: список списков высот (метры), как правило (size+2)x(size+2)
+    surface_grid: список списков int (surface-kind ids), размер size x size
+    """
+    s_cfg = dict(getattr(preset, "slope_obstacles", {}) or {})
+    if not s_cfg.get("enabled", False):
         return
 
-    thr_ratio = math.tan(math.radians(float(cfg.get("angle_threshold_deg", 45.0))))
-    protected_surfaces = {KIND_ROAD}
-    NEI8 = ((-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1))
+    angle = float(s_cfg.get("angle_threshold_deg", 45.0))
+    band = int(s_cfg.get("band_cells", 0))
+    cell = float(getattr(preset, "cell_size", 1.0))
 
-    rock_noise_gen = OpenSimplex(seed=1234)
-    base_wx = cx * target_size
-    base_wz = cz * target_size
+    H = np.array(height_grid_with_margin, dtype=np.float32)
+    full_mask = compute_slope_mask(H, cell, angle, band)
 
-    slope_mask = [[False for _ in range(target_size)] for _ in range(target_size)]
-    for z in range(target_size):
-        for x in range(target_size):
-            if surface_grid[z][x] in protected_surfaces:
-                continue
-            h0 = elevation_grid_with_margin[z + margin][x + margin]
-            is_steep = False
-            for dx, dz in NEI8:
-                h_neighbor = elevation_grid_with_margin[z + margin + dz][
-                    x + margin + dx
-                ]
-                if abs(h0 - h_neighbor) >= thr_ratio:
-                    is_steep = True
-                    break
-            if is_steep:
-                slope_mask[z][x] = True
+    size = len(surface_grid)
+    # Учтём маргинальный бордюр: чаще всего H.shape = (size+2, size+2)
+    if full_mask.shape[0] == size + 2 and full_mask.shape[1] == size + 2:
+        mask = full_mask[1:-1, 1:-1]
+    else:
+        # если размеров ровно size x size — берём как есть
+        mask = full_mask[:size, :size]
 
-    for z in range(target_size):
-        for x in range(target_size):
-            if slope_mask[z][x]:
-                current_h = elevation_grid_with_margin[z + margin][x + margin]
-
-                wx, wz = base_wx + x, base_wz + z
-                pattern_noise = rock_noise_gen.noise2(wx * 0.3, wz * 0.3)
-
-                final_h = current_h + pattern_noise * 0.5
-                elevation_grid_with_margin[z + margin][x + margin] = final_h
-
-    for z in range(target_size):
-        for x in range(target_size):
-            if surface_grid[z][x] in protected_surfaces:
-                continue
-            h0 = elevation_grid_with_margin[z + margin][x + margin]
-            is_final_cliff = False
-            for dx, dz in NEI8:
-                h_neighbor = elevation_grid_with_margin[z + margin + dz][
-                    x + margin + dx
-                ]
-                if abs(h0 - h_neighbor) >= 1.5:
-                    is_final_cliff = True
-                    break
-            if is_final_cliff:
-                surface_grid[z][x] = KIND_SLOPE
+    slope_id = SURFACE_KIND_TO_ID.get("slope", SURFACE_KIND_TO_ID["obstacle"])
+    ys, xs = np.where(mask)
+    for y, x in zip(ys.tolist(), xs.tolist()):
+        surface_grid[y][x] = slope_id
 
 
 def apply_beaches(
