@@ -40,7 +40,7 @@ class Camera:
         self.top_left_wz += dz * meters_per_screen_pixel
 
     def change_zoom(self, amount: float, mouse_pos: Tuple[int, int]):
-        # TODO: Реализовать зум к курсору
+
         self.zoom += amount
         self.zoom = max(0.2, min(self.zoom, 5.0))
 
