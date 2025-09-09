@@ -11,12 +11,9 @@ KIND_SAND = "sand"
 KIND_ROAD = "road"
 KIND_SLOPE = "slope"
 KIND_FOREST_GROUND = "forest_ground"
-# --- УДАЛЕНО: KIND_VOID ---
-KIND_DEBUG_A = "debug_a"
-KIND_DEBUG_B = "debug_b"
 
 # Список всех возможных ПОВЕРХНОСТЕЙ
-SURFACE_KINDS = (KIND_GROUND, KIND_SAND, KIND_ROAD, KIND_SLOPE, KIND_FOREST_GROUND, KIND_DEBUG_A, KIND_DEBUG_B)
+SURFACE_KINDS = (KIND_GROUND, KIND_SAND, KIND_ROAD, KIND_SLOPE, KIND_FOREST_GROUND)
 
 # ID для записи в control.r32. Идут строго по порядку от 0.
 SURFACE_KIND_TO_ID: Dict[str, int] = {
@@ -26,8 +23,6 @@ SURFACE_KIND_TO_ID: Dict[str, int] = {
     KIND_SLOPE: 3,
     KIND_FOREST_GROUND: 4,
     # Следующий ID будет 5
-    KIND_DEBUG_A: 5,
-    KIND_DEBUG_B: 6,
 }
 SURFACE_ID_TO_KIND: Dict[int, str] = {v: k for k, v in SURFACE_KIND_TO_ID.items()}
 

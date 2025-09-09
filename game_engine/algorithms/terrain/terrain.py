@@ -9,12 +9,9 @@ from opensimplex import OpenSimplex
 from .features import fbm2d
 from .slope import compute_slope_mask
 from ...core.constants import (
-    KIND_SAND,
     KIND_GROUND,
     NAV_PASSABLE,
     KIND_SLOPE,
-    NAV_WATER,
-    SURFACE_KIND_TO_ID, KIND_DEBUG_A, KIND_DEBUG_B,
 )
 
 
@@ -97,12 +94,10 @@ def generate_elevation(
     total_max_amp = sum(float(layer_cfg.get("amp_m", 0.0)) for layer_cfg in spectral_cfg.values())
     if total_max_amp == 0: total_max_amp = 1.0
 
-    # --- НАЧАЛО ИЗМЕНЕНИЙ: Переход на циклы вместо `noise2array` ---
     for z_idx in range(working_size):
         for x_idx in range(working_size):
             wx, wz = float(base_wx + x_idx), float(base_wz + z_idx)
 
-            # --- ЭТАП 1: WARP (скалярный режим) ---
             warp_scale = float(warp_cfg.get("scale_tiles", 1.0))
             warp_strength = float(warp_cfg.get("strength_m", 0.0))
 
@@ -114,7 +109,6 @@ def generate_elevation(
                 warped_wx += offset_x
                 warped_wz += offset_z
 
-            # --- ЭТАП 2: SPECTRAL (скалярный режим) ---
             final_height = 0.0
             for layer_cfg in spectral_cfg.values():
                 scale = float(layer_cfg.get("scale_tiles", 1.0))
@@ -131,9 +125,7 @@ def generate_elevation(
                 final_height += layer_noise * amp
 
             height_grid[z_idx, x_idx] = final_height
-    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
-    # --- ЭТАП 3: Пост-обработка (остается без изменений) ---
     if total_max_amp > 0:
         normalized_grid = height_grid / total_max_amp
         _apply_shaping_curve(normalized_grid, float(cfg.get("shaping_power", 1.0)))
@@ -158,21 +150,12 @@ def classify_terrain(
         surface_grid: List[List[str]],
         nav_grid: List[List[str]],
         preset: Any,
-        grid_spec: HexGridSpec
 ) -> None:
     size = len(surface_grid)
-    for z_px in range(size):
-        for x_px in range(size):
-            world_x = x_px * grid_spec.meters_per_pixel
-            world_z = z_px * grid_spec.meters_per_pixel
-            q, r = grid_spec.world_to_axial(world_x, world_z)
-
-            if (q + r) % 2 == 0:
-                surface_grid[z_px][x_px] = KIND_DEBUG_A
-            else:
-                surface_grid[z_px][x_px] = KIND_DEBUG_B
-
-            nav_grid[z_px][x_px] = NAV_PASSABLE
+    for z in range(size):
+        for x in range(size):
+            surface_grid[z][x] = KIND_GROUND
+            nav_grid[z][x] = NAV_PASSABLE
 
 
 def apply_slope_obstacles(height_grid_with_margin: np.ndarray, surface_grid: List[List[str]], preset: Any) -> None:
@@ -184,7 +167,7 @@ def apply_slope_obstacles(height_grid_with_margin: np.ndarray, surface_grid: Lis
     band = int(s_cfg.get("band_cells", 0))
     cell = float(getattr(preset, "cell_size", 1.0))
 
-    H = height_grid_with_margin  # Уже является numpy array
+    H = height_grid_with_margin
     gz, gx = np.gradient(H, cell)
 
     tangent_slope = np.sqrt(gx ** 2 + gz ** 2)

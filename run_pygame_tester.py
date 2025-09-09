@@ -51,9 +51,11 @@ def main():
     pygame.display.set_caption("Pygame World Tester")
     clock = pygame.time.Clock()
 
-    grid_spec = HexGridSpec(edge_m=0.63, meters_per_pixel=0.25, chunk_px=CHUNK_SIZE)
+    # VVV ИЗМЕНЕНИЕ ЗДЕСЬ VVV
+    grid_spec = HexGridSpec(edge_m=0.63, meters_per_pixel=0.5, chunk_px=CHUNK_SIZE)
+    # ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^
 
-    game_world = GameWorld(city_seed, grid_spec)
+    game_world = GameWorld(city_seed, grid_spec, preset)
     camera = Camera(grid_spec)
     renderer = Renderer(screen, grid_spec, camera)
     side_menu = SideMenu(x=SCREEN_WIDTH - MENU_WIDTH, y=0, width=MENU_WIDTH, height=SCREEN_HEIGHT, renderer=renderer)

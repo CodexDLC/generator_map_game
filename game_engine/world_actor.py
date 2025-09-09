@@ -4,23 +4,21 @@ import os
 from pathlib import Path
 import json
 
-from .core.grid.hex import HexGridSpec
 from .core.preset import Preset
-# --- ИЗМЕНЕНИЕ: Обновляем импорты ---
 from .core.export import (
     write_client_chunk_meta,
     write_chunk_preview,
     write_heightmap_r16,
     write_control_map_r32,
     write_world_meta_json,
-    write_objects_json, write_navigation_rle
+    write_objects_json,
+    write_navigation_rle
 )
-from .world_structure.grid_utils import region_key, region_base
+from .world_structure.grid_utils import region_base
 from .world_structure.regions import RegionManager
 from .world_structure.chunk_processor import process_chunk
 from .world_structure.context import Region
 from .world_structure.road_types import RoadWaypoint, ChunkRoadPlan
-# --- НОВЫЕ ИМПОРТЫ ---
 from .world_structure.prefab_manager import PrefabManager
 from .world_structure.serialization import ClientChunkContract
 
@@ -38,7 +36,6 @@ class WorldActor:
         )
         self.progress_callback = progress_callback
 
-        # --- ДОБАВЛЕНО: Загружаем каталог префабов при старте ---
         prefabs_path = Path(__file__).parent / "prefabs.json"
         self.prefab_manager = PrefabManager(prefabs_path)
 
@@ -47,14 +44,9 @@ class WorldActor:
             self.progress_callback(message)
 
     def prepare_starting_area(self, region_manager: RegionManager):
-        """
-        Генерирует все регионы в пределах стартового радиуса, указанного в пресете.
-        """
-        # --- ИЗМЕНЕНИЕ: Теперь мы используем радиус для обхода РЕГИОНОВ, а не чанков ---
         radius = self.preset.initial_load_radius
         print(f"\n[WorldActor] Preparing start area with REGION radius {radius}...")
 
-        # 1. Создаем список всех регионов, которые нужно сгенерировать
         regions_to_generate = []
         for scz in range(-radius, radius + 1):
             for scx in range(-radius, radius + 1):
@@ -63,22 +55,18 @@ class WorldActor:
         total_regions = len(regions_to_generate)
         print(f"[WorldActor] Found {total_regions} regions to generate.")
 
-        # 2. Последовательно генерируем и детализируем каждый регион из списка
         for i, (scx, scz) in enumerate(regions_to_generate):
             print(f"\n--- [{i + 1}/{total_regions}] Processing Region ({scx}, {scz}) ---")
-            # Сначала генерируем "сырые" данные (карты высот, базовый рельеф)
             region_manager.generate_raw_region(scx, scz)
-            # Затем применяем детализацию (дороги, биомы и т.д.)
             self._detail_region(scx, scz)
 
     def _detail_region(self, scx: int, scz: int):
-
-        # (код загрузки region_meta.json и road_plan без изменений)
         WORLD_ID = "world_location"
         meta_path = str(self.final_data_path.parent / "_world_meta.json")
         if not os.path.exists(meta_path):
+            # VVV ИЗМЕНЕНИЕ ЗДЕСЬ VVV
             write_world_meta_json(
-                meta_path, world_id=WORLD_ID, hex_edge_m=0.63, meters_per_pixel=0.25,
+                meta_path, world_id=WORLD_ID, hex_edge_m=0.63, meters_per_pixel=0.5,
                 chunk_px=self.preset.size, height_min_m=0.0,
                 height_max_m=self.preset.elevation.get("max_height_m", 150.0),
             )
@@ -112,13 +100,9 @@ class WorldActor:
                     self._log(f"!!! [WorldActor] WARN: Raw chunk file not found for ({chunk_cx},{chunk_cz}). Skipping.")
                     continue
 
-                # --- ИЗМЕНЕНИЕ: Передаем prefab_manager в process_chunk ---
                 final_chunk = process_chunk(self.preset, raw_chunk_path, region_context, self.prefab_manager)
 
-                # --- ЭТАП ЭКСПОРТА В ФИНАЛЬНЫЙ ФОРМАТ ---
                 client_chunk_dir = self.final_data_path / f"{chunk_cx}_{chunk_cz}"
-
-                # Получаем данные слоев
                 surface_grid = final_chunk.layers.get("surface", [])
                 nav_grid = final_chunk.layers.get("navigation", [])
                 overlay_grid = final_chunk.layers.get("overlay", [])
@@ -129,32 +113,25 @@ class WorldActor:
                         f"!!! [WorldActor] ERROR: Chunk ({chunk_cx},{chunk_cz}) missing essential layers. Skipping export.")
                     continue
 
-                # 1. Сохраняем heightmap.r16
                 heightmap_path = client_chunk_dir / "heightmap.r16"
                 max_height = float(self.preset.elevation.get("max_height_m", 1.0))
                 write_heightmap_r16(str(heightmap_path), height_grid, max_height)
 
-                # 2. Сохраняем control.r32
                 controlmap_path = client_chunk_dir / "control.r32"
                 write_control_map_r32(str(controlmap_path), surface_grid, nav_grid, overlay_grid)
 
-                # 3. Сохраняем objects.json (пока будет пустым, так как кисти отключены)
                 objects_path = client_chunk_dir / "objects.json"
                 placed_objects = getattr(final_chunk, 'placed_objects', [])
                 write_objects_json(str(objects_path), placed_objects)
 
-                # --- VVV ДОБАВЬТЕ ЭТОТ БЛОК VVV ---
-                # 4. Сохраняем navigation.rle.json для сервера
+                # Сохраняем navigation.rle.json для сервера
                 nav_path = client_chunk_dir / "navigation.rle.json"
                 write_navigation_rle(str(nav_path), nav_grid)
-                # --- ^^^ КОНЕЦ НОВОГО БЛОКА ^^^ ---
 
-                # 5. Сохраняем preview.png для тестера (теперь это пункт 5)
                 preview_path = client_chunk_dir / "preview.png"
                 palette = self.preset.export.get("palette", {})
                 write_chunk_preview(str(preview_path), surface_grid, nav_grid, palette)
 
-                # 6. Сохраняем главный chunk.json (теперь это пункт 6)
                 client_meta_path = client_chunk_dir / "chunk.json"
                 contract = ClientChunkContract(cx=chunk_cx, cz=chunk_cz)
                 write_client_chunk_meta(str(client_meta_path), contract)

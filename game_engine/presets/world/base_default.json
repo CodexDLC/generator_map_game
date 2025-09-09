@@ -4,7 +4,7 @@
   "size": 256,
   "cell_size": 1.0,
   "region_size": 3,
-  "initial_load_radius": 1,
+  "initial_load_radius": 0,
 
   "elevation": {
     "enabled": true,
@@ -133,9 +133,7 @@
       "wall": "#808080",
       "bridge": "#b8b8b8",
       "sand": "#e0cda8",
-      "forest_ground": "#6b8f6b",
-      "debug_a": "#ff0000",
-      "debug_b": "#0000ff"
+      "forest_ground": "#6b8f6b"
     }
   },
 
