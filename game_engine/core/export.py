@@ -7,8 +7,8 @@ from pathlib import Path
 import dataclasses
 
 from ..world_structure.serialization import RegionMetaContract, ClientChunkContract
-from .constants import SURFACE_KIND_TO_ID, NAV_KIND_TO_ID
-from .utils.rle import encode_rle_rows
+from ..world_structure.object_types import PlacedObject
+from .constants import SURFACE_KIND_TO_ID  # <-- Убрал лишний импорт NAV_KIND_TO_ID
 
 NUMPY_OK = False
 PIL_OK = False
@@ -18,7 +18,6 @@ try:
     NUMPY_OK = True
 except ImportError:
     pass
-
 try:
     from PIL import Image
 
@@ -28,7 +27,6 @@ except ImportError:
 
 
 def _ensure_path_exists(path: str) -> None:
-    """Убеждается, что директория для указанного пути к файлу существует."""
     Path(path).parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -49,108 +47,61 @@ def _atomic_write_json(path: str, data: Any):
 def write_region_meta(path: str, meta_contract: RegionMetaContract):
     data_to_serialize = dataclasses.asdict(meta_contract)
     if "road_plan" in data_to_serialize and meta_contract.road_plan:
-        serializable_road_plan = {
-            f"{k[0]},{k[1]}": v for k, v in meta_contract.road_plan.items()
-        }
+        serializable_road_plan = {f"{k[0]},{k[1]}": v for k, v in meta_contract.road_plan.items()}
         data_to_serialize["road_plan"] = serializable_road_plan
     _atomic_write_json(path, data_to_serialize)
     print(f"--- EXPORT: Метаданные региона сохранены: {path}")
 
 
-def write_client_chunk(path_to_meta_json: str, chunk_contract: ClientChunkContract, raw_layers: Dict[str, Any]):
-    """
-    Записывает чанк в новом разделенном формате:
-    1. Главный chunk.json с метаданными.
-    2. Отдельные .rle.json файлы для каждого слоя данных.
-    """
-    meta_path = Path(path_to_meta_json)
-    chunk_dir = meta_path.parent
-    _ensure_path_exists(str(meta_path))
+def write_client_chunk_meta(path: str, chunk_contract: ClientChunkContract):
+    output_data = {
+        "version": chunk_contract.version, "cx": chunk_contract.cx, "cz": chunk_contract.cz,
+        "grid": chunk_contract.grid,
+        "files": {"heightmap": "heightmap.r16", "controlmap": "control.r32", "objects": "objects.json"}
+    }
+    _atomic_write_json(path, output_data)
+    print(f"--- EXPORT: Мета-файл чанка сохранен: {path}")
 
-    # --- ЭТАП 1: Обработка и сохранение каждого слоя ---
-    layer_filenames = {}
 
-    # Слой Surface
-    if "surface" in raw_layers:
-        surface_grid = raw_layers["surface"]
-        id_grid = [[SURFACE_KIND_TO_ID.get(kind, 0) for kind in row] for row in surface_grid]
-        rle_data = encode_rle_rows(id_grid)
-        layer_path = chunk_dir / "surface.rle.json"
-        _atomic_write_json(str(layer_path), rle_data)
-        layer_filenames["surface"] = "surface.rle.json"
+def write_objects_json(path: str, objects: list[PlacedObject]):
+    serializable_objects = [{
+        "id": obj.prefab_id,
+        "center_hex": {"q": obj.center_q, "r": obj.center_r},
+        "rotation": round(obj.rotation, 2),
+        "scale": obj.scale
+    } for obj in objects]
+    _atomic_write_json(path, serializable_objects)
+    print(f"--- EXPORT: Список объектов сохранен: {path}")
 
-    # Слой Navigation
-    if "navigation" in raw_layers:
-        nav_grid = raw_layers["navigation"]
-        id_grid = [[NAV_KIND_TO_ID.get(kind, 0) for kind in row] for row in nav_grid]
-        rle_data = encode_rle_rows(id_grid)
-        layer_path = chunk_dir / "navigation.rle.json"
-        _atomic_write_json(str(layer_path), rle_data)
-        layer_filenames["navigation"] = "navigation.rle.json"
 
-    # Слой Height
-    if "height_q" in raw_layers and isinstance(raw_layers["height_q"], dict):
-        height_grid = raw_layers["height_q"].get("grid", [])
-        rle_data = encode_rle_rows(height_grid)
-        layer_path = chunk_dir / "height_q.rle.json"
-        _atomic_write_json(str(layer_path), rle_data)
-        layer_filenames["height_q"] = "height_q.rle.json"
-
-    # Слой Overlay
-    if "overlay" in raw_layers:
-        overlay_grid = raw_layers["overlay"]
-        rle_data = encode_rle_rows(overlay_grid)
-        layer_path = chunk_dir / "overlay.rle.json"
-        _atomic_write_json(str(layer_path), rle_data)
-        layer_filenames["overlay"] = "overlay.rle.json"
-
-    # --- ЭТАП 2: Создание и сохранение главного meta-файла ---
-    chunk_contract.layer_files = layer_filenames
-    meta_data_to_serialize = dataclasses.asdict(chunk_contract)
-    _atomic_write_json(str(meta_path), meta_data_to_serialize)
-    print(f"--- EXPORT: Клиентский чанк сохранен (мета): {meta_path}")
-
-# ... (остальные функции экспорта остаются без изменений) ...
 def write_chunk_preview(
-    path: str,
-    surface_grid: List[List[str]],
-    nav_grid: List[List[str]],
-    palette: Dict[str, str],
+        path: str, surface_grid: List[List[str]], nav_grid: List[List[str]], palette: Dict[str, str],
 ):
-    if not PIL_OK:
-        return
+    if not PIL_OK: return
     try:
         h = len(surface_grid)
         w = len(surface_grid[0]) if h else 0
-        if w == 0 or h == 0:
-            return
+        if w == 0 or h == 0: return
 
         def hex_to_rgb(s: str) -> Tuple[int, int, int, int]:
             s = s.lstrip("#")
-            if len(s) == 8:
-                return (
-                    int(s[2:4], 16),
-                    int(s[4:6], 16),
-                    int(s[6:8], 16),
-                    int(s[0:2], 16),
-                )
+            if len(s) == 8: return int(s[2:4], 16), int(s[4:6], 16), int(s[6:8], 16), int(s[0:2], 16)
             return int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16), 255
 
         img = Image.new("RGBA", (w, h))
         px = img.load()
         for z in range(h):
             for x in range(w):
-                color = hex_to_rgb(palette.get(surface_grid[z][x], "#FF00FF"))
-                px[x, z] = color
+                px[x, z] = hex_to_rgb(palette.get(surface_grid[z][x], "#FF00FF"))
         for z in range(h):
             for x in range(w):
-                nav_kind = nav_grid[z][x]
-                if nav_kind != "passable":
-                    color = hex_to_rgb(palette.get(nav_kind, "#FF00FF"))
-                    px[x, z] = color
+                if nav_grid[z][x] != "passable":
+                    px[x, z] = hex_to_rgb(palette.get(nav_grid[z][x], "#FF00FF"))
 
-        img_resized = img.resize((w * 2, h * 2), Image.NEAREST)
-        _ensure_path_exists(path)  # <-- Используем новую функцию
+        # --- ИСПРАВЛЕНИЕ: Используем новый синтаксис для NEAREST ---
+        img_resized = img.resize((w * 2, h * 2), Image.Resampling.NEAREST)
+
+        _ensure_path_exists(path)
         tmp_path = path + ".tmp"
         img_resized.save(tmp_path, format="PNG")
         os.replace(tmp_path, path)
@@ -159,141 +110,76 @@ def write_chunk_preview(
 
 
 def write_heightmap_r16(path: str, height_grid: List[List[float]], max_height: float):
-    if not NUMPY_OK:
-        print("!!! LOG: NumPy не найден, не могу сохранить .r16.")
-        return
+    if not NUMPY_OK: return
     try:
-        if not height_grid or not height_grid[0]:
-            return
-        if max_height <= 0:
-            max_height = 1.0
+        if not height_grid or not height_grid[0]: return
+        if max_height <= 0: max_height = 1.0
         height_array = np.array(height_grid, dtype=np.float32)
         normalized = np.clip(height_array / max_height, 0.0, 1.0)
         final_array = (normalized * 65535.0).astype("<u2")
-        _ensure_path_exists(path)  # <-- Используем новую функцию
+        _ensure_path_exists(path)
         tmp_path = path + ".tmp"
         with open(tmp_path, "wb") as f:
             f.write(final_array.tobytes())
         os.replace(tmp_path, path)
-        print(
-            f"--- EXPORT: 16-битный UINT heightmap (нормализованный) сохранён: {path}"
-        )
+        print(f"--- EXPORT: 16-битный UINT heightmap сохранён: {path}")
     except Exception as e:
         print(f"!!! LOG: КРИТИЧЕСКАЯ ОШИБКА при создании heightmap.r16: {e}")
 
 
 def _pack_control_data(base_id=0, overlay_id=0, blend=0, nav=True) -> np.uint32:
-    """
-    Упаковывает все данные для control map в одно 32-битное число.
-    ИСПРАВЛЕНА ЛОГИКА СДВИГОВ.
-    """
     val = 0
-    # --- ИЗМЕНЕНИЕ: Сдвигаем ID в старшие биты ---
-    val |= (base_id & 0x1F) << 27  # ID базовой текстуры (биты 27-31)
-    val |= (overlay_id & 0x1F) << 22  # ID оверлейной текстуры (биты 22-26)
-    val |= (blend & 0xFF) << 14  # Коэффициент смешивания (биты 14-21)
-    if nav:
-        val |= 1 << 3  # Флаг проходимости (бит 3)
+    val |= (base_id & 0x1F) << 27
+    val |= (overlay_id & 0x1F) << 22
+    val |= (blend & 0xFF) << 14
+    if nav: val |= 1 << 3
     return np.uint32(val)
 
 
 def write_control_map_r32(
-    path: str,
-    surface_grid: List[List[str]],
-    nav_grid: List[List[str]],
-    overlay_grid: List[List[int]],
+        path: str, surface_grid: List[List[str]], nav_grid: List[List[str]], overlay_grid: List[List[int]],
 ):
-    """
-    Создает control.r32, смешивая surface и overlay слои.
-    """
-    if not NUMPY_OK:
-        print("!!! LOG: NumPy не найден...")
-        return
+    if not NUMPY_OK: return
     try:
+        # --- ИСПРАВЛЕНИЕ: Разделяем определение h и w ---
         h = len(surface_grid)
         w = len(surface_grid[0]) if h > 0 else 0
-        if w == 0 or h == 0:
-            return
+        if w == 0 or h == 0: return
 
-        # Явно указываем порядок байтов little-endian
         control_map = np.zeros((h, w), dtype="<u4")
-
         for z in range(h):
             for x in range(w):
-                surface_kind = surface_grid[z][x]
-                nav_kind = nav_grid[z][x]
-                overlay_id = overlay_grid[z][x]
-
-                base_id = SURFACE_KIND_TO_ID.get(surface_kind, 0)
-                is_navigable = nav_kind in ("passable", "bridge")
-
-                # Если есть оверлей (дорога), делаем полное смешивание
-                blend = 255 if overlay_id != 0 else 0
-
+                base_id = SURFACE_KIND_TO_ID.get(surface_grid[z][x], 0)
+                is_navigable = nav_grid[z][x] in ("passable", "bridge")
+                blend = 255 if overlay_grid[z][x] != 0 else 0
                 control_map[z, x] = _pack_control_data(
-                    base_id=base_id,
-                    overlay_id=overlay_id,
-                    blend=blend,
-                    nav=is_navigable,
+                    base_id=base_id, overlay_id=overlay_grid[z][x], blend=blend, nav=is_navigable,
                 )
-
         _ensure_path_exists(path)
         tmp_path = path + ".tmp"
         with open(tmp_path, "wb") as f:
             f.write(control_map.tobytes())
         os.replace(tmp_path, path)
-        print(f"--- EXPORT: Бинарная Control map (.r32) с оверлеем сохранена: {path}")
+        print(f"--- EXPORT: Бинарная Control map (.r32) сохранена: {path}")
     except Exception as e:
         print(f"!!! LOG: КРИТИЧЕСКАЯ ОШИБКА при создании control.r32: {e}")
 
 
 def write_world_meta_json(
-    path: str,
-    *,
-    world_id: int,
-    hex_edge_m: float,
-    meters_per_pixel: float,
-    chunk_px: int,
-    height_min_m: float,
-    height_max_m: float,
-    grid_orientation: str = "pointy-top",
-    coord_logic: str = "axial",
-    coord_storage: str = "odd-r",
-    stream_window_cols: int = 5,
-    stream_window_rows: int = 5,
-    url_pattern: str = "/world/v2_hex/{world_id}/{scx}_{scz}/{cx}_{cz}/",
-    height_filename: str = "height_rev{rev}.r16",
-    control_filename: str = "control_rev{rev}.r32"
+        path: str, *, world_id: Any, hex_edge_m: float, meters_per_pixel: float, chunk_px: int,
+        height_min_m: float, height_max_m: float, **kwargs
 ) -> None:
-    """
-    Пишет маленький JSON для автоконфигурации клиента (Terrain3D/стриминг).
-    Кладёшь, например, по пути: world/world_location/{world_id}/_world_meta.json
-    """
     _ensure_path_exists(path)
     data = {
-        "version": "world_meta_v1",
-        "world_id": world_id,
-        "grid": {
-            "type": "hex",
-            "orientation": grid_orientation,
-            "coord_logic": coord_logic,
-            "coord_storage": coord_storage,
-            "hex_edge_m": hex_edge_m
-        },
-        "terrain": {
-            "chunk_px": chunk_px,
-            "meters_per_pixel": meters_per_pixel,
-            "height_encoding": {
-                "format": "R16_raw_norm_max",
-                "height_min_m": height_min_m,
-                "height_max_m": height_max_m
-            },
-            "stream_window": {"cols": stream_window_cols, "rows": stream_window_rows}
-        },
-        "assets": {
-            "url_pattern": url_pattern.replace("{world_id}", str(world_id)),
-            "filenames": {"height": height_filename, "control": control_filename}
-        }
+        "version": "world_meta_v1", "world_id": world_id,
+        "grid": {"type": "hex", "orientation": "pointy-top", "coord_logic": "axial",
+                 "coord_storage": "odd-r", "hex_edge_m": hex_edge_m},
+        "terrain": {"chunk_px": chunk_px, "meters_per_pixel": meters_per_pixel,
+                    "height_encoding": {"format": "R16_raw_norm_max", "height_min_m": height_min_m,
+                                        "height_max_m": height_max_m},
+                    "stream_window": {"cols": 5, "rows": 5}},
+        "assets": {"url_pattern": f"/world/v2_hex/{world_id}/{{scx}}_{{scz}}/{{cx}}_{{cz}}/",
+                   "filenames": {"height": "height_rev{rev}.r16", "control": "control_rev{rev}.r32"}}
     }
     _atomic_write_json(path, data)
     print(f"--- EXPORT: world meta сохранён: {path}")
