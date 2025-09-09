@@ -18,7 +18,7 @@
       "continents": {
         "scale_tiles": 8000,
         "amp_m": 120.0,
-        "ridge": true,
+        "ridge": false,
         "octaves": 2
       },
       "hills": {
@@ -40,7 +40,7 @@
   },
 
   "terraform": {
-    "enabled": true,
+    "enabled": false,
     "rules": [
       {
         "enabled": true,
@@ -133,7 +133,9 @@
       "wall": "#808080",
       "bridge": "#b8b8b8",
       "sand": "#e0cda8",
-      "forest_ground": "#6b8f6b"
+      "forest_ground": "#6b8f6b",
+      "debug_a": "#ff0000",
+      "debug_b": "#0000ff"
     }
   },
 

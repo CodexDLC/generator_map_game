@@ -183,3 +183,29 @@ def write_world_meta_json(
     }
     _atomic_write_json(path, data)
     print(f"--- EXPORT: world meta сохранён: {path}")
+
+
+def write_navigation_rle(path: str, nav_grid: List[List[str]]):
+    """
+    Сохраняет навигационную сетку в виде RLE-закодированного JSON файла с числовыми ID.
+    Это формат для серверного использования.
+    """
+    if not NUMPY_OK: return
+    try:
+        h = len(nav_grid)
+        w = len(nav_grid[0]) if h > 0 else 0
+        if w == 0 or h == 0: return
+
+        # 1. Конвертируем строковые идентификаторы в числовые ID
+        id_grid = [[NAV_KIND_TO_ID.get(kind, 0) for kind in row] for row in nav_grid]
+
+        # 2. Кодируем в RLE
+        rle_data = encode_rle_rows(id_grid)
+
+        # 3. Атомарно сохраняем JSON
+        _atomic_write_json(path, rle_data)
+        print(f"--- EXPORT: Серверная навигационная карта (.rle.json) сохранена: {path}")
+
+    except Exception as e:
+        print(f"!!! LOG: КРИТИЧЕСКАЯ ОШИБКА при создании navigation.rle.json: {e}")
+

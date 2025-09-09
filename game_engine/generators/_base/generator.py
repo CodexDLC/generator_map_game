@@ -95,6 +95,7 @@ class BaseGenerator:
             result.layers["surface"],
             result.layers["navigation"],
             self.preset,
+            grid_spec # <-- Добавляем grid_spec
         )
 
         # Правила для океана/побережья отключены в пресете, но вызов можно оставить

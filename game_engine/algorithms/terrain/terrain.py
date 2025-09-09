@@ -14,7 +14,7 @@ from ...core.constants import (
     NAV_PASSABLE,
     KIND_SLOPE,
     NAV_WATER,
-    SURFACE_KIND_TO_ID,
+    SURFACE_KIND_TO_ID, KIND_DEBUG_A, KIND_DEBUG_B,
 )
 
 
@@ -158,12 +158,21 @@ def classify_terrain(
         surface_grid: List[List[str]],
         nav_grid: List[List[str]],
         preset: Any,
+        grid_spec: HexGridSpec
 ) -> None:
     size = len(surface_grid)
-    for z in range(size):
-        for x in range(size):
-            surface_grid[z][x] = KIND_GROUND
-            nav_grid[z][x] = NAV_PASSABLE
+    for z_px in range(size):
+        for x_px in range(size):
+            world_x = x_px * grid_spec.meters_per_pixel
+            world_z = z_px * grid_spec.meters_per_pixel
+            q, r = grid_spec.world_to_axial(world_x, world_z)
+
+            if (q + r) % 2 == 0:
+                surface_grid[z_px][x_px] = KIND_DEBUG_A
+            else:
+                surface_grid[z_px][x_px] = KIND_DEBUG_B
+
+            nav_grid[z_px][x_px] = NAV_PASSABLE
 
 
 def apply_slope_obstacles(height_grid_with_margin: np.ndarray, surface_grid: List[List[str]], preset: Any) -> None:

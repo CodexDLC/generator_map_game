@@ -13,7 +13,7 @@ from .core.export import (
     write_heightmap_r16,
     write_control_map_r32,
     write_world_meta_json,
-    write_objects_json
+    write_objects_json, write_navigation_rle
 )
 from .world_structure.grid_utils import region_key, region_base
 from .world_structure.regions import RegionManager
@@ -47,20 +47,32 @@ class WorldActor:
             self.progress_callback(message)
 
     def prepare_starting_area(self, region_manager: RegionManager):
-        # ... (код этой функции без изменений) ...
+        """
+        Генерирует все регионы в пределах стартового радиуса, указанного в пресете.
+        """
+        # --- ИЗМЕНЕНИЕ: Теперь мы используем радиус для обхода РЕГИОНОВ, а не чанков ---
         radius = self.preset.initial_load_radius
-        print(f"\n[WorldActor] Preparing start area with chunk radius {radius}...")
-        regions_to_ensure = set()
-        for cz in range(-radius, radius + 1):
-            for cx in range(-radius, radius + 1):
-                regions_to_ensure.add(region_key(cx, cz, self.preset.region_size))
-        print(f"[WorldActor] Found {len(regions_to_ensure)} regions to generate: {regions_to_ensure}")
-        for scx, scz in regions_to_ensure:
+        print(f"\n[WorldActor] Preparing start area with REGION radius {radius}...")
+
+        # 1. Создаем список всех регионов, которые нужно сгенерировать
+        regions_to_generate = []
+        for scz in range(-radius, radius + 1):
+            for scx in range(-radius, radius + 1):
+                regions_to_generate.append((scx, scz))
+
+        total_regions = len(regions_to_generate)
+        print(f"[WorldActor] Found {total_regions} regions to generate.")
+
+        # 2. Последовательно генерируем и детализируем каждый регион из списка
+        for i, (scx, scz) in enumerate(regions_to_generate):
+            print(f"\n--- [{i + 1}/{total_regions}] Processing Region ({scx}, {scz}) ---")
+            # Сначала генерируем "сырые" данные (карты высот, базовый рельеф)
             region_manager.generate_raw_region(scx, scz)
+            # Затем применяем детализацию (дороги, биомы и т.д.)
             self._detail_region(scx, scz)
 
     def _detail_region(self, scx: int, scz: int):
-        # ... (код до цикла по чанкам без изменений) ...
+
         # (код загрузки region_meta.json и road_plan без изменений)
         WORLD_ID = "world_location"
         meta_path = str(self.final_data_path.parent / "_world_meta.json")
@@ -131,12 +143,18 @@ class WorldActor:
                 placed_objects = getattr(final_chunk, 'placed_objects', [])
                 write_objects_json(str(objects_path), placed_objects)
 
-                # 4. Сохраняем preview.png для тестера
+                # --- VVV ДОБАВЬТЕ ЭТОТ БЛОК VVV ---
+                # 4. Сохраняем navigation.rle.json для сервера
+                nav_path = client_chunk_dir / "navigation.rle.json"
+                write_navigation_rle(str(nav_path), nav_grid)
+                # --- ^^^ КОНЕЦ НОВОГО БЛОКА ^^^ ---
+
+                # 5. Сохраняем preview.png для тестера (теперь это пункт 5)
                 preview_path = client_chunk_dir / "preview.png"
                 palette = self.preset.export.get("palette", {})
                 write_chunk_preview(str(preview_path), surface_grid, nav_grid, palette)
 
-                # 5. Сохраняем главный chunk.json (он ссылается на остальные файлы)
+                # 6. Сохраняем главный chunk.json (теперь это пункт 6)
                 client_meta_path = client_chunk_dir / "chunk.json"
-                contract = ClientChunkContract(cx=chunk_cx, cz=chunk_cz)  # Создаем пустой контракт
+                contract = ClientChunkContract(cx=chunk_cx, cz=chunk_cz)
                 write_client_chunk_meta(str(client_meta_path), contract)

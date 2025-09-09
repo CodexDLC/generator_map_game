@@ -6,8 +6,9 @@ from typing import Dict, Tuple
 
 from game_engine.core.preset import load_preset, Preset
 from game_engine.core.constants import (
-    KIND_GROUND,
-    NAV_PASSABLE
+    NAV_PASSABLE,
+    SURFACE_ID_TO_KIND, # <-- Карта для расшифровки ID
+    SURFACE_KIND_TO_ID  # <-- Карта для расшифровки ID
 )
 from game_engine.core.grid.hex import HexGridSpec
 
@@ -28,8 +29,7 @@ class WorldManager:
     def get_chunk_data(self, cx: int, cz: int) -> Dict | None:
         """
         Загружает данные чанка из НОВОЙ файловой структуры.
-        Читает chunk.json, heightmap.r16 и objects.json.
-        Логические слои (surface, navigation) эмулирует "на лету" для тестера.
+        Читает chunk.json, heightmap.r16, objects.json и control.r32.
         """
         key = (self.world_id, self.current_seed, cx, cz)
         if key in self.cache:
@@ -50,41 +50,47 @@ class WorldManager:
         try:
             # --- ШАГ 1: Загружаем все доступные клиентские ассеты ---
 
-            # Загружаем карту высот
+            # Загружаем карту высот (код без изменений)
             heightmap_path = chunk_dir / "heightmap.r16"
-            raw_bytes = heightmap_path.read_bytes()
-            # Убеждаемся, что размер файла корректен
+            raw_bytes_h = heightmap_path.read_bytes()
             expected_size = CHUNK_SIZE * CHUNK_SIZE * 2
-            if len(raw_bytes) != expected_size:
+            if len(raw_bytes_h) != expected_size:
                 print(f"[Client] -> ERROR: Corrupted heightmap.r16 for chunk ({cx},{cz})")
                 self.cache[key] = None
                 return None
-
-            height_values = list(struct.unpack(f'<{CHUNK_SIZE * CHUNK_SIZE}H', raw_bytes))
-            # Нормализуем обратно в метры
+            height_values = list(struct.unpack(f'<{CHUNK_SIZE * CHUNK_SIZE}H', raw_bytes_h))
             max_h = float(self.preset.elevation.get("max_height_m", 150.0))
             height_grid_m = [[(val / 65535.0) * max_h for val in
                               [height_values[i * CHUNK_SIZE:(i + 1) * CHUNK_SIZE] for i in range(CHUNK_SIZE)][row_idx]]
                              for row_idx in range(CHUNK_SIZE)]
 
-            # Загружаем объекты
+            # Загружаем объекты (код без изменений)
             objects_path = chunk_dir / "objects.json"
             placed_objects = []
             if objects_path.exists():
                 with open(objects_path, "r", encoding="utf-8") as f:
                     placed_objects = json.load(f)
 
-            # --- ШАГ 2: "Эмулируем" логические слои для тестера ---
-            # Так как кисти пока отключены, мы создадим простые слои для отображения.
-            # В будущем эта логика будет браться из `navigation.rle.json` и `surface.rle.json`,
-            # которые тестер будет загружать как "сервер".
+            # --- ШАГ 2: Читаем и расшифровываем control.r32 для surface_grid ---
+            controlmap_path = chunk_dir / "control.r32"
+            raw_bytes_c = controlmap_path.read_bytes()
+            control_values = struct.unpack(f'<{CHUNK_SIZE * CHUNK_SIZE}I', raw_bytes_c)
 
-            surface_grid = [[KIND_GROUND for _ in range(CHUNK_SIZE)] for _ in range(CHUNK_SIZE)]
+            surface_grid = [["" for _ in range(CHUNK_SIZE)] for _ in range(CHUNK_SIZE)]
+            for i, val in enumerate(control_values):
+                row = i // CHUNK_SIZE
+                col = i % CHUNK_SIZE
+
+                # Извлекаем 5 бит ID базовой поверхности
+                base_id = (val >> 27) & 0x1F
+                surface_grid[row][col] = SURFACE_ID_TO_KIND.get(base_id, "void")
+
+            # --- ШАГ 3: Эмулируем остальные слои, которые нам пока не нужны ---
             nav_grid = [[NAV_PASSABLE for _ in range(CHUNK_SIZE)] for _ in range(CHUNK_SIZE)]
             overlay_grid = [[0 for _ in range(CHUNK_SIZE)] for _ in range(CHUNK_SIZE)]
 
             decoded = {
-                "surface": surface_grid,
+                "surface": surface_grid,  # <-- Теперь здесь настоящие данные!
                 "navigation": nav_grid,
                 "overlay": overlay_grid,
                 "height": height_grid_m,
