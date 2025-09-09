@@ -49,8 +49,42 @@ class WorldManager:
         rle_path = chunk_path / "chunk.rle.json"
 
         if not rle_path.exists():
-            print(f"[Client] -> File not found at: {rle_path}")
-            return None
+            print(f"[Client] -> RLE not found, try fallback: heightmap.r16")
+            # --- Fallback: читаем heightmap.r16 и строим временные слои ---
+            try:
+                import os, struct
+                hm_path = chunk_path / "heightmap.r16"
+                if not hm_path.exists():
+                    print(f"[Client] -> Fallback failed: {hm_path} missing")
+                    return None
+
+                # Читаем 256x256 (CHUNK_SIZE) 16-бит беззнаковые, little-endian
+                raw = hm_path.read_bytes()
+                expected = CHUNK_SIZE * CHUNK_SIZE * 2
+                if len(raw) != expected:
+                    print(f"[Client] -> Fallback failed: size mismatch {len(raw)} != {expected}")
+                    return None
+
+                # Превращаем в список списков высот (float)
+                height_vals = list(struct.unpack("<" + "H" * (CHUNK_SIZE * CHUNK_SIZE), raw))
+                height_grid = [height_vals[i * CHUNK_SIZE:(i + 1) * CHUNK_SIZE] for i in range(CHUNK_SIZE)]
+
+                # Временные слои: всё passable ground, overlay=0
+                surface_grid = [["ground"] * CHUNK_SIZE for _ in range(CHUNK_SIZE)]
+                nav_grid = [["passable"] * CHUNK_SIZE for _ in range(CHUNK_SIZE)]
+                overlay_grid = [[0] * CHUNK_SIZE for _ in range(CHUNK_SIZE)]
+
+                decoded = {
+                    "surface": surface_grid,
+                    "navigation": nav_grid,
+                    "overlay": overlay_grid,
+                    "height": height_grid,
+                }
+                self.cache[key] = decoded
+                return decoded
+            except Exception as e:
+                print(f"[Client] -> Fallback failed with error: {e}")
+                return None
         try:
             with open(rle_path, "r", encoding="utf-8") as f:
                 doc = json.load(f)

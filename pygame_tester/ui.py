@@ -1,6 +1,7 @@
 # pygame_tester/ui.py
 import pygame
 import pathlib
+from typing import List
 
 
 # --- НАЧАЛО ИЗМЕНЕНИЯ: Копируем класс Minimap из renderer.py сюда ---
@@ -12,6 +13,7 @@ class Minimap:
         self.position = (x, y)
         self.image_cache: dict[pathlib.Path, pygame.Surface] = {}
         self.visible = False
+        print("Minimap: UI init: buttons=1")
 
     def _get_preview_image(
             self, world_manager, cx: int, cz: int
@@ -22,16 +24,21 @@ class Minimap:
                 )
                 / "preview.png"
         )
+        # Отладочный вывод
         if path in self.image_cache:
+            print(f"[Minimap] Preview cache hit: {path.name}")
             return self.image_cache[path]
+
         try:
             image = pygame.image.load(str(path)).convert()
             scaled_image = pygame.transform.scale(
                 image, (self.cell_size_px, self.cell_size_px)
             )
             self.image_cache[path] = scaled_image
+            print(f"[Minimap] Preview cache miss, loaded: {path.name}")
             return scaled_image
         except (pygame.error, FileNotFoundError):
+            print(f"[Minimap] Preview file not found: {path}")
             return None
 
     def draw(self, screen, world_manager, player_cx: int, player_cz: int):
@@ -107,19 +114,29 @@ class SideMenu:
         self.padding = 10
         self.bg_color = pygame.Color(40, 45, 55)
 
-        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
-        # Добавляем кнопку "Toggle Debug"
         self.renderer = renderer
-        self.add_button("Toggle Debug", self.toggle_debug_mode)
-        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+        self.layer_modes = ["surface", "height", "temperature"]
+        self.current_layer_index = self.layer_modes.index(renderer.layer_mode)
+
+        self.add_button(self._get_layer_button_text(), self.toggle_layer_mode)
+        self.add_button(self._get_border_button_text(), self.toggle_hex_borders)
+        self.add_button("Toggle Minimap", self.toggle_minimap_visibility)
 
         minimap_y = (
                 self.rect.y
                 + self.padding
-                + 2 * (self.button_height + self.padding)
+                + 3 * (self.button_height + self.padding)
                 + self.padding
         )
         self.minimap = Minimap(self.rect.x + (self.rect.width - 160) // 2, minimap_y)
+
+    def _get_layer_button_text(self):
+        mode_name = self.layer_modes[self.current_layer_index]
+        return f"Layer: {mode_name.capitalize()}"
+
+    def _get_border_button_text(self):
+        state = "On" if self.renderer.show_hex_borders else "Off"
+        return f"Borders: {state}"
 
     def add_button(self, text, callback):
         button_y = (
@@ -148,6 +165,16 @@ class SideMenu:
 
         self.minimap.draw(screen, world_manager, player_cx, player_cz)
 
-    # --- НОВЫЙ МЕТОД ---
-    def toggle_debug_mode(self):
-        self.renderer.debug_mode = not self.renderer.debug_mode
+    def toggle_layer_mode(self):
+        self.current_layer_index = (self.current_layer_index + 1) % len(self.layer_modes)
+        self.renderer.layer_mode = self.layer_modes[self.current_layer_index]
+        self.buttons[0].text = self._get_layer_button_text()
+        print(f"Layer mode switched to: {self.renderer.layer_mode}")
+
+    def toggle_hex_borders(self):
+        self.renderer.show_hex_borders = not self.renderer.show_hex_borders
+        self.buttons[1].text = self._get_border_button_text()
+        print(f"Hex borders toggled: {'On' if self.renderer.show_hex_borders else 'Off'}")
+
+    def toggle_minimap_visibility(self):
+        self.minimap.toggle_visibility()

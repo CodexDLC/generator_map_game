@@ -9,14 +9,11 @@ from pygame_tester.config import CHUNK_SIZE, PLAYER_MOVE_SPEED
 from ..core.constants import NAV_PASSABLE, KIND_GROUND
 from ..core.grid.hex import HexGridSpec
 
+
 class GameWorld:
-    def __init__(self, world_seed: int):
+    def __init__(self, world_seed: int, grid_spec: HexGridSpec):
         self.world_manager = WorldManager(world_seed)
-        self.grid_spec = HexGridSpec(
-            edge_m=0.63,
-            meters_per_pixel=0.8,
-            chunk_px=CHUNK_SIZE
-        )
+        self.grid_spec = grid_spec
         initial_wx = self.grid_spec.chunk_size_m / 2
         initial_wz = self.grid_spec.chunk_size_m / 2
         initial_q, initial_r = self.grid_spec.world_to_axial(initial_wx, initial_wz)
@@ -55,10 +52,12 @@ class GameWorld:
         if chunk_data:
             self.render_grid[pos] = chunk_data
 
-    def get_tile_at(self, wx: float, wz: float) -> Dict:
-        q, r = self.grid_spec.world_to_axial(wx, wz)
-
-        chunk_data = self.world_manager.get_chunk_data(q, r)
+    def get_tile_at_axial(self, q: int, r: int) -> Dict:
+        """
+        Получает данные тайла по гексагональным координатам.
+        """
+        chunk_cx, chunk_cz = self.world_manager.grid_spec.axial_to_chunk_coords(q, r)
+        chunk_data = self.world_manager.get_chunk_data(chunk_cx, chunk_cz)
 
         if not chunk_data:
             return {
@@ -68,14 +67,14 @@ class GameWorld:
                 "height": 0,
             }
 
-        lx, lz = self.grid_spec.world_to_px(wx, wz)
+        local_x, local_z = self.world_manager.grid_spec.axial_to_local_px(q, r)
 
         surface_grid = chunk_data.get("surface", [])
         nav_grid = chunk_data.get("navigation", [])
         overlay_grid = chunk_data.get("overlay", [])
         height_grid = chunk_data.get("height", [])
 
-        is_in_bounds = 0 <= lz < len(surface_grid) and 0 <= lx < len(surface_grid[0])
+        is_in_bounds = 0 <= local_z < len(surface_grid) and 0 <= local_x < len(surface_grid[0])
         if not is_in_bounds:
             return {
                 "surface": "void",
@@ -85,26 +84,19 @@ class GameWorld:
             }
 
         return {
-            "surface": surface_grid[int(lz)][int(lx)],
-            "navigation": nav_grid[int(lz)][int(lx)],
-            "overlay": overlay_grid[int(lz)][int(lx)]
-            if (0 <= lz < len(overlay_grid) and 0 <= lx < len(overlay_grid[0]))
+            "surface": surface_grid[int(local_z)][int(local_x)],
+            "navigation": nav_grid[int(local_z)][int(local_x)],
+            "overlay": overlay_grid[int(local_z)][int(local_x)]
+            if (0 <= local_z < len(overlay_grid) and 0 <= local_x < len(overlay_grid[0]))
             else 0,
-            "height": height_grid[int(lz)][int(lx)]
-            if (0 <= lz < len(height_grid) and 0 <= lx < len(height_grid[0]))
+            "height": height_grid[int(local_z)][int(local_x)]
+            if (0 <= local_z < len(height_grid) and 0 <= local_x < len(height_grid[0]))
             else 0,
         }
 
     def set_player_target(self, target_wx: float, target_wz: float):
         start_q, start_r = self.player.q, self.player.r
         goal_q, goal_r = self.grid_spec.world_to_axial(target_wx, target_wz)
-
-        # Получаем данные чанка
-        start_chunk_key = (start_q // CHUNK_SIZE, start_r // CHUNK_SIZE)
-        goal_chunk_key = (goal_q // CHUNK_SIZE, goal_r // CHUNK_SIZE)
-
-        # Логика сшивания чанков здесь
-        # ...
 
         # Это временно, пока мы не реализуем сшивание чанков для гексов
         self.player.path = find_path(
