@@ -1,13 +1,13 @@
 # pygame_tester/world_manager.py
 import json
 import pathlib
+import struct
 from typing import Dict, Tuple
 
 from game_engine.core.preset import load_preset, Preset
-from game_engine.core.utils.rle import decode_rle_rows
 from game_engine.core.constants import (
-    SURFACE_ID_TO_KIND,
-    NAV_ID_TO_KIND
+    KIND_GROUND,
+    NAV_PASSABLE
 )
 from game_engine.core.grid.hex import HexGridSpec
 
@@ -22,19 +22,21 @@ class WorldManager:
         self.world_id = "world_location"
         self.current_seed = world_seed
         self.grid_spec = HexGridSpec(
-            edge_m=0.63, meters_per_pixel=0.8, chunk_px=CHUNK_SIZE
+            edge_m=0.63, meters_per_pixel=0.25, chunk_px=CHUNK_SIZE
         )
 
     def get_chunk_data(self, cx: int, cz: int) -> Dict | None:
         """
-        Загружает данные чанка из новой файловой структуры (meta.json + слои).
+        Загружает данные чанка из НОВОЙ файловой структуры.
+        Читает chunk.json, heightmap.r16 и objects.json.
+        Логические слои (surface, navigation) эмулирует "на лету" для тестера.
         """
         key = (self.world_id, self.current_seed, cx, cz)
         if key in self.cache:
             return self.cache[key]
 
         print(
-            f"\n[Client] Loading chunk: ({self.world_id}, seed={self.current_seed}, pos=({cx},{cz}))..."
+            f"\n[Client] Loading chunk from new format: pos=({cx},{cz})..."
         )
 
         chunk_dir = self._get_chunk_path(self.world_id, self.current_seed, cx, cz)
@@ -46,53 +48,53 @@ class WorldManager:
             return None
 
         try:
-            with open(meta_path, "r", encoding="utf-8") as f:
-                meta_doc = json.load(f)
+            # --- ШАГ 1: Загружаем все доступные клиентские ассеты ---
 
-            decoded_layers = {}
-            layer_files = meta_doc.get("layer_files", {})
+            # Загружаем карту высот
+            heightmap_path = chunk_dir / "heightmap.r16"
+            raw_bytes = heightmap_path.read_bytes()
+            # Убеждаемся, что размер файла корректен
+            expected_size = CHUNK_SIZE * CHUNK_SIZE * 2
+            if len(raw_bytes) != expected_size:
+                print(f"[Client] -> ERROR: Corrupted heightmap.r16 for chunk ({cx},{cz})")
+                self.cache[key] = None
+                return None
 
-            # Загрузка слоя surface
-            if "surface" in layer_files:
-                path = chunk_dir / layer_files["surface"]
-                with open(path, "r", encoding="utf-8") as f:
-                    s_rows = json.load(f).get("rows", [])
-                decoded_layers["surface"] = [
-                    [SURFACE_ID_TO_KIND.get(int(v), "ground") for v in row]
-                    for row in decode_rle_rows(s_rows)
-                ]
+            height_values = list(struct.unpack(f'<{CHUNK_SIZE * CHUNK_SIZE}H', raw_bytes))
+            # Нормализуем обратно в метры
+            max_h = float(self.preset.elevation.get("max_height_m", 150.0))
+            height_grid_m = [[(val / 65535.0) * max_h for val in
+                              [height_values[i * CHUNK_SIZE:(i + 1) * CHUNK_SIZE] for i in range(CHUNK_SIZE)][row_idx]]
+                             for row_idx in range(CHUNK_SIZE)]
 
-            # Загрузка слоя navigation
-            if "navigation" in layer_files:
-                path = chunk_dir / layer_files["navigation"]
-                with open(path, "r", encoding="utf-8") as f:
-                    n_rows = json.load(f).get("rows", [])
-                decoded_layers["navigation"] = [
-                    [NAV_ID_TO_KIND.get(int(v), "passable") for v in row]
-                    for row in decode_rle_rows(n_rows)
-                ]
+            # Загружаем объекты
+            objects_path = chunk_dir / "objects.json"
+            placed_objects = []
+            if objects_path.exists():
+                with open(objects_path, "r", encoding="utf-8") as f:
+                    placed_objects = json.load(f)
 
-            # Загрузка слоя height
-            if "height_q" in layer_files:
-                path = chunk_dir / layer_files["height_q"]
-                with open(path, "r", encoding="utf-8") as f:
-                    h_rows = json.load(f).get("rows", [])
-                decoded_layers["height"] = decode_rle_rows(h_rows)
+            # --- ШАГ 2: "Эмулируем" логические слои для тестера ---
+            # Так как кисти пока отключены, мы создадим простые слои для отображения.
+            # В будущем эта логика будет браться из `navigation.rle.json` и `surface.rle.json`,
+            # которые тестер будет загружать как "сервер".
 
-            # Загрузка слоя overlay
-            if "overlay" in layer_files:
-                path = chunk_dir / layer_files["overlay"]
-                with open(path, "r", encoding="utf-8") as f:
-                    o_rows = json.load(f).get("rows", [])
-                decoded_layers["overlay"] = decode_rle_rows(o_rows)
+            surface_grid = [[KIND_GROUND for _ in range(CHUNK_SIZE)] for _ in range(CHUNK_SIZE)]
+            nav_grid = [[NAV_PASSABLE for _ in range(CHUNK_SIZE)] for _ in range(CHUNK_SIZE)]
+            overlay_grid = [[0 for _ in range(CHUNK_SIZE)] for _ in range(CHUNK_SIZE)]
 
-            self.cache[key] = decoded_layers
-            return decoded_layers
+            decoded = {
+                "surface": surface_grid,
+                "navigation": nav_grid,
+                "overlay": overlay_grid,
+                "height": height_grid_m,
+                "objects": placed_objects
+            }
+            self.cache[key] = decoded
+            return decoded
 
         except Exception as e:
-            print(
-                f"!!! [Client] CRITICAL ERROR: Failed to load or decode chunk. Error: {e}"
-            )
+            print(f"!!! [Client] CRITICAL ERROR: Failed to load or decode chunk. Error: {e}")
             import traceback
             traceback.print_exc()
             self.cache[key] = None
@@ -104,7 +106,4 @@ class WorldManager:
         return load_preset(data)
 
     def _get_chunk_path(self, world_id: str, seed: int, cx: int, cz: int) -> pathlib.Path:
-        if world_id == "city":
-            return ARTIFACTS_ROOT / "world" / "city" / "static" / f"{cx}_{cz}"
-        else:
-            return ARTIFACTS_ROOT / "world" / world_id / str(seed) / f"{cx}_{cz}"
+        return ARTIFACTS_ROOT / "world" / world_id / str(seed) / f"{cx}_{cz}"
