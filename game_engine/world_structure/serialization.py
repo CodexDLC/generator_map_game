@@ -27,14 +27,15 @@ class RegionMetaContract:
 @dataclass
 class ClientChunkContract:
     """
-    Структура файла chunk_X_Y.json.
+    Структура файла chunk.json (метаданные).
     Содержит только ту информацию, которая нужна клиенту для отрисовки и игры.
     """
 
-    version: str = "1.0"
+    version: str = "chunk_v2_hex"
     cx: int = 0
     cz: int = 0
-    # Данные о тайлах. В будущем тайл станет словарем.
-    layers: Dict[str, Any] = field(default_factory=dict)
+    grid: Dict[str, Any] = field(default_factory=dict)
+    # --- ИЗМЕНЕНИЕ: Вместо данных слоев теперь пути к файлам ---
+    layer_files: Dict[str, str] = field(default_factory=dict)
     # Другие данные для клиента (точки интереса, квесты и т.д.)
     points_of_interest: List[Any] = field(default_factory=list)

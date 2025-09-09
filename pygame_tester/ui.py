@@ -4,16 +4,14 @@ import pathlib
 from typing import List
 
 
-# --- НАЧАЛО ИЗМЕНЕНИЯ: Копируем класс Minimap из renderer.py сюда ---
 class Minimap:
-    def __init__(self, x, y):
+    def __init__(self, x, y, size):
         self.map_size_chunks = 5
-        self.cell_size_px = 32
+        self.cell_size_px = size // self.map_size_chunks
         self.map_pixel_size = self.map_size_chunks * self.cell_size_px
         self.position = (x, y)
         self.image_cache: dict[pathlib.Path, pygame.Surface] = {}
         self.visible = False
-        print("Minimap: UI init: buttons=1")
 
     def _get_preview_image(
             self, world_manager, cx: int, cz: int
@@ -24,9 +22,7 @@ class Minimap:
                 )
                 / "preview.png"
         )
-        # Отладочный вывод
         if path in self.image_cache:
-            print(f"[Minimap] Preview cache hit: {path.name}")
             return self.image_cache[path]
 
         try:
@@ -35,20 +31,18 @@ class Minimap:
                 image, (self.cell_size_px, self.cell_size_px)
             )
             self.image_cache[path] = scaled_image
-            print(f"[Minimap] Preview cache miss, loaded: {path.name}")
             return scaled_image
         except (pygame.error, FileNotFoundError):
-            print(f"[Minimap] Preview file not found: {path}")
             return None
 
     def draw(self, screen, world_manager, player_cx: int, player_cz: int):
-        if not self.visible:
-            return
+        if not self.visible: return
 
         map_surface = pygame.Surface((self.map_pixel_size, self.map_pixel_size))
         map_surface.fill((20, 20, 30))
         map_surface.set_alpha(220)
         center_offset = self.map_size_chunks // 2
+
         for y in range(self.map_size_chunks):
             for x in range(self.map_size_chunks):
                 chunk_cx = player_cx + x - center_offset
@@ -73,16 +67,12 @@ class Minimap:
         self.visible = not self.visible
 
 
-# --- КОНЕЦ ИЗМЕНЕНИЯ ---
-
-
 class Button:
-    # ... (код класса Button без изменений) ...
     def __init__(self, x, y, width, height, text, callback):
         self.rect = pygame.Rect(x, y, width, height)
         self.text = text
         self.callback = callback
-        self.font = pygame.font.Font(None, 28)
+        self.font = pygame.font.Font(None, 24)
         self.color_bg = pygame.Color("grey30")
         self.color_border = pygame.Color("grey60")
         self.color_text = pygame.Color("white")
@@ -107,28 +97,23 @@ class Button:
 
 
 class SideMenu:
-    def __init__(self, x, y, width, height, renderer):  # <-- ДОБАВЛЕН АРГУМЕНТ renderer
+    def __init__(self, x, y, width, height, renderer):
         self.rect = pygame.Rect(x, y, width, height)
-        self.buttons = []
+        self.buttons: List[Button] = []
         self.button_height = 40
         self.padding = 10
-        self.bg_color = pygame.Color(40, 45, 55)
-
+        self.bg_color = pygame.Color(40, 45, 55, 240)
         self.renderer = renderer
-        self.layer_modes = ["surface", "height", "temperature"]
-        self.current_layer_index = self.layer_modes.index(renderer.layer_mode)
+        self.layer_modes = ["surface", "height"]
+        self.current_layer_index = 0
 
         self.add_button(self._get_layer_button_text(), self.toggle_layer_mode)
         self.add_button(self._get_border_button_text(), self.toggle_hex_borders)
         self.add_button("Toggle Minimap", self.toggle_minimap_visibility)
 
-        minimap_y = (
-                self.rect.y
-                + self.padding
-                + 3 * (self.button_height + self.padding)
-                + self.padding
-        )
-        self.minimap = Minimap(self.rect.x + (self.rect.width - 160) // 2, minimap_y)
+        minimap_size = width - self.padding * 2
+        minimap_y = self.rect.y + self.padding + len(self.buttons) * (self.button_height + self.padding)
+        self.minimap = Minimap(self.rect.x + self.padding, minimap_y, minimap_size)
 
     def _get_layer_button_text(self):
         mode_name = self.layer_modes[self.current_layer_index]
@@ -139,27 +124,39 @@ class SideMenu:
         return f"Borders: {state}"
 
     def add_button(self, text, callback):
-        button_y = (
-                self.rect.y
-                + self.padding
-                + len(self.buttons) * (self.button_height + self.padding)
-        )
+        button_y = self.rect.y + self.padding + len(self.buttons) * (self.button_height + self.padding)
         button_x = self.rect.x + self.padding
         button_width = self.rect.width - (2 * self.padding)
-        button = Button(
-            button_x, button_y, button_width, self.button_height, text, callback
-        )
+        button = Button(button_x, button_y, button_width, self.button_height, text, callback)
         self.buttons.append(button)
 
     def handle_event(self, event):
+        """
+        Обрабатывает события только для кнопок внутри меню.
+        """
+        # --- ИСПРАВЛЕНИЕ: Передаем события напрямую кнопкам. ---
+        # Логика внутри каждой кнопки сама проверит, относится ли к ней событие.
         for button in self.buttons:
             if button.handle_event(event):
+                # Если любая кнопка обработала событие (например, клик),
+                # то сообщаем главному циклу, что событие "поглощено" меню.
                 return True
+
+        # Если курсор мыши находится над областью меню, но не над кнопкой,
+        # мы все равно считаем событие "обработанным", чтобы предотвратить
+        # клик по карте "сквозь" меню.
+        if event.type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP):
+            if self.rect.collidepoint(event.pos):
+                return True
+
         return False
 
     def draw(self, screen, world_manager, player_cx, player_cz):
-        """Отрисовывает фон меню, все кнопки и миникарту."""
-        pygame.draw.rect(screen, self.bg_color, self.rect)
+        menu_surface = pygame.Surface(self.rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(menu_surface, self.bg_color, menu_surface.get_rect(), border_radius=8)
+
+        screen.blit(menu_surface, self.rect.topleft)
+
         for button in self.buttons:
             button.draw(screen)
 
@@ -169,12 +166,10 @@ class SideMenu:
         self.current_layer_index = (self.current_layer_index + 1) % len(self.layer_modes)
         self.renderer.layer_mode = self.layer_modes[self.current_layer_index]
         self.buttons[0].text = self._get_layer_button_text()
-        print(f"Layer mode switched to: {self.renderer.layer_mode}")
 
     def toggle_hex_borders(self):
         self.renderer.show_hex_borders = not self.renderer.show_hex_borders
         self.buttons[1].text = self._get_border_button_text()
-        print(f"Hex borders toggled: {'On' if self.renderer.show_hex_borders else 'Off'}")
 
     def toggle_minimap_visibility(self):
         self.minimap.toggle_visibility()

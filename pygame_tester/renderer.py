@@ -1,19 +1,16 @@
 # pygame_tester/renderer.py
 import pygame
 import math
-import sys
+import traceback
 from typing import List, Tuple, Dict
 from .config import (
-    TILE_SIZE,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
     PLAYER_COLOR,
     PATH_COLOR,
     ERROR_COLOR,
-    VIEWPORT_WIDTH_TILES,
-    VIEWPORT_HEIGHT_TILES,
     MENU_WIDTH,
-    BACKGROUND_COLOR,
+    BACKGROUND_COLOR, TILE_SIZE,
 )
 from game_engine.core.constants import DEFAULT_PALETTE
 from game_engine.core.grid.hex import HexGridSpec
@@ -24,20 +21,28 @@ class Camera:
         self.grid_spec = grid_spec
         self.top_left_wx = 0.0
         self.top_left_wz = 0.0
+        self.zoom = 1.0
 
     def center_on_player(self, player_q: int, player_r: int):
         player_wx, player_wz = self.grid_spec.axial_to_world(player_q, player_r)
-        self.top_left_wx = player_wx - (SCREEN_WIDTH - MENU_WIDTH) / 2 * self.grid_spec.meters_per_pixel
-        self.top_left_wz = player_wz - SCREEN_HEIGHT / 2 * self.grid_spec.meters_per_pixel
 
+        meters_per_screen_pixel = self.grid_spec.edge_m / (TILE_SIZE / 2.0 * self.zoom)
 
-def _get_height_color(height: float, min_h: float, max_h: float) -> Tuple[int, int, int]:
-    if max_h == min_h:
-        return (128, 128, 128)
-    norm_h = (height - min_h) / (max_h - min_h)
-    norm_h = max(0.0, min(1.0, norm_h))
-    c = int(255 * norm_h)
-    return (c, c, c)
+        viewport_width_m = (SCREEN_WIDTH - MENU_WIDTH) * meters_per_screen_pixel
+        viewport_height_m = SCREEN_HEIGHT * meters_per_screen_pixel
+
+        self.top_left_wx = player_wx - viewport_width_m / 2
+        self.top_left_wz = player_wz - viewport_height_m / 2
+
+    def move_by_pixels(self, dx: float, dz: float):
+        meters_per_screen_pixel = self.grid_spec.edge_m / (TILE_SIZE / 2.0 * self.zoom)
+        self.top_left_wx += dx * meters_per_screen_pixel
+        self.top_left_wz += dz * meters_per_screen_pixel
+
+    def change_zoom(self, amount: float, mouse_pos: Tuple[int, int]):
+        # TODO: Реализовать зум к курсору
+        self.zoom += amount
+        self.zoom = max(0.2, min(self.zoom, 5.0))
 
 
 def _get_hex_corners(center_x: float, center_y: float, size: float) -> List[Tuple[float, float]]:
@@ -51,150 +56,136 @@ def _get_hex_corners(center_x: float, center_y: float, size: float) -> List[Tupl
     return corners
 
 
+def _get_height_color(height: float, min_h: float, max_h: float) -> Tuple[int, int, int]:
+    if max_h <= min_h: return (128, 128, 128)
+    norm_h = max(0.0, min(1.0, (height - min_h) / (max_h - min_h)))
+    c = int(255 * norm_h)
+    return (c, c, c)
+
+
 class Renderer:
     def __init__(self, screen, grid_spec: HexGridSpec, camera: Camera):
         self.screen = screen
-        self.font = pygame.font.SysFont("consolas", 10)
+        self.font = pygame.font.SysFont("consolas", 14)
         self.colors = {k: self._hex_to_rgb(v) for k, v in DEFAULT_PALETTE.items()}
-        self.colors["road"] = self._hex_to_rgb("#d2b48c")
-        self.colors["void"] = (10, 10, 15)
-        self.colors["slope"] = self._hex_to_rgb("#9aa0a6")
+        self.colors["void"] = BACKGROUND_COLOR
         self.layer_mode = "surface"
         self.show_hex_borders = True
         self.error_message = None
 
         self.grid_spec = grid_spec
-        # --- ИСПРАВЛЕНИЕ: Удаляем строку, вызывающую ошибку, т.к. значение уже корректно ---
-        self.hex_size_px = TILE_SIZE / 2
-
-        # --- ИСПРАВЛЕНИЕ: Принимаем экземпляр Camera в качестве аргумента ---
         self.camera = camera
-
-        print(f"Renderer initialized:")
-        print(f"  edge_m: {self.grid_spec.edge_m}")
-        print(f"  meters_per_pixel: {self.grid_spec.meters_per_pixel:.4f}")
-        print(f"  hex_size_px (radius): {self.hex_size_px:.2f}")
+        self.hex_pixel_radius_at_zoom_1 = TILE_SIZE / 2.0
 
     def _hex_to_rgb(self, s: str) -> Tuple[int, int, int]:
         s = s.lstrip("#")
         return int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16)
 
-    def _get_screen_rect_from_axial(self, q: int, r: int) -> pygame.Rect:
-        world_x, world_z = self.grid_spec.axial_to_world(q, r)
-        screen_x = (world_x - self.camera.top_left_wx) / self.grid_spec.meters_per_pixel
-        screen_y = (world_z - self.camera.top_left_wz) / self.grid_spec.meters_per_pixel
+    def _world_to_screen(self, wx: float, wz: float) -> Tuple[float, float]:
+        pixels_per_meter = (self.hex_pixel_radius_at_zoom_1 / self.grid_spec.edge_m) * self.camera.zoom
+        sx = (wx - self.camera.top_left_wx) * pixels_per_meter
+        sz = (wz - self.camera.top_left_wz) * pixels_per_meter
+        return sx, sz
 
-        rect_x = screen_x - self.hex_size_px
-        rect_y = screen_y - self.hex_size_px
-        rect_width = self.hex_size_px * 2
-        rect_height = self.hex_size_px * 2
-
-        return pygame.Rect(rect_x, rect_y, rect_width, rect_height)
+    def screen_to_world(self, sx: float, sz: float) -> Tuple[float, float]:
+        meters_per_screen_pixel = self.grid_spec.edge_m / (self.hex_pixel_radius_at_zoom_1 * self.camera.zoom)
+        wx = self.camera.top_left_wx + sx * meters_per_screen_pixel
+        wz = self.camera.top_left_wz + sz * meters_per_screen_pixel
+        return wx, wz
 
     def set_error(self, message: str):
         self.error_message = message
 
     def draw_error_banner(self):
-        if not self.error_message:
-            return
-
-        font = pygame.font.SysFont("Arial", 20)
+        if not self.error_message: return
+        font = pygame.font.SysFont("Arial", 20, bold=True)
         text_surf = font.render(self.error_message, True, (255, 255, 0))
-        text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
-
-        pygame.draw.rect(self.screen, (30, 0, 0), text_rect.inflate(20, 20))
-        pygame.draw.rect(self.screen, (255, 255, 0), text_rect.inflate(20, 20), 2)
-        self.screen.blit(text_surf, text_rect)
+        bg_rect = text_surf.get_rect(center=((SCREEN_WIDTH - MENU_WIDTH) / 2, 30)).inflate(20, 10)
+        pygame.draw.rect(self.screen, (100, 0, 0), bg_rect)
+        pygame.draw.rect(self.screen, (255, 255, 0), bg_rect, 2)
+        self.screen.blit(text_surf, text_surf.get_rect(center=bg_rect.center))
 
     def draw_world(self, game_world, target_surface: pygame.Surface):
         target_surface.fill(BACKGROUND_COLOR)
-
         try:
-            # Обход по гексам, попадающим в видимую область
-            # Это намного эффективнее, чем итерироваться по пикселям
-            start_x_m = self.camera.top_left_wx
-            start_z_m = self.camera.top_left_wz
-            end_x_m = start_x_m + target_surface.get_width() * self.grid_spec.meters_per_pixel
-            end_z_m = start_z_m + target_surface.get_height() * self.grid_spec.meters_per_pixel
+            # --- ИЗМЕНЕНИЕ: Умное определение области отрисовки ---
 
-            start_q, start_r = self.grid_spec.world_to_axial(start_x_m, start_z_m)
-            end_q, end_r = self.grid_spec.world_to_axial(end_x_m, end_z_m)
+            # 1. Находим мировые координаты 4 углов экрана
+            meters_per_px = self.grid_spec.edge_m / (self.hex_pixel_radius_at_zoom_1 * self.camera.zoom)
+            viewport_w_m = target_surface.get_width() * meters_per_px
+            viewport_h_m = target_surface.get_height() * meters_per_px
 
-            # Расширяем область поиска на 1 гекс, чтобы избежать артефактов на границах
-            for r in range(min(start_r, end_r) - 1, max(start_r, end_r) + 1):
-                for q in range(min(start_q, end_q) - 1, max(start_q, end_q) + 1):
-                    center_x_w, center_z_w = self.grid_spec.axial_to_world(q, r)
+            wx_start, wz_start = self.camera.top_left_wx, self.camera.top_left_wz
+            wx_end, wz_end = wx_start + viewport_w_m, wz_start + viewport_h_m
 
-                    if not (start_x_m <= center_x_w <= end_x_m and start_z_m <= center_z_w <= end_z_m):
-                        continue
+            # 2. Находим гексагональные координаты этих 4 углов
+            corners_axial = [
+                self.grid_spec.world_to_axial(wx_start, wz_start),
+                self.grid_spec.world_to_axial(wx_end, wz_start),
+                self.grid_spec.world_to_axial(wx_start, wz_end),
+                self.grid_spec.world_to_axial(wx_end, wz_end),
+            ]
 
-                    center_x_screen = (center_x_w - self.camera.top_left_wx) / self.grid_spec.meters_per_pixel
-                    center_y_screen = (center_z_w - self.camera.top_left_wz) / self.grid_spec.meters_per_pixel
+            # 3. Находим минимальные и максимальные q и r из этих 4 точек
+            min_q = min(c[0] for c in corners_axial)
+            max_q = max(c[0] for c in corners_axial)
+            min_r = min(c[1] for c in corners_axial)
+            max_r = max(c[1] for c in corners_axial)
 
-                    # Кэшируем углы
-                    corners = _get_hex_corners(center_x_screen, center_y_screen, self.hex_size_px)
+            # 4. Итерируемся по этому большому прямоугольнику, который гарантированно покроет экран
+            for r in range(min_r - 1, max_r + 2):
+                for q in range(min_q - 1, max_q + 2):
+                    # (Дальнейшая логика отрисовки остается той же)
+                    tile_info = game_world.get_tile_at_axial(q, r)
+                    if tile_info["surface"] == "void": continue
 
-                    tile_info = game_world.get_tile_at(center_x_w, center_z_w)
-                    height_val = tile_info.get("height", 0)
+                    color = self.colors.get(tile_info["surface"], ERROR_COLOR)
 
-                    color = BACKGROUND_COLOR
                     if self.layer_mode == "surface":
-                        surface_kind = tile_info.get("surface", "void")
-                        overlay_id = tile_info.get("overlay", 0)
-                        color = self.colors.get(surface_kind, ERROR_COLOR)
-                        if overlay_id != 0:
+                        if tile_info.get("overlay", 0) != 0:
                             color = self.colors.get("road", ERROR_COLOR)
                     elif self.layer_mode == "height":
-                        color = _get_height_color(height_val, 0, 150)
-                    else:  # Для будущего режима temperature
-                        color = _get_height_color(height_val, 0, 150)  # Заглушка, использующая высоту
+                        color = _get_height_color(tile_info.get("height", 0), 0, 150)
+
+                    wx, wz = self.grid_spec.axial_to_world(q, r)
+                    sx, sz = self._world_to_screen(wx, wz)
+
+                    current_hex_pixel_radius = self.hex_pixel_radius_at_zoom_1 * self.camera.zoom
+                    corners = _get_hex_corners(sx, sz, current_hex_pixel_radius)
 
                     pygame.draw.polygon(target_surface, color, corners)
-
                     if self.show_hex_borders:
-                        pygame.draw.polygon(target_surface, (0, 0, 0), corners, 1)
+                        pygame.draw.polygon(target_surface, (50, 50, 50), corners, 1)
+
         except Exception as e:
             self.set_error(f"Render Error: {e}")
+            traceback.print_exc()
 
-    def draw_path(
-            self,
-            path: List[Tuple[int, int]],
-            target_surface: pygame.Surface,
-    ):
-        for q, r in path:
-            rect = self._get_screen_rect_from_axial(q, r)
-            pygame.draw.rect(target_surface, PATH_COLOR, rect)
+    def draw_path(self, path: List[Tuple[int, int]], target_surface: pygame.Surface):
+        if not path or len(path) < 2: return
+        points = [self._world_to_screen(*self.grid_spec.axial_to_world(q, r)) for q, r in path]
+        pygame.draw.lines(target_surface, PATH_COLOR, False, points, 3)
 
-    def draw_player(
-            self,
-            player_q: int,
-            player_r: int,
-            target_surface: pygame.Surface,
-    ):
-        rect = self._get_screen_rect_from_axial(player_q, player_r)
-        pygame.draw.rect(target_surface, PLAYER_COLOR, rect)
+    def draw_player(self, player_q: int, player_r: int, target_surface: pygame.Surface):
+        wx, wz = self.grid_spec.axial_to_world(player_q, player_r)
+        sx, sz = self._world_to_screen(wx, wz)
+        player_radius = self.hex_pixel_radius_at_zoom_1 * self.camera.zoom * 0.6
+        pygame.draw.circle(target_surface, PLAYER_COLOR, (sx, sz), player_radius)
+        pygame.draw.circle(target_surface, (0, 0, 0), (sx, sz), player_radius, 2)
 
-    def draw_status(self, world_manager, player_wx, player_wz):
-        chunk_size_m = self.grid_spec.chunk_size_m
-        current_cx = int(player_wx // chunk_size_m)
-        current_cz = int(player_wz // chunk_size_m)
+    def draw_status(self, world_manager, player_wx, player_wz, player_q, player_r):
+        current_cx, current_cz = self.grid_spec.axial_to_chunk_coords(player_q, player_r)
         status_text = (
-            f"World: {world_manager.world_id} | "
             f"Seed: {world_manager.current_seed} | "
             f"Chunk: ({current_cx}, {current_cz}) | "
-            f"Player: ({player_wx:.2f}, {player_wz:.2f}) | "
-            f"Mode: {self.layer_mode} | "
-            f"Borders: {self.show_hex_borders}"
+            f"Player W: ({player_wx:.1f}, {player_wz:.1f}) | "
+            f"Q,R: ({player_q}, {player_r}) | "
+            f"Zoom: {self.camera.zoom:.2f} | "
+            f"Mode: {self.layer_mode.capitalize()}"
         )
-
-        status_font = pygame.font.SysFont("consolas", 16)
-        text_surface = status_font.render(status_text, True, (255, 255, 255))
+        text_surface = self.font.render(status_text, True, (255, 255, 255))
         bar_height = text_surface.get_height() + 8
-        bar_rect = pygame.Rect(0, SCREEN_HEIGHT - bar_height, SCREEN_WIDTH, bar_height)
-
         s = pygame.Surface((SCREEN_WIDTH, bar_height), pygame.SRCALPHA)
         s.fill((0, 0, 0, 180))
         self.screen.blit(s, (0, SCREEN_HEIGHT - bar_height))
-
-        text_rect = text_surface.get_rect(centery=bar_rect.centery, x=5)
-        self.screen.blit(text_surface, text_rect)
+        self.screen.blit(text_surface, (5, SCREEN_HEIGHT - bar_height + 4))

@@ -72,6 +72,28 @@ class HexGridSpec:
         r = int(rz)
         return q, r
 
+    # --- НОВЫЕ МЕТОДЫ ДЛЯ РАБОТЫ С ЧАНКАМИ ---
+
+    def axial_to_chunk_coords(self, q: int, r: int) -> Tuple[int, int]:
+        """Определяет, в каком чанке (cx, cz) находится гекс (q,r)."""
+        wx, wz = self.axial_to_world(q, r)
+        cx = math.floor(wx / self.chunk_size_m)
+        cz = math.floor(wz / self.chunk_size_m)
+        return int(cx), int(cz)
+
+    def axial_to_local_px(self, q: int, r: int) -> Tuple[int, int]:
+        """
+        Определяет локальные пиксельные координаты (x, z) внутри чанка
+        для гекса (q,r).
+        """
+        wx, wz = self.axial_to_world(q, r)
+        cx = math.floor(wx / self.chunk_size_m)
+        cz = math.floor(wz / self.chunk_size_m)
+        local_wx = wx - cx * self.chunk_size_m
+        local_wz = wz - cz * self.chunk_size_m
+        px_x, px_z = self.world_to_px(local_wx, local_wz)
+        return int(px_x), int(px_z)
+
     # --- Соседи и расстояния ---
 
     @staticmethod
@@ -98,7 +120,6 @@ class HexGridSpec:
         Перевод местоположения в метрах в координаты пиксельной карты (float).
         0..chunk_px-1 по каждой оси.
         """
-        L = self.chunk_size_m
         u = x / self.meters_per_pixel
         v = z / self.meters_per_pixel
         # клауза для численной устойчивости

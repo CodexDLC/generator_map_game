@@ -7,14 +7,9 @@ from game_engine.core.preset import load_preset, Preset
 from game_engine.core.utils.rle import decode_rle_rows
 from game_engine.core.constants import (
     SURFACE_ID_TO_KIND,
-    NAV_ID_TO_KIND,
-    KIND_GROUND,
-    NAV_PASSABLE,
-    NAV_OBSTACLE,
-    NAV_WATER,
-    NAV_BRIDGE,
+    NAV_ID_TO_KIND
 )
-from game_engine.core.grid.hex import HexGridSpec  # <-- НОВЫЙ ИМПОРТ
+from game_engine.core.grid.hex import HexGridSpec
 
 from .config import PRESET_PATH, ARTIFACTS_ROOT, CHUNK_SIZE
 
@@ -26,137 +21,81 @@ class WorldManager:
         self.cache: Dict[Tuple, Dict | None] = {}
         self.world_id = "world_location"
         self.current_seed = world_seed
-        # --- НАЧАЛО ИЗМЕНЕНИЙ: Создаем spec для гексов ---
         self.grid_spec = HexGridSpec(
             edge_m=0.63, meters_per_pixel=0.8, chunk_px=CHUNK_SIZE
         )
-        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
-    # --- ИЗМЕНЕНИЯ: Теперь принимаем гексагональные координаты ---
-    def get_chunk_data(self, q: int, r: int) -> Dict | None:
-        cx = q // self.preset.size
-        cz = r // self.preset.size
-
+    def get_chunk_data(self, cx: int, cz: int) -> Dict | None:
+        """
+        Загружает данные чанка из новой файловой структуры (meta.json + слои).
+        """
         key = (self.world_id, self.current_seed, cx, cz)
         if key in self.cache:
             return self.cache[key]
 
         print(
-            f"\n[Client] Loading procedural chunk: ({self.world_id}, seed={self.current_seed}, pos=({cx},{cz}))..."
+            f"\n[Client] Loading chunk: ({self.world_id}, seed={self.current_seed}, pos=({cx},{cz}))..."
         )
 
-        chunk_path = self._get_chunk_path(self.world_id, self.current_seed, cx, cz)
-        rle_path = chunk_path / "chunk.rle.json"
+        chunk_dir = self._get_chunk_path(self.world_id, self.current_seed, cx, cz)
+        meta_path = chunk_dir / "chunk.json"
 
-        if not rle_path.exists():
-            print(f"[Client] -> RLE not found, try fallback: heightmap.r16")
-            # --- Fallback: читаем heightmap.r16 и строим временные слои ---
-            try:
-                import os, struct
-                hm_path = chunk_path / "heightmap.r16"
-                if not hm_path.exists():
-                    print(f"[Client] -> Fallback failed: {hm_path} missing")
-                    return None
+        if not meta_path.exists():
+            print(f"[Client] -> Meta file not found: {meta_path}")
+            self.cache[key] = None
+            return None
 
-                # Читаем 256x256 (CHUNK_SIZE) 16-бит беззнаковые, little-endian
-                raw = hm_path.read_bytes()
-                expected = CHUNK_SIZE * CHUNK_SIZE * 2
-                if len(raw) != expected:
-                    print(f"[Client] -> Fallback failed: size mismatch {len(raw)} != {expected}")
-                    return None
-
-                # Превращаем в список списков высот (float)
-                height_vals = list(struct.unpack("<" + "H" * (CHUNK_SIZE * CHUNK_SIZE), raw))
-                height_grid = [height_vals[i * CHUNK_SIZE:(i + 1) * CHUNK_SIZE] for i in range(CHUNK_SIZE)]
-
-                # Временные слои: всё passable ground, overlay=0
-                surface_grid = [["ground"] * CHUNK_SIZE for _ in range(CHUNK_SIZE)]
-                nav_grid = [["passable"] * CHUNK_SIZE for _ in range(CHUNK_SIZE)]
-                overlay_grid = [[0] * CHUNK_SIZE for _ in range(CHUNK_SIZE)]
-
-                decoded = {
-                    "surface": surface_grid,
-                    "navigation": nav_grid,
-                    "overlay": overlay_grid,
-                    "height": height_grid,
-                }
-                self.cache[key] = decoded
-                return decoded
-            except Exception as e:
-                print(f"[Client] -> Fallback failed with error: {e}")
-                return None
         try:
-            with open(rle_path, "r", encoding="utf-8") as f:
-                doc = json.load(f)
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta_doc = json.load(f)
 
-            if "layers" in doc:
-                layers = doc["layers"]
-                s_rows = layers.get("surface", {}).get("rows", [])
-                n_rows = layers.get("navigation", {}).get("rows", [])
-                h_rows = layers.get("height_q", {}).get("rows", [])
-                o_rows = layers.get("overlay", {}).get("rows", [])
+            decoded_layers = {}
+            layer_files = meta_doc.get("layer_files", {})
 
-                surface_grid = [
+            # Загрузка слоя surface
+            if "surface" in layer_files:
+                path = chunk_dir / layer_files["surface"]
+                with open(path, "r", encoding="utf-8") as f:
+                    s_rows = json.load(f).get("rows", [])
+                decoded_layers["surface"] = [
                     [SURFACE_ID_TO_KIND.get(int(v), "ground") for v in row]
                     for row in decode_rle_rows(s_rows)
                 ]
-                nav_grid = [
+
+            # Загрузка слоя navigation
+            if "navigation" in layer_files:
+                path = chunk_dir / layer_files["navigation"]
+                with open(path, "r", encoding="utf-8") as f:
+                    n_rows = json.load(f).get("rows", [])
+                decoded_layers["navigation"] = [
                     [NAV_ID_TO_KIND.get(int(v), "passable") for v in row]
                     for row in decode_rle_rows(n_rows)
                 ]
-                overlay_grid = decode_rle_rows(o_rows)
-                height_grid = decode_rle_rows(h_rows)
 
-                decoded = {
-                    "surface": surface_grid,
-                    "navigation": nav_grid,
-                    "overlay": overlay_grid,
-                    "height": height_grid,
-                }
-                self.cache[key] = decoded
-                return decoded
-            else:
-                decoded_rows = decode_rle_rows(doc.get("rows", []))
-                old_id_map = {
-                    0: "ground",
-                    1: "obstacle_prop",
-                    2: "water",
-                    3: "road",
-                    7: "bridge",
-                }
-                w = doc.get("w", 128)
-                h = doc.get("h", 128)
-                surface_grid = [[KIND_GROUND for _ in range(w)] for _ in range(h)]
-                nav_grid = [[NAV_PASSABLE for _ in range(w)] for _ in range(h)]
-                for z, row in enumerate(decoded_rows):
-                    for x, old_id in enumerate(row):
-                        kind = old_id_map.get(old_id, "ground")
-                        if kind in ["ground", "road"]:
-                            surface_grid[z][x] = kind
-                            nav_grid[z][x] = NAV_PASSABLE
-                        elif kind == "bridge":
-                            surface_grid[z][x] = "road"
-                            nav_grid[z][x] = NAV_BRIDGE
-                        elif kind in ["obstacle_prop", "water"]:
-                            surface_grid[z][x] = KIND_GROUND
-                            nav_grid[z][x] = (
-                                NAV_OBSTACLE if kind == "obstacle_prop" else NAV_WATER
-                            )
-                height_grid = [[0.0] * w for _ in range(h)]
-            decoded = {
-                "surface": surface_grid,
-                "navigation": nav_grid,
-                "height": height_grid,
-            }
-            self.cache[key] = decoded
-            return decoded
+            # Загрузка слоя height
+            if "height_q" in layer_files:
+                path = chunk_dir / layer_files["height_q"]
+                with open(path, "r", encoding="utf-8") as f:
+                    h_rows = json.load(f).get("rows", [])
+                decoded_layers["height"] = decode_rle_rows(h_rows)
+
+            # Загрузка слоя overlay
+            if "overlay" in layer_files:
+                path = chunk_dir / layer_files["overlay"]
+                with open(path, "r", encoding="utf-8") as f:
+                    o_rows = json.load(f).get("rows", [])
+                decoded_layers["overlay"] = decode_rle_rows(o_rows)
+
+            self.cache[key] = decoded_layers
+            return decoded_layers
+
         except Exception as e:
             print(
                 f"!!! [Client] CRITICAL ERROR: Failed to load or decode chunk. Error: {e}"
             )
             import traceback
-
             traceback.print_exc()
+            self.cache[key] = None
             return None
 
     def _load_preset(self) -> Preset:
@@ -164,7 +103,6 @@ class WorldManager:
             data = json.load(f)
         return load_preset(data)
 
-    # Эта функция остается без изменений, т.к. пути к файлам все еще зависят от cx/cz
     def _get_chunk_path(self, world_id: str, seed: int, cx: int, cz: int) -> pathlib.Path:
         if world_id == "city":
             return ARTIFACTS_ROOT / "world" / "city" / "static" / f"{cx}_{cz}"

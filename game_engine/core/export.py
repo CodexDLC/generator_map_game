@@ -27,17 +27,13 @@ except ImportError:
     pass
 
 
-# --- НОВАЯ ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ---
 def _ensure_path_exists(path: str) -> None:
     """Убеждается, что директория для указанного пути к файлу существует."""
     Path(path).parent.mkdir(parents=True, exist_ok=True)
 
 
-# -----------------------------------------
-
-
 def _atomic_write_json(path: str, data: Any):
-    _ensure_path_exists(path)  # <-- Используем новую функцию
+    _ensure_path_exists(path)
     tmp_path = path + ".tmp"
 
     def default_serializer(o):
@@ -61,37 +57,60 @@ def write_region_meta(path: str, meta_contract: RegionMetaContract):
     print(f"--- EXPORT: Метаданные региона сохранены: {path}")
 
 
-def write_client_chunk(path: str, chunk_contract: ClientChunkContract):
-    output_data = {
-        "version": chunk_contract.version,
-        "cx": chunk_contract.cx,
-        "cz": chunk_contract.cz,
-        "layers": {},
-    }
-    if "surface" in chunk_contract.layers:
-        surface_grid = chunk_contract.layers["surface"]
-        id_grid = [
-            [SURFACE_KIND_TO_ID.get(kind, 0) for kind in row] for row in surface_grid
-        ]
-        output_data["layers"]["surface"] = encode_rle_rows(id_grid)
-    if "navigation" in chunk_contract.layers:
-        nav_grid = chunk_contract.layers["navigation"]
+def write_client_chunk(path_to_meta_json: str, chunk_contract: ClientChunkContract, raw_layers: Dict[str, Any]):
+    """
+    Записывает чанк в новом разделенном формате:
+    1. Главный chunk.json с метаданными.
+    2. Отдельные .rle.json файлы для каждого слоя данных.
+    """
+    meta_path = Path(path_to_meta_json)
+    chunk_dir = meta_path.parent
+    _ensure_path_exists(str(meta_path))
+
+    # --- ЭТАП 1: Обработка и сохранение каждого слоя ---
+    layer_filenames = {}
+
+    # Слой Surface
+    if "surface" in raw_layers:
+        surface_grid = raw_layers["surface"]
+        id_grid = [[SURFACE_KIND_TO_ID.get(kind, 0) for kind in row] for row in surface_grid]
+        rle_data = encode_rle_rows(id_grid)
+        layer_path = chunk_dir / "surface.rle.json"
+        _atomic_write_json(str(layer_path), rle_data)
+        layer_filenames["surface"] = "surface.rle.json"
+
+    # Слой Navigation
+    if "navigation" in raw_layers:
+        nav_grid = raw_layers["navigation"]
         id_grid = [[NAV_KIND_TO_ID.get(kind, 0) for kind in row] for row in nav_grid]
-        output_data["layers"]["navigation"] = encode_rle_rows(id_grid)
-    if "height_q" in chunk_contract.layers and isinstance(
-        chunk_contract.layers["height_q"], dict
-    ):
-        height_grid = chunk_contract.layers["height_q"].get("grid", [])
-        output_data["layers"]["height_q"] = encode_rle_rows(height_grid)
+        rle_data = encode_rle_rows(id_grid)
+        layer_path = chunk_dir / "navigation.rle.json"
+        _atomic_write_json(str(layer_path), rle_data)
+        layer_filenames["navigation"] = "navigation.rle.json"
 
+    # Слой Height
+    if "height_q" in raw_layers and isinstance(raw_layers["height_q"], dict):
+        height_grid = raw_layers["height_q"].get("grid", [])
+        rle_data = encode_rle_rows(height_grid)
+        layer_path = chunk_dir / "height_q.rle.json"
+        _atomic_write_json(str(layer_path), rle_data)
+        layer_filenames["height_q"] = "height_q.rle.json"
 
-    # --- ДОБАВЛЕНО: Сохраняем overlay слой ---
-    if "overlay" in chunk_contract.layers:
-        overlay_grid = chunk_contract.layers["overlay"]
-        output_data["layers"]["overlay"] = encode_rle_rows(overlay_grid)
-    _atomic_write_json(path, output_data)
+    # Слой Overlay
+    if "overlay" in raw_layers:
+        overlay_grid = raw_layers["overlay"]
+        rle_data = encode_rle_rows(overlay_grid)
+        layer_path = chunk_dir / "overlay.rle.json"
+        _atomic_write_json(str(layer_path), rle_data)
+        layer_filenames["overlay"] = "overlay.rle.json"
 
+    # --- ЭТАП 2: Создание и сохранение главного meta-файла ---
+    chunk_contract.layer_files = layer_filenames
+    meta_data_to_serialize = dataclasses.asdict(chunk_contract)
+    _atomic_write_json(str(meta_path), meta_data_to_serialize)
+    print(f"--- EXPORT: Клиентский чанк сохранен (мета): {meta_path}")
 
+# ... (остальные функции экспорта остаются без изменений) ...
 def write_chunk_preview(
     path: str,
     surface_grid: List[List[str]],

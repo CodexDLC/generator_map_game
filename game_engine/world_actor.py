@@ -23,14 +23,14 @@ from .world_structure.serialization import ClientChunkContract
 
 class WorldActor:
     def __init__(
-        self, seed: int, preset: Preset, artifacts_root: Path, progress_callback=None
+            self, seed: int, preset: Preset, artifacts_root: Path, progress_callback=None
     ):
         self.seed = seed
         self.preset = preset
         self.artifacts_root = artifacts_root
         self.raw_data_path = self.artifacts_root / "world_raw" / str(self.seed)
         self.final_data_path = (
-            self.artifacts_root / "world" / "world_location" / str(self.seed)
+                self.artifacts_root / "world" / "world_location" / str(self.seed)
         )
         self.progress_callback = progress_callback
 
@@ -38,16 +38,13 @@ class WorldActor:
         if self.progress_callback:
             self.progress_callback(message)
 
-    # --- НАЧАЛО ИЗМЕНЕНИЙ: Полностью переписанная и упрощенная функция ---
     def prepare_starting_area(self, region_manager: RegionManager):
         """
         Определяет и генерирует все регионы, необходимые для стартовой зоны.
-        Работает корректно, создавая квадратную область.
         """
         radius = self.preset.initial_load_radius
         print(f"\n[WorldActor] Preparing start area with chunk radius {radius}...")
 
-        # 1. Определяем, какие регионы нужно сгенерировать, на основе радиуса в чанках
         regions_to_ensure = set()
         for cz in range(-radius, radius + 1):
             for cx in range(-radius, radius + 1):
@@ -57,28 +54,15 @@ class WorldActor:
             f"[WorldActor] Found {len(regions_to_ensure)} regions to generate: {regions_to_ensure}"
         )
 
-        # 2. Генерируем каждый необходимый регион
         for scx, scz in regions_to_ensure:
-            # Прямой вызов функции генерации для каждого региона
             region_manager.generate_raw_region(scx, scz)
-
-            # Логика детализации (второго этапа) остается здесь, но она будет
-            # вызываться для каждого региона в квадрате, а не в полоске.
-            # (Этот код можно будет вынести, но пока оставим для ясности)
             self._detail_region(scx, scz)
 
     def _detail_region(self, scx: int, scz: int):
         """
         Выполняет второй этап генерации (детализацию) для одного конкретного региона.
         """
-        final_region_path_check = self.final_data_path / f"{scx}_{scz}"
-        if final_region_path_check.exists():
-            # Просто проверяем по одной папке, чтобы не перепроверять все чанки
-            # В будущем можно сделать более надежную проверку
-            pass
-
-        # --- НАЧАЛО ИЗМЕНЕНИЙ (Фаза 1.1): Создание мета-файла мира ---
-        WORLD_ID = "world_location" # Определяем ID мира
+        WORLD_ID = "world_location"
         meta_path = str(self.final_data_path.parent / "_world_meta.json")
         if not os.path.exists(meta_path):
             write_world_meta_json(
@@ -93,7 +77,7 @@ class WorldActor:
 
         self._log(f"[WorldActor] Detailing required for region ({scx},{scz})...")
         region_meta_path = (
-            self.raw_data_path / "regions" / f"{scx}_{scz}" / "region_meta.json"
+                self.raw_data_path / "regions" / f"{scx}_{scz}" / "region_meta.json"
         )
         if not region_meta_path.exists():
             self._log(
@@ -150,45 +134,39 @@ class WorldActor:
                     )
                     continue
 
-                # --- НАЧАЛО ИЗМЕНЕНИЙ: Единое создание контракта и вызов экспорта ---
                 client_chunk_dir = self.final_data_path / f"{chunk_cx}_{chunk_cz}"
-                client_rle_path = client_chunk_dir / "chunk.rle.json"
+                client_meta_path = client_chunk_dir / "chunk.json"  # --- ИЗМЕНЕНИЕ: Теперь это главный файл
                 heightmap_path = client_chunk_dir / "heightmap.r16"
                 controlmap_path = client_chunk_dir / "control.r32"
                 preview_path = client_chunk_dir / "preview.png"
                 palette = self.preset.export.get("palette", {})
                 max_height = float(self.preset.elevation.get("max_height_m", 1.0))
 
-                # Создаем контракт только один раз и добавляем в него все данные
-                client_contract = ClientChunkContract(
-                    cx=chunk_cx,
-                    cz=chunk_cz,
-                    layers=final_chunk.layers,
-                    version="chunk_v2_hex"
-                )
-
-                chunk_size_px = self.preset.size
                 grid_spec = HexGridSpec(
                     edge_m=0.63,
                     meters_per_pixel=0.8,
-                    chunk_px=chunk_size_px
+                    chunk_px=self.preset.size
                 )
                 cols, rows = grid_spec.dims_for_chunk()
-                client_contract.grid = {
-                    "type": "hex",
-                    "orientation": "pointy-top",
-                    "coord_storage": "odd-r",
-                    "cols": cols,
-                    "rows": rows
-                }
-                # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
-                write_client_chunk(str(client_rle_path), client_contract)
+                client_contract = ClientChunkContract(
+                    cx=chunk_cx,
+                    cz=chunk_cz,
+                    version="chunk_v2_hex",
+                    grid={
+                        "type": "hex",
+                        "orientation": "pointy-top",
+                        "coord_storage": "odd-r",
+                        "cols": cols,
+                        "rows": rows
+                    }
+                )
+
+                # --- ИЗМЕНЕНИЕ: Передаем сырые слои в функцию экспорта ---
+                write_client_chunk(str(client_meta_path), client_contract, final_chunk.layers)
                 write_heightmap_r16(str(heightmap_path), height_grid, max_height)
                 write_control_map_r32(
                     str(controlmap_path), surface_grid, nav_grid, overlay_grid
                 )
                 write_chunk_preview(str(preview_path), surface_grid, nav_grid, palette)
         self._log(f"[WorldActor] Detailing for region ({scx},{scz}) is complete.")
-
-    # --- ИЗМЕНЕНИЕ: Ненужная функция ensure_region_is_ready полностью удалена ---
