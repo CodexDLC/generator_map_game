@@ -209,3 +209,13 @@ def write_navigation_rle(path: str, nav_grid: List[List[str]]):
     except Exception as e:
         print(f"!!! LOG: КРИТИЧЕСКАЯ ОШИБКА при создании navigation.rle.json: {e}")
 
+
+def write_server_hex_map(path: str, hex_map_data: Dict[str, Any]):
+    """
+    Сохраняет детальную карту гексов в виде JSON-файла для серверного использования.
+    """
+    try:
+        _atomic_write_json(path, hex_map_data)
+        print(f"--- EXPORT: Серверная карта гексов (.json) сохранена: {path}")
+    except Exception as e:
+        print(f"!!! LOG: КРИТИЧЕСКАЯ ОШИБКА при создании server_hex_map.json: {e}")

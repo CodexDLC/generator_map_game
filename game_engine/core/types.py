@@ -1,7 +1,10 @@
-# engine/worldgen_core/base/types.py
+# game_engine/core/types.py
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Protocol
+
+# Добавляем импорт HexGridSpec
+from .grid.hex import HexGridSpec
 
 
 @dataclass
@@ -15,6 +18,8 @@ class GenResult:
     cz: int
     size: int
     cell_size: float
+
+    grid_spec: HexGridSpec | None = None
     layers: Dict[str, Any] = field(default_factory=dict)
     fields: Dict[str, Any] = field(default_factory=dict)
     ports: Dict[str, List[int]] = field(
@@ -26,6 +31,11 @@ class GenResult:
     capabilities: Dict[str, Any] = field(
         default_factory=lambda: {"has_roads": False, "has_biomes": False}
     )
+
+    # --- НОВОЕ ПОЛЕ ---
+    # Здесь будут временно храниться данные для server_hex_map.json
+    hex_map_data: Dict[str, Any] = field(default_factory=dict)
+
 
     def header(self) -> Dict[str, Any]:
         return {

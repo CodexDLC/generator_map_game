@@ -12,9 +12,11 @@ from .core.export import (
     write_control_map_r32,
     write_world_meta_json,
     write_objects_json,
-    write_navigation_rle
+    write_navigation_rle,
+    write_server_hex_map
 )
 from .world_structure.grid_utils import region_base
+
 from .world_structure.regions import RegionManager
 from .world_structure.chunk_processor import process_chunk
 from .world_structure.context import Region
@@ -127,6 +129,10 @@ class WorldActor:
                 # Сохраняем navigation.rle.json для сервера
                 nav_path = client_chunk_dir / "navigation.rle.json"
                 write_navigation_rle(str(nav_path), nav_grid)
+
+                if final_chunk.hex_map_data:
+                    server_hex_map_path = client_chunk_dir / "server_hex_map.json"
+                    write_server_hex_map(str(server_hex_map_path), final_chunk.hex_map_data)
 
                 preview_path = client_chunk_dir / "preview.png"
                 palette = self.preset.export.get("palette", {})

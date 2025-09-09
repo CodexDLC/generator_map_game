@@ -10,7 +10,9 @@ from .context import Region
 from ..story_features.biome_rules import apply_biome_rules
 from ..story_features.local_roads import build_local_roads
 from .prefab_manager import PrefabManager
-from .object_types import PlacedObject  # <-- Импортируем наш новый тип
+from .object_types import PlacedObject
+# --- НОВЫЙ ИМПОРТ ---
+from .grid_utils import generate_hex_map_from_pixels
 
 
 def _load_raw_chunk_data(path: Path) -> Dict[str, Any]:
@@ -24,14 +26,20 @@ def process_chunk(
     raw_data = _load_raw_chunk_data(raw_chunk_path)
     chunk = GenResult(**raw_data)
 
-    # --- ДОБАВЛЕНО: Подготавливаем список для объектов ---
     chunk.placed_objects: list[PlacedObject] = []
 
-    # --- ВРЕМЕННО ОТКЛЮЧЕНО, ПОКА МЫ НЕ ПЕРЕДЕЛАЕМ КИСТИ ---
-    # print("!!! WARNING: Biome and road brushes are temporarily disabled for refactoring.")
-    # apply_biome_rules(chunk, preset, region_context, prefab_manager)
-    # build_local_roads(chunk, region_context, preset)
-    # --------------------------------------------------------
+    # ... (вызовы apply_biome_rules и build_local_roads) ...
+
+    # --- ГЕНЕРАЦИЯ ДАННЫХ ДЛЯ КАРТЫ ГЕКСОВ ---
+    if chunk.grid_spec:
+        print(f"  -> Generating server hex map for chunk ({chunk.cx},{chunk.cz})...")
+        chunk.hex_map_data = generate_hex_map_from_pixels(
+            chunk.grid_spec,
+            chunk.layers["surface"],
+            chunk.layers["navigation"],
+            chunk.layers["height_q"]["grid"]
+        )
+    # ------------------------------------------
 
     chunk.capabilities["has_biomes"] = False
     chunk.capabilities["has_roads"] = False
