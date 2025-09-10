@@ -1,19 +1,23 @@
-# Файл: game_engine/world_structure/chunk_processor.py
+# Файл: game_engine/world/chunk_processor.py
 from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Dict
 
+# --- НАЧАЛО ИЗМЕНЕНИЙ ---
+
 from ..core.types import GenResult
 from ..core.preset import Preset
 from .context import Region
-from ..story_features.biome_rules import apply_biome_rules
-from ..story_features.local_roads import build_local_roads
+from .features.biome_rules import apply_biome_rules
+from .features.local_roads import build_local_roads
 from .prefab_manager import PrefabManager
 from .object_types import PlacedObject
-# --- ВОЗВРАЩАЕМ НУЖНЫЕ ИМПОРТЫ ---
 from .grid_utils import generate_hex_map_from_pixels
 from ..core.grid.hex import HexGridSpec
+
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
 
 def _load_raw_chunk_data(path: Path) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as f:

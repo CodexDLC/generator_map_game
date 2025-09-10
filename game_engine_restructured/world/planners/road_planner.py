@@ -1,20 +1,19 @@
-# game_engine/world_structure/planners/road_planner.py
+# Файл: game_engine/world/planners/road_planner.py
 from __future__ import annotations
 from typing import Dict, List, Tuple
 from collections import defaultdict
 
-# --- ИЗМЕНЕНИЕ: Убираем импорт REGION_SIZE ---
+# --- НАЧАЛО ИЗМЕНЕНИЙ ---
+
 from ..grid_utils import region_base
 from ...core.types import GenResult
-
 from ...algorithms.pathfinding.a_star import find_path as astar_find
 from ...algorithms.pathfinding.policies import make_road_policy
 from ..road_types import GlobalCoord, RoadWaypoint, ChunkRoadPlan
 from ...core.preset import Preset
 from ...core.constants import KIND_GROUND, NAV_WATER, NAV_PASSABLE
 
-
-# --- Вспомогательные функции, адаптированные под два слоя ---
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
 
 def _stitch_region_maps(

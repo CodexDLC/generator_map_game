@@ -1,11 +1,15 @@
-# Файл: game_engine/story_features/road_helpers.py
+# Файл: game_engine/world/features/road_helpers.py
 from __future__ import annotations
 from typing import List, Dict, Tuple
 from collections import deque
 import math
 
-from ..core.constants import NAV_WATER, NAV_OBSTACLE
-from ..core.grid.hex import HexGridSpec # <-- НОВЫЙ ИМПОРТ
+# --- НАЧАЛО ИЗМЕНЕНИЙ ---
+
+from ...core.constants import NAV_WATER, NAV_OBSTACLE
+from ...core.grid.hex import HexGridSpec
+
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
 def carve_ramp_along_path(
     elev: list[list[float]],

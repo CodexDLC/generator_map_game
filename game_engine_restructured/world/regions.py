@@ -1,23 +1,20 @@
-# REWRITTEN FILE: game_engine/world_structure/regions.py
+# Файл: game_engine/world/regions.py
 from __future__ import annotations
-
 import dataclasses
 import json
 from pathlib import Path
 from typing import Dict, Tuple
 
+# --- НАЧАЛО ИЗМЕНЕНИЙ ---
+
 from ..core.preset import Preset
 from ..core.types import GenResult
 from ..core.export import write_region_meta
-from ..generators._base.generator import BaseGenerator
+from ..generators.base.generator import BaseGenerator
 from .serialization import RegionMetaContract
 from .planners.road_planner import plan_roads_for_region
 from .planners.biome_planner import assign_biome_to_region
-
-
-# --- CHANGE: Import grid utils from the new file ---
 from .grid_utils import region_base
-
 
 class RegionManager:
     def __init__(

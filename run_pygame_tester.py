@@ -1,3 +1,4 @@
+# Файл: run_pygame_tester.py
 from __future__ import annotations
 import sys
 import pathlib
@@ -5,22 +6,31 @@ import json
 import pygame
 import traceback
 
-from game_engine.world_actor import WorldActor
-from game_engine.core.preset import load_preset
-from game_engine.generators._base.generator import BaseGenerator
-from game_engine.world_structure.regions import RegionManager
-from game_engine.game_logic.world import GameWorld
+# --- НАЧАЛО ИЗМЕНЕНИЙ ---
+
+# Теперь мы импортируем все из реструктурированного движка
+from game_engine_restructured.world_actor import WorldActor
+from game_engine_restructured.core.preset import load_preset
+from game_engine_restructured.generators.base.generator import BaseGenerator
+from game_engine_restructured.world.regions import RegionManager
+from game_engine_restructured.core.grid.hex import HexGridSpec
+
+# Логика игры (GameWorld) теперь является частью тестера
+from pygame_tester.game_logic.world import GameWorld
 from pygame_tester.renderer import Renderer, Camera
 from pygame_tester.config import (
     SCREEN_WIDTH, SCREEN_HEIGHT, BACKGROUND_COLOR, CHUNK_SIZE,
     MENU_WIDTH, ARTIFACTS_ROOT, PRESET_PATH
 )
 from pygame_tester.ui import SideMenu
-from game_engine.core.grid.hex import HexGridSpec
+
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
 
 ROOT = pathlib.Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
 
 
 def get_seed_from_console() -> int:
@@ -36,7 +46,9 @@ def main():
     print("--- World Generation Initializing ---")
     city_seed = get_seed_from_console()
 
-    preset_data = json.loads(PRESET_PATH.read_text())
+    # --- ИЗМЕНЕНИЕ: Путь к пресету теперь ведет в новую папку data ---
+    preset_path = ROOT / "game_engine_restructured" / "data" / "presets" / "world" / "base_default.json"
+    preset_data = json.loads(preset_path.read_text())
     preset = load_preset(preset_data)
 
     base_generator = BaseGenerator(preset)
@@ -51,11 +63,9 @@ def main():
     pygame.display.set_caption("Pygame World Tester")
     clock = pygame.time.Clock()
 
-    # VVV ИЗМЕНЕНИЕ ЗДЕСЬ VVV
     grid_spec = HexGridSpec(edge_m=0.63, meters_per_pixel=0.5, chunk_px=CHUNK_SIZE)
-    # ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^
 
-    game_world = GameWorld(city_seed, grid_spec)
+    game_world = GameWorld(city_seed, grid_spec)  # GameWorld теперь из pygame_tester
     camera = Camera(grid_spec)
     renderer = Renderer(screen, grid_spec, camera)
     side_menu = SideMenu(x=SCREEN_WIDTH - MENU_WIDTH, y=0, width=MENU_WIDTH, height=SCREEN_HEIGHT, renderer=renderer)

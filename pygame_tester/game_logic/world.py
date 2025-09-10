@@ -3,12 +3,12 @@ from typing import Dict, Any, Tuple, List
 import math
 import numpy as np
 
-from .player import Player
-from pygame_tester.world_manager import WorldManager
-from ..algorithms.pathfinding.a_star import find_path
+from game_engine_restructured.algorithms.pathfinding.a_star import find_path
+from game_engine_restructured.core.constants import NAV_PASSABLE
+from game_engine_restructured.core.grid.hex import HexGridSpec
 from pygame_tester.config import PLAYER_MOVE_SPEED
-from ..core.constants import NAV_PASSABLE
-from ..core.grid.hex import HexGridSpec
+from pygame_tester.game_logic.player import Player
+from pygame_tester.world_manager import WorldManager
 
 
 class GameWorld:

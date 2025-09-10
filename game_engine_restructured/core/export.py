@@ -1,4 +1,4 @@
-# game_engine/core/export.py
+# game_engine_restructured/core/export.py
 from __future__ import annotations
 import json
 import os
@@ -6,10 +6,14 @@ from typing import Any, Dict, List, Tuple
 from pathlib import Path
 import dataclasses
 
+# --- НАЧАЛО ИЗМЕНЕНИЙ ---
+
 from .utils.rle import encode_rle_rows
-from ..world_structure.serialization import RegionMetaContract, ClientChunkContract
-from ..world_structure.object_types import PlacedObject
-from .constants import SURFACE_KIND_TO_ID, NAV_KIND_TO_ID  # <-- Убрал лишний импорт NAV_KIND_TO_ID
+from ..world.serialization import RegionMetaContract, ClientChunkContract
+from ..world.object_types import PlacedObject
+from .constants import SURFACE_KIND_TO_ID, NAV_KIND_TO_ID
+
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
 NUMPY_OK = False
 PIL_OK = False

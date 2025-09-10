@@ -1,19 +1,22 @@
-# Файл: game_engine/story_features/local_roads.py
+# Файл: game_engine/world/features/local_roads.py
 from __future__ import annotations
 from typing import TYPE_CHECKING, List, Tuple
 
 if TYPE_CHECKING:
-    from game_engine.core.preset import Preset
+    from ...core.preset import Preset
 
-from ..core.types import GenResult
-from ..world_structure.context import Region
-from ..world_structure.grid_utils import region_base
+# --- НАЧАЛО ИЗМЕНЕНИЙ ---
 
-from ..algorithms.pathfinding.routers import BaseRoadRouter
-from ..algorithms.pathfinding.network import apply_paths_to_grid, find_path_network
-from ..algorithms.pathfinding.policies import make_road_policy
+from ...core.types import GenResult
+from ..context import Region
+from ..grid_utils import region_base
+from ...algorithms.pathfinding.routers import BaseRoadRouter
+from ...algorithms.pathfinding.network import apply_paths_to_grid, find_path_network
+from ...algorithms.pathfinding.policies import make_road_policy
 from .road_helpers import carve_ramp_along_path
-from game_engine.core.grid.hex import HexGridSpec  # <-- НОВЫЙ ИМПОРТ
+from ...core.grid.hex import HexGridSpec
+
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
 
 def build_local_roads(result: GenResult, region: Region, preset: Preset) -> None:

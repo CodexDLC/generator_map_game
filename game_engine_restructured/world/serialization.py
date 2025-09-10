@@ -1,10 +1,13 @@
+# Файл: game_engine/world/serialization.py
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Any, Tuple
 
+# --- НАЧАЛО ИЗМЕНЕНИЙ ---
+
 from .road_types import ChunkRoadPlan
 
-
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 # --- Контракт 1: Метаданные для сервера ---
 @dataclass
 class RegionMetaContract:

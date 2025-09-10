@@ -4,14 +4,9 @@ import pathlib
 import struct
 from typing import Dict, Tuple
 
-from game_engine.core.preset import load_preset, Preset
-from game_engine.core.constants import (
-    NAV_PASSABLE,
-    SURFACE_ID_TO_KIND, # <-- Карта для расшифровки ID
-    SURFACE_KIND_TO_ID  # <-- Карта для расшифровки ID
-)
-from game_engine.core.grid.hex import HexGridSpec
-
+from game_engine_restructured.core.constants import SURFACE_ID_TO_KIND, NAV_PASSABLE
+from game_engine_restructured.core.grid.hex import HexGridSpec
+from game_engine_restructured.core.preset import Preset, load_preset
 from .config import PRESET_PATH, ARTIFACTS_ROOT, CHUNK_SIZE
 
 

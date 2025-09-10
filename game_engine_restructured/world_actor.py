@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 import json
 
+# --- НАЧАЛО ИЗМЕНЕНИЙ ---
+
 from .core.preset import Preset
 from .core.export import (
     write_client_chunk_meta,
@@ -15,14 +17,15 @@ from .core.export import (
     write_navigation_rle,
     write_server_hex_map
 )
-from .world_structure.grid_utils import region_base
+from .world.grid_utils import region_base
+from .world.regions import RegionManager
+from .world.chunk_processor import process_chunk
+from .world.context import Region
+from .world.road_types import RoadWaypoint, ChunkRoadPlan
+from .world.prefab_manager import PrefabManager
+from .world.serialization import ClientChunkContract
 
-from .world_structure.regions import RegionManager
-from .world_structure.chunk_processor import process_chunk
-from .world_structure.context import Region
-from .world_structure.road_types import RoadWaypoint, ChunkRoadPlan
-from .world_structure.prefab_manager import PrefabManager
-from .world_structure.serialization import ClientChunkContract
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
 
 class WorldActor:
@@ -38,7 +41,8 @@ class WorldActor:
         )
         self.progress_callback = progress_callback
 
-        prefabs_path = Path(__file__).parent / "prefabs.json"
+        # --- ИЗМЕНЕНИЕ: Путь к файлу с данными ---
+        prefabs_path = Path(__file__).parent / "data" / "prefabs.json"
         self.prefab_manager = PrefabManager(prefabs_path)
 
     def _log(self, message: str):

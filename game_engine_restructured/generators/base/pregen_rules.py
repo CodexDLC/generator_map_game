@@ -1,4 +1,4 @@
-# game_engine/generators/_base/pregen_rules.py
+# game_engine/generators/base/pregen_rules.py
 from __future__ import annotations
 import random
 from typing import Any, Optional, Tuple

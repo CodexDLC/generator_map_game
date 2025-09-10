@@ -4,12 +4,17 @@ import pathlib
 # --- Основные настройки мира ---
 CHUNK_SIZE = 256
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
-PRESET_PATH = PROJECT_ROOT / "game_engine" / "presets" / "world" / "base_default.json"
+
+# --- НАЧАЛО ИЗМЕНЕНИЙ ---
+# Обновляем путь к пресету, чтобы он соответствовал новой структуре
+PRESET_PATH = PROJECT_ROOT / "game_engine_restructured" / "data" / "presets" / "world" / "base_default.json"
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
 ARTIFACTS_ROOT = PROJECT_ROOT / "artifacts"
 
 # --- Настройки окна и камеры ---
-MENU_WIDTH = 240  # Немного увеличим меню
-TILE_SIZE = 48    # <-- ГЛАВНОЕ ИЗМЕНЕНИЕ: Жестко задаем размер гекса в пикселях
+MENU_WIDTH = 240
+TILE_SIZE = 48
 VIEWPORT_WIDTH_TILES = 32
 VIEWPORT_HEIGHT_TILES = 20
 

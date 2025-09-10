@@ -4,9 +4,11 @@ from __future__ import annotations
 from typing import Dict, Tuple, Optional, List
 import math
 
+from game_engine_restructured.core.constants import DEFAULT_TERRAIN_FACTOR
+from game_engine_restructured.core.grid.hex import HexGridSpec
+
 # --- ИЗМЕНЕНИЕ: Импортируем все из единого центра ---
-from game_engine.core.constants import DEFAULT_TERRAIN_FACTOR
-from game_engine.core.grid.hex import HexGridSpec
+
 
 # Координата клетки (q, r)
 Coord = Tuple[int, int]

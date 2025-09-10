@@ -1,10 +1,14 @@
-# game_engine/world_structure/planners/poi_planner.py
+# Файл: game_engine/world/planners/poi_planner.py
 from __future__ import annotations
 from typing import List, Tuple
 import random
 
+# --- НАЧАЛО ИЗМЕНЕНИЙ ---
+
 from ...core.constants import KIND_GROUND, KIND_SAND
 from ..road_types import RoadWaypoint
+
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
 POI_RECIPES = {
     "placeholder_biome": {

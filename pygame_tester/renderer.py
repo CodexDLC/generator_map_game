@@ -3,6 +3,9 @@ import pygame
 import math
 import traceback
 from typing import List, Tuple, Dict
+
+from game_engine_restructured.core.constants import DEFAULT_PALETTE
+from game_engine_restructured.core.grid.hex import HexGridSpec
 from .config import (
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
@@ -12,8 +15,7 @@ from .config import (
     MENU_WIDTH,
     BACKGROUND_COLOR, TILE_SIZE,
 )
-from game_engine.core.constants import DEFAULT_PALETTE
-from game_engine.core.grid.hex import HexGridSpec
+
 
 
 class Camera:

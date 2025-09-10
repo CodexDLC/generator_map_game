@@ -1,12 +1,13 @@
-# Файл: game_engine/generators/_base/generator.py
+# Файл: game_engine/generators/base/generator.py
 from __future__ import annotations
 import math
 import time
 from typing import Any, Dict
 
-from game_engine.core.grid.hex import HexGridSpec
+
 
 from ...core.constants import KIND_SAND, NAV_OBSTACLE
+from ...core.grid.hex import HexGridSpec
 from ...core.types import GenResult
 from ...core.utils.rng import init_rng
 from ...core.utils.layers import make_empty_layers

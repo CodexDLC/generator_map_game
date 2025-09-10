@@ -1,12 +1,15 @@
 from __future__ import annotations
 import random
 import math
+from dataclasses import dataclass
 from typing import List, Dict, Any
 
 from .base_feature import FeatureBrush
+from ..prefab_manager import PrefabManager
 from ...core.constants import KIND_GROUND, KIND_FOREST_GROUND, NAV_OBSTACLE
-from ...world_structure.prefab_manager import PrefabManager
+
 from ...core.grid.hex import HexGridSpec
+from ...core.types import GenResult
 
 
 @dataclass
