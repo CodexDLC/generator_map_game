@@ -1,10 +1,8 @@
-# Файл: game_engine/world_actor.py
+# Файл: game_engine_restructured/world_actor.py
 from __future__ import annotations
 import os
 from pathlib import Path
 import json
-
-# --- НАЧАЛО ИЗМЕНЕНИЙ ---
 
 from .core.preset import Preset
 from .core.export import (
@@ -19,13 +17,13 @@ from .core.export import (
 )
 from .world.grid_utils import region_base
 from .world.regions import RegionManager
-from .world.chunk_processor import process_chunk
+from .world.processing.detail_processor import DetailProcessor  # <--- ИЗМЕНЕНИЕ
 from .world.context import Region
 from .world.road_types import RoadWaypoint, ChunkRoadPlan
 from .world.prefab_manager import PrefabManager
 from .world.serialization import ClientChunkContract
-
-# --- КОНЕЦ ИЗМЕНЕНИЙ ---
+from .core.types import GenResult
+from .core.grid.hex import HexGridSpec
 
 
 class WorldActor:
@@ -41,9 +39,10 @@ class WorldActor:
         )
         self.progress_callback = progress_callback
 
-        # --- ИЗМЕНЕНИЕ: Путь к файлу с данными ---
         prefabs_path = Path(__file__).parent / "data" / "prefabs.json"
         self.prefab_manager = PrefabManager(prefabs_path)
+        # --- ИНИЦИАЛИЗИРУЕМ НОВЫЙ DETAIL PROCESSOR ---
+        self.detail_processor = DetailProcessor(preset, self.prefab_manager)
 
     def _log(self, message: str):
         if self.progress_callback:
@@ -63,24 +62,27 @@ class WorldActor:
 
         for i, (scx, scz) in enumerate(regions_to_generate):
             print(f"\n--- [{i + 1}/{total_regions}] Processing Region ({scx}, {scz}) ---")
+            # Эта функция теперь запускает весь новый пайплайн (base -> region)
             region_manager.generate_raw_region(scx, scz)
+            # Эта функция запускает финальный этап (detail)
             self._detail_region(scx, scz)
 
     def _detail_region(self, scx: int, scz: int):
         WORLD_ID = "world_location"
         meta_path = str(self.final_data_path.parent / "_world_meta.json")
         if not os.path.exists(meta_path):
-            # VVV ИЗМЕНЕНИЕ ЗДЕСЬ VVV
             write_world_meta_json(
-                meta_path, world_id=WORLD_ID, hex_edge_m=0.63, meters_per_pixel=0.5,
+                meta_path, world_id=WORLD_ID, hex_edge_m=0.63, meters_per_pixel=self.preset.cell_size,
                 chunk_px=self.preset.size, height_min_m=0.0,
                 height_max_m=self.preset.elevation.get("max_height_m", 150.0),
             )
+
         self._log(f"[WorldActor] Detailing required for region ({scx},{scz})...")
         region_meta_path = self.raw_data_path / "regions" / f"{scx}_{scz}" / "region_meta.json"
         if not region_meta_path.exists():
             self._log(f"!!! [WorldActor] ERROR: Meta file for region ({scx},{scz}) not found. Skipping detailing.")
             return
+
         with open(region_meta_path, "r", encoding="utf-8") as f:
             meta_data = json.load(f)
             deserialized_road_plan = {}
@@ -94,6 +96,7 @@ class WorldActor:
             region_context = Region(
                 scx=scx, scz=scz, biome_type="placeholder_biome", road_plan=deserialized_road_plan,
             )
+
         region_size = self.preset.region_size
         base_cx, base_cz = region_base(scx, scz, region_size)
 
@@ -101,12 +104,23 @@ class WorldActor:
             for dx in range(region_size):
                 chunk_cx, chunk_cz = base_cx + dx, base_cz + dz
                 self._log(f"  -> Detailing chunk ({chunk_cx},{chunk_cz})...")
+
                 raw_chunk_path = self.raw_data_path / "chunks" / f"{chunk_cx}_{chunk_cz}.json"
                 if not raw_chunk_path.exists():
                     self._log(f"!!! [WorldActor] WARN: Raw chunk file not found for ({chunk_cx},{chunk_cz}). Skipping.")
                     continue
 
-                final_chunk = process_chunk(self.preset, raw_chunk_path, region_context, self.prefab_manager)
+                # --- НОВЫЙ ПОРЯДОК: ЗАГРУЗКА И ВЫЗОВ DETAIL PROCESSOR ---
+                with open(raw_chunk_path, "r", encoding="utf-8") as f:
+                    raw_data = json.load(f)
+
+                grid_spec_data = raw_data.pop("grid_spec", None)
+                chunk_for_detailing = GenResult(**raw_data)
+                if grid_spec_data:
+                    chunk_for_detailing.grid_spec = HexGridSpec(**grid_spec_data)
+
+                final_chunk = self.detail_processor.process(chunk_for_detailing, region_context)
+                # --------------------------------------------------------
 
                 client_chunk_dir = self.final_data_path / f"{chunk_cx}_{chunk_cz}"
                 surface_grid = final_chunk.layers.get("surface", [])
@@ -130,7 +144,6 @@ class WorldActor:
                 placed_objects = getattr(final_chunk, 'placed_objects', [])
                 write_objects_json(str(objects_path), placed_objects)
 
-                # Сохраняем navigation.rle.json для сервера
                 nav_path = client_chunk_dir / "navigation.rle.json"
                 write_navigation_rle(str(nav_path), nav_grid, final_chunk.grid_spec)
 

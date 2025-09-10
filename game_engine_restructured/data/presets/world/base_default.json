@@ -3,133 +3,62 @@
   "version": 2,
   "size": 256,
   "cell_size": 1.0,
-  "region_size": 3,
-  "initial_load_radius": 2,
+  "region_size": 9,
+  "initial_load_radius": 0,
 
   "elevation": {
     "enabled": true,
     "max_height_m": 150.0,
+    "sea_level_m": 15.0,
     "shaping_power": 1.02,
     "smoothing_passes": 1,
     "quantization_step_m": 0.0,
     "spectral": {
-      "continents": {
-        "scale_tiles": 8000,
-        "amp_m": 120.0,
-        "ridge": false,
-        "octaves": 2
-      },
-      "hills": {
-        "scale_tiles": 1400,
-        "amp_m": 40.0,
-        "octaves": 2
-      },
-      "detail": {
-        "scale_tiles": 150,
-        "amp_m": 7.0,
-        "octaves": 1
-      }
+      "continents": { "scale_tiles": 8000, "amp_m": 120.0, "ridge": false, "octaves": 2 },
+      "hills": { "scale_tiles": 1400, "amp_m": 40.0, "octaves": 2 },
+      "detail": { "scale_tiles": 150, "amp_m": 7.0, "octaves": 1 }
     },
-    "warp": {
-      "scale_tiles": 4000,
-      "strength_m": 200.0
-    }
+    "warp": { "scale_tiles": 4000, "strength_m": 200.0 }
   },
 
   "water": {
     "enabled": true,
-    "lake_chance_base": 0.02,
-    "lake_chance_humidity_multiplier": 3.0,
-    "lake_min_radius": 15,
-    "lake_max_radius": 50,
-    "lake_flatten_depth_m": -5.0,
     "river_chance_per_chunk": 0.5,
-    "river_num_droplets": 4000,
-    "river_threshold": 0.01,
-    "river_excavate_depth_m": -3.0,
-    "river_curl_noise_scale": 200.0,
-    "river_curl_noise_strength": 0.3
+    "river_num_droplets": 4000
   },
 
   "climate": {
     "enabled": true,
-    "temperature": {
-      "enabled": true,
-      "base_c": 18.0,
-      "latitude_axis": "Z",
-      "gradient_c_per_km": -0.02,
-      "noise_scale_tiles": 9000,
-      "noise_amp_c": 6.0,
-      "lapse_rate_c_per_m": -0.0065,
-      "clamp_c": [
-        -15.0,
-        35.0
-      ]
-    },
-    "humidity": {
-      "enabled": true,
-      "base": 0.45,
-      "noise_scale_tiles": 10000,
-      "noise_amp": 0.35,
-      "orographic": {
-        "enabled": false
-      },
-      "clamp": [
-        0.0,
-        1.0
-      ]
-    }
+    "temperature": { "enabled": true, "base_c": 18.0, "gradient_c_per_km": -0.02, "noise_scale_tiles": 9000, "noise_amp_c": 6.0, "lapse_rate_c_per_m": -0.0065, "clamp_c": [-15.0, 35.0] },
+    "humidity": { "enabled": true, "base": 0.45, "noise_scale_tiles": 10000, "noise_amp": 0.35, "orographic": { "enabled": false }, "clamp": [0.0, 1.0] }
   },
 
-  "slope_obstacles": {
-    "enabled": true,
-    "angle_threshold_deg": 45,
-    "band_cells": 3
-  },
-
-  "scatter": {
-    "enabled": true,
-    "groups": {
-      "noise_scale_tiles": 384.0,
-      "threshold": 0.48
-    },
-    "details": {
-      "noise_scale_tiles": 12.0,
-      "threshold": 0.45
-    },
-    "thinning": {
-      "enabled": true,
-      "min_distance": 3
-    }
-  },
+  "slope_obstacles": { "enabled": true, "angle_threshold_deg": 45, "band_cells": 3 },
+  "scatter": { "enabled": true, "groups": { "noise_scale_tiles": 384.0, "threshold": 0.48 }, "details": { "noise_scale_tiles": 12.0, "threshold": 0.45 }, "thinning": { "enabled": true, "min_distance": 3 } },
 
   "terraform": {
-    "enabled": false,
-    "rules": []
+    "enabled": true,
+    "rules": [
+      {
+        "enabled": true,
+        "type": "remap",
+        "comment": "Создаем подводные каньоны и впадины",
+        "noise_from": 0.05,
+        "noise_to": 0.15,
+        "remap_to_from": 0.01,
+        "remap_to_to": 0.05
+      }
+    ]
   },
 
   "export": {
     "palette": {
-      "base_dirt": "#8B4513",
-      "base_rock": "#9aa0a6",
-      "base_sand": "#e0cda8",
-      "road_paved": "#A9A9A9",
-      "road_dirt": "#8B4513",
-      "forest_floor": "#6A7B44",
-      "plains_grass": "#90A959",
-      "savanna_drygrass": "#B7A649",
-      "desert_ground": "#D8B578",
-      "jungle_darkfloor": "#4E5331",
-      "taiga_moss": "#5F6F4F",
-      "tundra_snowground": "#E1E1E1",
-      "water": "#3573b8",
-      "bridge": "#b8b8b8",
-      "obstacle_prop": "#444444",
-      "void": "#0F0F19"
+      "base_dirt": "#8B4513", "base_rock": "#9aa0a6", "base_sand": "#e0cda8",
+      "road_paved": "#A9A9A9", "road_dirt": "#8B4513", "forest_floor": "#6A7B44",
+      "plains_grass": "#90A959", "savanna_drygrass": "#B7A649", "desert_ground": "#D8B578",
+      "jungle_darkfloor": "#4E5331", "taiga_moss": "#5F6F4F", "tundra_snowground": "#E1E1E1",
+      "water": "#3573b8", "bridge": "#b8b8b8", "obstacle_prop": "#444444", "void": "#0F0F19"
     }
   },
-
-  "pre_rules": {
-    "enabled": false
-  }
+  "pre_rules": { "enabled": false }
 }

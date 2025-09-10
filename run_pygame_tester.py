@@ -1,13 +1,12 @@
 # Файл: run_pygame_tester.py
 import sys
-import pathlib
 import json
 # --- ИЗМЕНЕНИЕ: Убираем 'import pygame' отсюда ---
 import traceback
 
 from game_engine_restructured.world_actor import WorldActor
 from game_engine_restructured.core.preset import load_preset
-from game_engine_restructured.generators.base.generator import BaseGenerator
+from game_engine_restructured.world.processing.base_processor import BaseGenerator
 from game_engine_restructured.world.regions import RegionManager
 
 from pygame_tester.config import (
@@ -65,10 +64,6 @@ def main():
     renderer = Renderer(screen)
     world_map = WorldMapViewer(ARTIFACTS_ROOT, city_seed)
 
-    if not world_map.world_surface:
-        print("\n!!! CRITICAL ERROR: World map could not be loaded after generation.")
-        pygame.quit()
-        sys.exit()
 
     side_menu = SideMenu(SCREEN_WIDTH - MENU_WIDTH, 0, MENU_WIDTH, SCREEN_HEIGHT, world_map)
 
