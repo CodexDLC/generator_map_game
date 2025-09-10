@@ -1,0 +1,26 @@
+{
+  "rock_large_01": {
+    "name": "Большая скала",
+    "footprint": {
+      "type": "ellipse",
+      "width_m": 4.5,
+      "depth_m": 3.8
+    }
+  },
+  "tree_pine_01": {
+    "name": "Высокая сосна",
+    "footprint": {
+      "type": "ellipse",
+      "width_m": 3.0,
+      "depth_m": 3.0
+    }
+  },
+  "tree_birch_01": {
+    "name": "Береза",
+    "footprint": {
+      "type": "ellipse",
+      "width_m": 2.8,
+      "depth_m": 2.8
+    }
+  }
+}
