@@ -121,6 +121,8 @@ def generate_hex_map_from_pixels(
             "type": final_type,
             "nav": "passable" if is_passable else "impassable",
             "height": round(avg_height, 2),
+            "cost": 1,  # Базовая стоимость передвижения
+            "flags": 0  # Поле для будущих флагов (например, "is_quest_zone")
         }
 
     return final_hex_map

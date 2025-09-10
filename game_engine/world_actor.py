@@ -128,7 +128,7 @@ class WorldActor:
 
                 # Сохраняем navigation.rle.json для сервера
                 nav_path = client_chunk_dir / "navigation.rle.json"
-                write_navigation_rle(str(nav_path), nav_grid)
+                write_navigation_rle(str(nav_path), nav_grid, final_chunk.grid_spec)
 
                 if final_chunk.hex_map_data:
                     server_hex_map_path = client_chunk_dir / "server_hex_map.json"

@@ -6,9 +6,10 @@ from typing import Any, Dict, List, Tuple
 from pathlib import Path
 import dataclasses
 
+from .utils.rle import encode_rle_rows
 from ..world_structure.serialization import RegionMetaContract, ClientChunkContract
 from ..world_structure.object_types import PlacedObject
-from .constants import SURFACE_KIND_TO_ID  # <-- Убрал лишний импорт NAV_KIND_TO_ID
+from .constants import SURFACE_KIND_TO_ID, NAV_KIND_TO_ID  # <-- Убрал лишний импорт NAV_KIND_TO_ID
 
 NUMPY_OK = False
 PIL_OK = False
@@ -185,7 +186,7 @@ def write_world_meta_json(
     print(f"--- EXPORT: world meta сохранён: {path}")
 
 
-def write_navigation_rle(path: str, nav_grid: List[List[str]]):
+def write_navigation_rle(path: str, nav_grid: List[List[str]], grid_spec: Any):
     """
     Сохраняет навигационную сетку в виде RLE-закодированного JSON файла с числовыми ID.
     Это формат для серверного использования.
@@ -196,14 +197,27 @@ def write_navigation_rle(path: str, nav_grid: List[List[str]]):
         w = len(nav_grid[0]) if h > 0 else 0
         if w == 0 or h == 0: return
 
-        # 1. Конвертируем строковые идентификаторы в числовые ID
-        id_grid = [[NAV_KIND_TO_ID.get(kind, 0) for kind in row] for row in nav_grid]
+        id_grid = [[NAV_KIND_TO_ID.get(kind, 1) for kind in row] for row in nav_grid]  # 1 - obstacle по-умолчанию
+        rle_rows = encode_rle_rows(id_grid)["rows"]
 
-        # 2. Кодируем в RLE
-        rle_data = encode_rle_rows(id_grid)
+        # --- НОВАЯ СТРУКТУРА ФАЙЛА ---
+        cols, rows = grid_spec.dims_for_chunk() if grid_spec else (w, h)
 
-        # 3. Атомарно сохраняем JSON
-        _atomic_write_json(path, rle_data)
+        output_data = {
+            "version": "nav_rle_v1",
+            "storage": {"coord": "odd-r", "origin_axial": {"q": 0, "r": 0}},
+            "size": {"cols": cols, "rows": rows},
+            "legend": {
+                "0": "passable",
+                "1": "obstacle_prop",
+                "2": "water",
+                "7": "bridge"
+            },
+            "rows": rle_rows
+        }
+        # -----------------------------
+
+        _atomic_write_json(path, output_data)
         print(f"--- EXPORT: Серверная навигационная карта (.rle.json) сохранена: {path}")
 
     except Exception as e:
@@ -214,8 +228,15 @@ def write_server_hex_map(path: str, hex_map_data: Dict[str, Any]):
     """
     Сохраняет детальную карту гексов в виде JSON-файла для серверного использования.
     """
+    # --- НОВАЯ СТРУКТУРА ФАЙЛА ---
+    output_data = {
+        "version": "server_hex_v1",
+        "origin_axial": {"q": 0, "r": 0}, # Координаты гексов даны относительно этого начала
+        "cells": hex_map_data
+    }
+    # -----------------------------
     try:
-        _atomic_write_json(path, hex_map_data)
+        _atomic_write_json(path, output_data)
         print(f"--- EXPORT: Серверная карта гексов (.json) сохранена: {path}")
     except Exception as e:
         print(f"!!! LOG: КРИТИЧЕСКАЯ ОШИБКА при создании server_hex_map.json: {e}")

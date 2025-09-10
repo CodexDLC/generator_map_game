@@ -87,6 +87,7 @@ class BaseGenerator:
             cell_size=1.0,
             layers=layers,
             stage_seeds=stage_seeds,
+            grid_spec=grid_spec,  # <-- ДОБАВЬТЕ ЭТУ СТРОКУ
         )
 
         # 2. Базовая классификация поверхности (все - земля)

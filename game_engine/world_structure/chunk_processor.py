@@ -11,27 +11,35 @@ from ..story_features.biome_rules import apply_biome_rules
 from ..story_features.local_roads import build_local_roads
 from .prefab_manager import PrefabManager
 from .object_types import PlacedObject
-# --- НОВЫЙ ИМПОРТ ---
+# --- ВОЗВРАЩАЕМ НУЖНЫЕ ИМПОРТЫ ---
 from .grid_utils import generate_hex_map_from_pixels
-
+from ..core.grid.hex import HexGridSpec
 
 def _load_raw_chunk_data(path: Path) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-
 def process_chunk(
         preset: Preset, raw_chunk_path: Path, region_context: Region, prefab_manager: PrefabManager
 ) -> GenResult:
     raw_data = _load_raw_chunk_data(raw_chunk_path)
+
+    # --- ВОЗВРАЩАЕМ ЛОГИКУ ВОССТАНОВЛЕНИЯ grid_spec ---
+    grid_spec_data = raw_data.pop("grid_spec", None)
     chunk = GenResult(**raw_data)
+    if grid_spec_data:
+        chunk.grid_spec = HexGridSpec(**grid_spec_data)
+    # ----------------------------------------------------
 
     chunk.placed_objects: list[PlacedObject] = []
 
-    # ... (вызовы apply_biome_rules и build_local_roads) ...
+    # Здесь в будущем будет обработка биомов и дорог
+    # apply_biome_rules(...)
+    # build_local_roads(...)
 
-    # --- ГЕНЕРАЦИЯ ДАННЫХ ДЛЯ КАРТЫ ГЕКСОВ ---
+    # --- ВОЗВРАЩАЕМ ГЕНЕРАЦИЮ ДАННЫХ ДЛЯ КАРТЫ ГЕКСОВ ---
     if chunk.grid_spec:
+        # Вот эта строка выведет лог, который вы ищете
         print(f"  -> Generating server hex map for chunk ({chunk.cx},{chunk.cz})...")
         chunk.hex_map_data = generate_hex_map_from_pixels(
             chunk.grid_spec,

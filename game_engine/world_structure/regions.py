@@ -1,5 +1,7 @@
 # REWRITTEN FILE: game_engine/world_structure/regions.py
 from __future__ import annotations
+
+import dataclasses
 import json
 from pathlib import Path
 from typing import Dict, Tuple
@@ -81,6 +83,9 @@ class RegionManager:
                 "cz": chunk_data.cz,
                 "size": chunk_data.size,
                 "cell_size": chunk_data.cell_size,
+                # --- ИЗМЕНЕНИЯ ЗДЕСЬ ---
+                "grid_spec": dataclasses.asdict(chunk_data.grid_spec) if chunk_data.grid_spec else None,
+                # ---------------------
                 "layers": chunk_data.layers,
                 "ports": chunk_data.ports,
                 "capabilities": chunk_data.capabilities,
