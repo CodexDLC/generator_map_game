@@ -1,8 +1,9 @@
-# game_engine/story_features/features/rocks.py
+# game_engine/world/features/rocks.py
 from __future__ import annotations
 from opensimplex import OpenSimplex
 
-from ...core.constants import KIND_GROUND, KIND_SAND, KIND_SLOPE, NAV_OBSTACLE
+# --- ИЗМЕНЕНИЕ: Импортируем модуль констант ---
+from ...core import constants as const
 from .base_feature import FeatureBrush
 
 
@@ -11,28 +12,26 @@ class RockBrush(FeatureBrush):
         self, density: float = 0.05, near_slope_multiplier: float = 5.0, **kwargs
     ):
         """
-        Применяет "кисть" для генерации камней.
-        Теперь работает с двумя слоями: surface и navigation.
+        Применяет "кисть" для генерации одиночных камней-препятствий.
         """
         rock_noise_gen = OpenSimplex((self.result.seed ^ 0xDEADBEEF) & 0x7FFFFFFF)
         rock_count = 0
 
         for z in range(self.size):
             for x in range(self.size):
-                # --- ИЗМЕНЕНИЕ: Проверяем СЛОЙ ПОВЕРХНОСТЕЙ ---
-                # Камни могут появляться только на земле или песке
-                if self.surface_grid[z][x] in (KIND_GROUND, KIND_SAND):
+                # --- ИЗМЕНЕНИЕ: Камни могут появляться на базовой земле или песке ---
+                if self.surface_grid[z][x] in (const.KIND_BASE_DIRT, const.KIND_BASE_SAND):
                     is_near_slope = False
                     for dz in range(-1, 2):
                         for dx in range(-1, 2):
                             if dx == 0 and dz == 0:
                                 continue
                             nx, nz = x + dx, z + dz
-                            # --- ИЗМЕНЕНИЕ: Проверяем СЛОЙ ПОВЕРХНОСТЕЙ на наличие склона ---
+                            # --- ИЗМЕНЕНИЕ: Проверяем на наличие скал (бывший склон) ---
                             if (
                                 0 <= nx < self.size
                                 and 0 <= nz < self.size
-                                and self.surface_grid[nz][nx] == KIND_SLOPE
+                                and self.surface_grid[nz][nx] == const.KIND_BASE_ROCK
                             ):
                                 is_near_slope = True
                                 break
@@ -44,10 +43,10 @@ class RockBrush(FeatureBrush):
 
                     if noise_val < (density * chance_multiplier):
                         # --- ИЗМЕНЕНИЕ: Применяем изменения к двум слоям ---
-                        # 1. Поверхность меняем на "склон" (каменистая текстура)
-                        self.surface_grid[z][x] = KIND_SLOPE
+                        # 1. Поверхность меняем на скалистую
+                        self.surface_grid[z][x] = const.KIND_BASE_ROCK
                         # 2. Ставим в навигационной сетке маркер непроходимого объекта
-                        self.nav_grid[z][x] = NAV_OBSTACLE
+                        self.nav_grid[z][x] = const.NAV_OBSTACLE
                         rock_count += 1
 
         if rock_count > 0:

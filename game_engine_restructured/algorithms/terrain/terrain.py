@@ -8,11 +8,9 @@ from opensimplex import OpenSimplex
 
 from .features import fbm2d
 from .slope import compute_slope_mask
-from ...core.constants import (
-    KIND_GROUND,
-    NAV_PASSABLE,
-    KIND_SLOPE,
-)
+# --- ИЗМЕНЕНИЕ: Импортируем весь модуль констант ---
+from ...core import constants as const
+from ...core.constants import NAV_PASSABLE
 
 
 def _apply_shaping_curve(grid: np.ndarray, power: float):
@@ -154,7 +152,8 @@ def classify_terrain(
     size = len(surface_grid)
     for z in range(size):
         for x in range(size):
-            surface_grid[z][x] = KIND_GROUND
+            # --- ИЗМЕНЕНИЕ: Используем новую базовую грязь ---
+            surface_grid[z][x] = const.KIND_BASE_DIRT
             nav_grid[z][x] = NAV_PASSABLE
 
 
@@ -187,4 +186,5 @@ def apply_slope_obstacles(height_grid_with_margin: np.ndarray, surface_grid: Lis
         mask = mask[margin:-margin, margin:-margin]
 
     for z, x in np.argwhere(mask):
-        surface_grid[z][x] = KIND_SLOPE
+        # --- ИЗМЕНЕНИЕ: Вместо KIND_SLOPE используем KIND_BASE_ROCK ---
+        surface_grid[z][x] = const.KIND_BASE_ROCK

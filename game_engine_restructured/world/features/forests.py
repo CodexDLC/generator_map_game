@@ -1,24 +1,18 @@
-# game_engine/story_features/features/forests.py
+# game_engine/world/features/forests.py
 from __future__ import annotations
 import random
 from opensimplex import OpenSimplex
 
-
 from .base_feature import FeatureBrush
-from ...core.constants import (
-    KIND_GROUND,
-    KIND_SAND,
-    KIND_FOREST_GROUND,
-    NAV_OBSTACLE,
-    KIND_SLOPE,
-)
+# --- ИЗМЕНЕНИЕ: Импортируем модуль констант ---
+from ...core import constants as const
 
 
 class ForestBrush(FeatureBrush):
     def apply(self, tree_rock_ratio: float = 0.95, min_distance: int = 2, **kwargs):
         """
         Применяет "кисть" для генерации леса в два этапа:
-        1. Создает "пятно" леса и закрашивает его поверхность как 'forest_ground'.
+        1. Создает "пятно" леса и закрашивает его поверхность нужной текстурой.
         2. Расставляет внутри пятна деревья и камни как непроходимые объекты.
         """
         cfg = getattr(self.preset, "scatter", {})
@@ -38,19 +32,26 @@ class ForestBrush(FeatureBrush):
         detail_noise_gen = OpenSimplex((self.result.seed ^ 0x12345678) & 0x7FFFFFFF)
 
         scatter_mask = [[False for _ in range(self.size)] for _ in range(self.size)]
+
+        # --- ИЗМЕНЕНИЕ: Лес может расти на земле, песке и разных видах травы ---
+        allowed_base_surfaces = (
+            const.KIND_BASE_DIRT, const.KIND_BASE_SAND,
+            const.KIND_PLAINS_GRASS, const.KIND_SAVANNA_DRYGRASS
+        )
+
         for z in range(self.size):
             for x in range(self.size):
-                if self.surface_grid[z][x] in (KIND_GROUND, KIND_SAND):
+                if self.surface_grid[z][x] in allowed_base_surfaces:
                     wx = self.result.cx * self.size + x
                     wz = self.result.cz * self.size + z
                     group_val = (
-                        group_noise_gen.noise2(wx * group_freq, wz * group_freq) + 1.0
-                    ) / 2.0
+                                        group_noise_gen.noise2(wx * group_freq, wz * group_freq) + 1.0
+                                ) / 2.0
                     if group_val > group_threshold:
                         detail_val = (
-                            detail_noise_gen.noise2(wx * detail_freq, wz * detail_freq)
-                            + 1.0
-                        ) / 2.0
+                                             detail_noise_gen.noise2(wx * detail_freq, wz * detail_freq)
+                                             + 1.0
+                                     ) / 2.0
                         if detail_val > detail_threshold:
                             scatter_mask[z][x] = True
 
@@ -59,7 +60,8 @@ class ForestBrush(FeatureBrush):
         for z in range(self.size):
             for x in range(self.size):
                 if scatter_mask[z][x]:
-                    self.surface_grid[z][x] = KIND_FOREST_GROUND
+                    # --- ИЗМЕНЕНИЕ: Используем новую константу для лесной земли ---
+                    self.surface_grid[z][x] = const.KIND_FOREST_FLOOR
                     possible_points.append((x, z))
 
         # --- ЭТАП 3: Прореживаем и расставляем НЕПРОХОДИМЫЕ объекты на СЛОЕ НАВИГАЦИИ ---
@@ -77,12 +79,13 @@ class ForestBrush(FeatureBrush):
 
             # Внутри лесной зоны ставим либо дерево, либо камень как препятствие
             if rng.random() < tree_rock_ratio:
-                self.nav_grid[z][x] = NAV_OBSTACLE
+                # --- ИЗМЕНЕНИЕ: Используем новую константу ---
+                self.nav_grid[z][x] = const.NAV_OBSTACLE
                 tree_count += 1
             else:
-                self.nav_grid[z][x] = NAV_OBSTACLE
+                self.nav_grid[z][x] = const.NAV_OBSTACLE
                 # Дополнительно меняем поверхность под камнем на каменистую
-                self.surface_grid[z][x] = KIND_SLOPE
+                self.surface_grid[z][x] = const.KIND_BASE_ROCK
                 rock_count += 1
 
             # Блокируем "защитную зону" вокруг нового объекта

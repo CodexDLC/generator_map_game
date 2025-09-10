@@ -1,29 +1,24 @@
 # game_engine/algorithms/pathfinding/policies.py
 from __future__ import annotations
 from dataclasses import dataclass, replace
-from typing import Callable, Dict, Tuple, Optional, List
+from typing import Callable, Dict, List
 
-# --- ИЗМЕНЕНИЕ: Импортируем гексагональные хелперы ---
+from ...core import constants as const
+# --- ИЗМЕНЕНИЕ: Теперь импортируем все нужное из helpers ---
 from .helpers import (
     Coord,
     NEI6_AXIAL,
     heuristic_hex,
-)
-from ...core.constants import (
-    DEFAULT_TERRAIN_FACTOR,
+    DEFAULT_TERRAIN_FACTOR
 )
 
 
 @dataclass(frozen=True)
 class PathPolicy:
-    """
-    Профиль поиска пути (и для дорог, и для ИИ)
-    с поддержкой разных типов сеток.
-    """
     grid_type: str
     neighbors: List[Coord]
-    terrain_factor: Dict[str, float]  # Стоимость движения по ПОВЕРХНОСТИ
-    nav_factor: Dict[str, float]  # Стоимость движения по НАВИГАЦИОННОЙ сетке
+    terrain_factor: Dict[str, float]
+    nav_factor: Dict[str, float]
     slope_penalty_per_meter: float
     heuristic: Callable[[Coord, Coord], float]
 
@@ -34,10 +29,10 @@ class PathPolicy:
 def make_base_policy() -> PathPolicy:
     """Создает базовую политику для гексагональной сетки."""
     nav_factor = {
-        "passable": 1.0,
-        "obstacle_prop": float("inf"),
-        "water": float("inf"),
-        "bridge": 1.0,
+        const.NAV_PASSABLE: 1.0,
+        const.NAV_OBSTACLE: float("inf"),
+        const.NAV_WATER: float("inf"),
+        const.NAV_BRIDGE: 1.0,
     }
     return PathPolicy(
         grid_type="hex",
@@ -50,22 +45,25 @@ def make_base_policy() -> PathPolicy:
 
 
 def make_road_policy(
-    allow_slopes: bool = True,
-    slope_cost: float = 5.0,
-    allow_water_as_bridge: bool = True,
-    water_bridge_cost: float = 15.0,
+        allow_slopes: bool = True,
+        slope_cost: float = 5.0,
+        allow_water_as_bridge: bool = True,
+        water_bridge_cost: float = 15.0,
 ) -> PathPolicy:
     """Политика для ГЕНЕРАЦИИ ДОРОГ."""
     policy = make_base_policy()
 
-    policy.terrain_factor["road"] = 0.5
+    # Используем одну и ту же стоимость для разных дорог
+    policy.terrain_factor[const.KIND_BASE_DIRT] = 0.5
+    policy.terrain_factor[const.KIND_ROAD_PAVED] = 0.5
+
     if allow_slopes:
-        policy.terrain_factor["slope"] = slope_cost
+        policy.terrain_factor[const.KIND_BASE_ROCK] = slope_cost
     else:
-        policy.terrain_factor["slope"] = float("inf")
+        policy.terrain_factor[const.KIND_BASE_ROCK] = float("inf")
 
     if allow_water_as_bridge:
-        policy.nav_factor["water"] = water_bridge_cost
+        policy.nav_factor[const.NAV_WATER] = water_bridge_cost
 
     return policy
 
@@ -73,8 +71,10 @@ def make_road_policy(
 def make_nav_policy() -> PathPolicy:
     """Политика для ПЕРСОНАЖА/ИИ."""
     policy = make_base_policy()
-    policy.terrain_factor["road"] = 0.6
-    policy.terrain_factor["slope"] = float("inf")
+
+    policy.terrain_factor[const.KIND_BASE_DIRT] = 0.8
+    policy.terrain_factor[const.KIND_ROAD_PAVED] = 0.6
+    policy.terrain_factor[const.KIND_BASE_ROCK] = float("inf")
 
     return policy
 

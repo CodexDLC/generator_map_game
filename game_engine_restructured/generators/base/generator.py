@@ -4,9 +4,12 @@ import math
 import time
 from typing import Any, Dict
 
+# --- ИЗМЕНЕНИЯ: Добавляем импорт для воды ---
+from ...core import constants as const
+from ...algorithms.climate.climate import generate_climate_maps, apply_biomes_to_surface
+from ...algorithms.water.water_planner import generate_lakes, generate_rivers
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
-
-from ...core.constants import KIND_SAND, NAV_OBSTACLE
 from ...core.grid.hex import HexGridSpec
 from ...core.types import GenResult
 from ...core.utils.rng import init_rng
@@ -17,7 +20,7 @@ from ...algorithms.terrain.terrain import (
     classify_terrain,
     apply_slope_obstacles,
 )
-from .pregen_rules import early_fill_decision, apply_ocean_coast_rules
+
 
 
 class BaseGenerator:
@@ -32,66 +35,39 @@ class BaseGenerator:
         cx = int(params.get("cx", 0))
         cz = int(params.get("cz", 0))
         size = int(getattr(self.preset, "size", 128))
-        
-                # --- НАЧАЛО ИЗМЕНЕНИЙ (Фаза 1.2) ---
+
         grid_spec = HexGridSpec(
             edge_m=0.63,
             meters_per_pixel=0.8,
             chunk_px=size
         )
-        cols, rows = grid_spec.dims_for_chunk()
-        print(f"[HEX] HEX grid dims: {cols}x{rows}")
-        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
-        
+        print(f"[HEX] HEX grid dims: {grid_spec.dims_for_chunk()}")
+
         t0 = time.perf_counter()
         stage_seeds = init_rng(seed, cx, cz)
-
         layers = make_empty_layers(size)
 
-        # Логика pre-fill остается, она может быть полезна для других правил в будущем
-        pre_fill = early_fill_decision(cx, cz, size, self.preset, seed)
-        if pre_fill:
-            kind_name, height_value = pre_fill
-            elevation_grid = [
-                [float(height_value) for _ in range(size)] for _ in range(size)
-            ]
-            layers["height_q"]["grid"] = elevation_grid
-            layers["surface"] = [[KIND_SAND for _ in range(size)] for _ in range(size)]
-            layers["navigation"] = [
-                [NAV_OBSTACLE for _ in range(size)] for _ in range(size)
-            ]
-            result = GenResult(
-                version=self.VERSION,
-                type=self.TYPE,
-                seed=seed,
-                cx=cx,
-                cz=cz,
-                size=size,
-                cell_size=getattr(self.preset, "cell_size", 1.0),
-                layers=layers,
-            )
-            return result
-
-        # 1. Генерируем рельеф по новому алгоритму из ТЗ
+        # 1. Генерируем рельеф
         elevation_grid, elevation_grid_with_margin = generate_elevation(
             stage_seeds["elevation"], cx, cz, size, self.preset
         )
         layers["height_q"]["grid"] = elevation_grid
 
         result = GenResult(
-            version=self.VERSION,
-            type=self.TYPE,
-            seed=seed,
-            cx=cx,
-            cz=cz,
-            size=size,
-            cell_size=1.0,
-            layers=layers,
-            stage_seeds=stage_seeds,
-            grid_spec=grid_spec,  # <-- ДОБАВЬТЕ ЭТУ СТРОКУ
+            version=self.VERSION, type=self.TYPE, seed=seed, cx=cx, cz=cz,
+            size=size, cell_size=1.0, layers=layers,
+            stage_seeds=stage_seeds, grid_spec=grid_spec,
         )
 
-        # 2. Базовая классификация поверхности (все - земля)
+        # ===============================================
+        # ===== ЭТАП 2: ГИДРОЛОГИЯ ======================
+        # ===============================================
+        generate_lakes(result, self.preset)
+        generate_rivers(result, self.preset)
+        # ===============================================
+
+        # 3. Базовая классификация поверхности
+        elevation_grid = result.layers["height_q"]["grid"] # Перечитываем карту высот
         classify_terrain(
             elevation_grid,
             result.layers["surface"],
@@ -99,18 +75,16 @@ class BaseGenerator:
             self.preset,
         )
 
-        # Правила для океана/побережья отключены в пресете, но вызов можно оставить
-        # на случай, если они понадобятся в будущем.
-        apply_ocean_coast_rules(result, self.preset)
+        # 4. Климат и Биомы
+        generate_climate_maps(result, self.preset)
+        apply_biomes_to_surface(result)
 
-        # --- НАЧАЛО ИЗМЕНЕНИЙ: Исправляем вызов apply_slope_obstacles ---
-        # 3. Применяем маску склонов, используя карту высот С БОРДЮРОМ
-        # Убираем лишние аргументы cx и cz, они больше не нужны.
+        # 5. Применяем маску склонов (рисуем скалы)
         apply_slope_obstacles(
             elevation_grid_with_margin, result.layers["surface"], self.preset
         )
-        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
+        # (Остальной код метрик без изменений)
         result.metrics["gen_timings_ms"] = {
             "total_ms": (time.perf_counter() - t0) * 1000.0
         }

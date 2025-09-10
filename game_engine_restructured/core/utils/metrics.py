@@ -2,12 +2,12 @@
 from __future__ import annotations
 from typing import Dict, List
 
-# --- ИЗМЕНЕНИЕ: Импортируем нужные константы из новых наборов ---
-from ..constants import KIND_GROUND, NAV_OBSTACLE, NAV_WATER
+# --- ИЗМЕНЕНИЕ: Импортируем весь модуль как const ---
+from .. import constants as const
 
 
 def compute_metrics(
-    surface_grid: List[List[str]], nav_grid: List[List[str]]
+        surface_grid: List[List[str]], nav_grid: List[List[str]]
 ) -> Dict[str, float]:
     """
     Считает метрики по чанку, используя оба слоя: surface и navigation.
@@ -18,7 +18,6 @@ def compute_metrics(
     if total == 0:
         return {"open_pct": 0.0, "obstacle_pct": 0.0, "water_pct": 0.0}
 
-    # Считаем количество разных типов в каждом слое
     surface_counts: Dict[str, int] = {}
     for row in surface_grid:
         for v in row:
@@ -29,11 +28,16 @@ def compute_metrics(
         for v in row:
             nav_counts[v] = nav_counts.get(v, 0) + 1
 
-    # "Открытые" клетки - это земля на слое поверхностей
-    open_cells = surface_counts.get(KIND_GROUND, 0)
-    # Препятствия и вода - на навигационном слое
-    obstacle_cells = nav_counts.get(NAV_OBSTACLE, 0)
-    water_cells = nav_counts.get(NAV_WATER, 0)
+    # --- ИЗМЕНЕНИЕ: Считаем "открытые" клетки по сумме проходимых биомов ---
+    # (Это более правильный подход для новой системы)
+    walkable_kinds = (
+        const.KIND_BASE_DIRT, const.KIND_FOREST_FLOOR, const.KIND_PLAINS_GRASS,
+        const.KIND_SAVANNA_DRYGRASS, const.KIND_JUNGLE_DARKFLOOR, const.KIND_TAIGA_MOSS
+    )
+    open_cells = sum(surface_counts.get(k, 0) for k in walkable_kinds)
+
+    obstacle_cells = nav_counts.get(const.NAV_OBSTACLE, 0)
+    water_cells = nav_counts.get(const.NAV_WATER, 0)
 
     return {
         "open_pct": open_cells / total,

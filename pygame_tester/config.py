@@ -4,30 +4,21 @@ import pathlib
 # --- Основные настройки мира ---
 CHUNK_SIZE = 256
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
-
-# --- НАЧАЛО ИЗМЕНЕНИЙ ---
-# Обновляем путь к пресету, чтобы он соответствовал новой структуре
 PRESET_PATH = PROJECT_ROOT / "game_engine_restructured" / "data" / "presets" / "world" / "base_default.json"
-# --- КОНЕЦ ИЗМЕНЕНИЙ ---
-
 ARTIFACTS_ROOT = PROJECT_ROOT / "artifacts"
 
-# --- Настройки окна и камеры ---
+# --- Настройки окна и камеры (НОВЫЕ) ---
 MENU_WIDTH = 240
-TILE_SIZE = 48
-VIEWPORT_WIDTH_TILES = 32
-VIEWPORT_HEIGHT_TILES = 20
+VIEWPORT_WIDTH = 1280
+VIEWPORT_HEIGHT = 1024
+SCREEN_WIDTH = VIEWPORT_WIDTH + MENU_WIDTH
+SCREEN_HEIGHT = VIEWPORT_HEIGHT
 
-SCREEN_WIDTH = VIEWPORT_WIDTH_TILES * TILE_SIZE + MENU_WIDTH
-SCREEN_HEIGHT = VIEWPORT_HEIGHT_TILES * TILE_SIZE
-
-# --- Настройки управления ---
-PLAYER_MOVE_SPEED = 0.1 # Скорость движения по пути (в секундах на клетку)
-CAMERA_MOVE_SPEED = 400.0 # Скорость ручного перемещения камеры (в пикселях в секунду)
+# --- Настройки управления (НОВЫЕ) ---
+CAMERA_MOVE_SPEED_PIXELS = 800.0 # Скорость полета камеры (пикселей в секунду)
+CAMERA_ZOOM_SPEED = 0.1         # Чувствительность зума
 
 # --- Цвета ---
-PLAYER_COLOR = (255, 255, 255)
-PATH_COLOR = (255, 255, 0)
+PLAYER_COLOR = (255, 255, 0, 150) # Сделаем полупрозрачным
 BACKGROUND_COLOR = (15, 15, 25)
 ERROR_COLOR = (255, 0, 255)
-GATEWAY_COLOR = (255, 215, 0)

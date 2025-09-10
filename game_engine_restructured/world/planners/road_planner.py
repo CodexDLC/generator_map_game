@@ -3,17 +3,14 @@ from __future__ import annotations
 from typing import Dict, List, Tuple
 from collections import defaultdict
 
-# --- НАЧАЛО ИЗМЕНЕНИЙ ---
-
+# --- ИЗМЕНЕНИЯ: ---
+from ...core import constants as const
 from ..grid_utils import region_base
 from ...core.types import GenResult
 from ...algorithms.pathfinding.a_star import find_path as astar_find
 from ...algorithms.pathfinding.policies import make_road_policy
 from ..road_types import GlobalCoord, RoadWaypoint, ChunkRoadPlan
 from ...core.preset import Preset
-from ...core.constants import KIND_GROUND, NAV_WATER, NAV_PASSABLE
-
-# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
 
 def _stitch_region_maps(
@@ -23,17 +20,16 @@ def _stitch_region_maps(
     Склеивает слои 'surface' и 'navigation' со всех чанков региона в две большие карты.
     """
     chunk_size = preset.size
-    # --- ИЗМЕНЕНИЕ: Получаем region_size из пресета ---
     region_size = preset.region_size
     region_pixel_size = region_size * chunk_size
 
     stitched_grids = {
         "surface": [
-            [KIND_GROUND for _ in range(region_pixel_size)]
+            [const.KIND_BASE_DIRT for _ in range(region_pixel_size)]
             for _ in range(region_pixel_size)
         ],
         "navigation": [
-            [NAV_PASSABLE for _ in range(region_pixel_size)]
+            [const.NAV_PASSABLE for _ in range(region_pixel_size)]
             for _ in range(region_pixel_size)
         ],
     }
@@ -57,7 +53,6 @@ def _stitch_region_maps(
 def _create_water_cost_grid(
     nav_grid: List[List[str]], penalty: float = 50.0
 ) -> List[List[float]]:
-    # ... (эта функция без изменений) ...
     height = len(nav_grid)
     if height == 0:
         return []
@@ -65,7 +60,7 @@ def _create_water_cost_grid(
     cost_grid = [[1.0 for _ in range(width)] for _ in range(height)]
     for z in range(height):
         for x in range(width):
-            if nav_grid[z][x] == NAV_WATER:
+            if nav_grid[z][x] == const.NAV_WATER:
                 continue
             is_near_water = False
             for dz in range(-1, 2):
@@ -76,7 +71,7 @@ def _create_water_cost_grid(
                     if (
                         0 <= nx < width
                         and 0 <= nz < height
-                        and nav_grid[nz][nx] == NAV_WATER
+                        and nav_grid[nz][nx] == const.NAV_WATER
                     ):
                         is_near_water = True
                         break
@@ -92,7 +87,6 @@ def _l1(p1: GlobalCoord, p2: GlobalCoord) -> int:
 
 
 def _build_global_mst(points: List[GlobalCoord]) -> List[Tuple[int, int]]:
-    # ... (эта функция без изменений) ...
     n = len(points)
     if n <= 1:
         return []
@@ -136,12 +130,10 @@ def plan_roads_for_region(
 
     all_global_paths: List[List[GlobalCoord]] = []
 
-    # --- ИЗМЕНЕНИЕ: Упрощаем логику для центрального региона ---
     if scx == 0 and scz == 0:
         print("[RoadPlanner] -> Central region. Planning 4 main roads from crossroads.")
         water_cost_grid = _create_water_cost_grid(stitched_nav_grid)
 
-        # Центр чанка (0,0) в координатах региона
         center_chunk_dx = 0 - base_cx
         center_chunk_dz = 0 - base_cz
         start_pos = (
@@ -172,10 +164,8 @@ def plan_roads_for_region(
             if path:
                 all_global_paths.append(path)
     else:
-        # Логика для других регионов остается прежней
         pass
 
-    # "Нарезка" путей (без изменений)
     final_plan: Dict[Tuple[int, int], ChunkRoadPlan] = defaultdict(ChunkRoadPlan)
     for path in all_global_paths:
         last_chunk_key: Tuple[int, int] | None = None

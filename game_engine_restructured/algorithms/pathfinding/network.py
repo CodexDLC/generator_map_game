@@ -3,16 +3,10 @@ from __future__ import annotations
 from typing import List, Tuple, Optional, Iterable
 import math
 
-# --- ИЗМЕНЕНИЯ: Правильные пути и константы ---
+# --- ИЗМЕНЕНИЯ: ---
 from .routers import BaseRoadRouter
 from .helpers import Coord
-from ...core.constants import (
-    NAV_WATER,
-    NAV_BRIDGE,
-    KIND_ROAD,
-    NAV_PASSABLE,
-    SURFACE_KIND_TO_ID,  # <-- Исправлено: KIND_ROAD вместо SURFACE_ROAD
-)
+from ...core import constants as const
 
 
 def _l1(a: Coord, b: Coord) -> int:
@@ -20,7 +14,6 @@ def _l1(a: Coord, b: Coord) -> int:
 
 
 def _build_mst(points: List[Coord]) -> List[Tuple[int, int]]:
-    # ... (код этой функции остается без изменений) ...
     n = len(points)
     if n <= 1:
         return []
@@ -49,11 +42,11 @@ def _build_mst(points: List[Coord]) -> List[Tuple[int, int]]:
 
 
 def find_path_network(
-    surface_grid: List[List[str]],
-    nav_grid: List[List[str]],
-    height_grid: Optional[List[List[float]]],
-    points: List[Coord],
-    router: Optional[BaseRoadRouter] = None,
+        surface_grid: List[List[str]],
+        nav_grid: List[List[str]],
+        height_grid: Optional[List[List[float]]],
+        points: List[Coord],
+        router: Optional[BaseRoadRouter] = None,
 ) -> List[List[Coord]]:
     if not points:
         return []
@@ -69,26 +62,28 @@ def find_path_network(
 
 
 def apply_paths_to_grid(
-    surface_grid: List[List[str]],
-    nav_grid: List[List[str]],
-    overlay_grid: List[List[int]],  # <-- Добавлен overlay_grid
-    paths: Iterable[List[Coord]],
-    width: int = 1,
+        surface_grid: List[List[str]],
+        nav_grid: List[List[str]],
+        overlay_grid: List[List[int]],
+        paths: Iterable[List[Coord]],
+        width: int = 1,
+        road_type: str = const.KIND_ROAD_PAVED,  # --- ИЗМЕНЕНИЕ: Добавляем тип дороги
 ) -> None:
     h = len(surface_grid)
     w = len(surface_grid[0]) if h else 0
-    road_id = SURFACE_KIND_TO_ID[KIND_ROAD]  # Получаем ID дороги
+
+    # --- ИЗМЕНЕНИЕ: Получаем ID дороги по-новому ---
+    road_id = const.SURFACE_KIND_TO_ID.get(road_type, 0)
 
     def paint(x: int, z: int):
         if 0 <= x < w and 0 <= z < h:
-            # --- ИЗМЕНЕНИЕ: Рисуем ID дороги в оверлейный слой ---
             overlay_grid[z][x] = road_id
 
-            # Обновляем навигацию, если под нами была вода
-            if nav_grid[z][x] == NAV_WATER:
-                nav_grid[z][x] = NAV_BRIDGE
+            # --- ИЗМЕНЕНИЕ: Используем новые константы ---
+            if nav_grid[z][x] == const.NAV_WATER:
+                nav_grid[z][x] = const.NAV_BRIDGE
             else:
-                nav_grid[z][x] = NAV_PASSABLE
+                nav_grid[z][x] = const.NAV_PASSABLE
 
     for path in paths:
         if not path:
