@@ -85,7 +85,7 @@ class WorldManager:
             overlay_grid = [[0 for _ in range(CHUNK_SIZE)] for _ in range(CHUNK_SIZE)]
 
             decoded = {
-                "surface": surface_grid,  # <-- Теперь здесь настоящие данные!
+                "surface": surface_grid,
                 "navigation": nav_grid,
                 "overlay": overlay_grid,
                 "height": height_grid_m,
@@ -108,3 +108,26 @@ class WorldManager:
 
     def _get_chunk_path(self, world_id: str, seed: int, cx: int, cz: int) -> pathlib.Path:
         return ARTIFACTS_ROOT / "world" / world_id / str(seed) / f"{cx}_{cz}"
+
+    def load_raw_json(self, cx: int, cz: int, layer_name: str) -> list | None:
+        """
+        Загружает данные из сырого JSON-файла для указанного слоя из папки world_raw.
+        """
+        region_size = self.preset.region_size
+        region_cx = cx // region_size
+        region_cz = cz // region_size
+
+        raw_dir = ARTIFACTS_ROOT / "world_raw" / str(self.world_seed) / "regions" / f"{region_cx}_{region_cz}"
+        file_path = raw_dir / f"{layer_name}.json"
+
+        if not file_path.exists():
+            print(f"--- WARN: Raw layer '{layer_name}' not found at {file_path}")
+            return None
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("data")
+        except (IOError, json.JSONDecodeError) as e:
+            print(f"--- ERROR: Failed to load raw JSON from {file_path}: {e}")
+            return None

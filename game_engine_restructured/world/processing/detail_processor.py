@@ -7,8 +7,8 @@ from typing import Any
 from ...core.types import GenResult
 from ...core.preset import Preset
 from ..context import Region
-from ..features.biome_rules import apply_biome_rules
-from ..features.local_roads import build_local_roads
+# from ..features.biome_rules import apply_biome_rules # ВРЕМЕННО ОТКЛЮЧЕНО
+# from ..features.local_roads import build_local_roads # ВРЕМЕННО ОТКЛЮЧЕНО
 from ..prefab_manager import PrefabManager
 from ..object_types import PlacedObject
 from ..grid_utils import generate_hex_map_from_pixels
@@ -25,11 +25,10 @@ class DetailProcessor:
             chunk.placed_objects = []
 
         # --- ЭТАП 1: Применяем "кисти" для биомов (леса, камни) ---
-        apply_biome_rules(chunk, self.preset, region_context)
+        # apply_biome_rules(chunk, self.preset, region_context)
 
         # --- ЭТАП 2: Строим локальные дороги по плану ---
-        # (пока оставляем, но можно будет улучшить)
-        build_local_roads(chunk, region_context, self.preset)
+        # build_local_roads(chunk, region_context, self.preset)
 
         # --- ЭТАП 3: Генерация данных для гексагональной карты сервера ---
         if chunk.grid_spec:

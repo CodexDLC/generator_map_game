@@ -244,3 +244,17 @@ def write_server_hex_map(path: str, hex_map_data: Dict[str, Any]):
         print(f"--- EXPORT: Серверная карта гексов (.json) сохранена: {path}")
     except Exception as e:
         print(f"!!! LOG: КРИТИЧЕСКАЯ ОШИБКА при создании server_hex_map.json: {e}")
+
+
+def write_raw_json_grid(path: str, grid: Any):
+    """
+    Сохраняет 2D-сетку в виде простого JSON-файла.
+    Это формат для отладки и просмотра "сырых" данных.
+    """
+    _ensure_path_exists(path)
+    tmp_path = path + ".tmp"
+    output_data = {"data": grid}
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(output_data, f, indent=2, ensure_ascii=False)
+    os.replace(tmp_path, path)
+    print(f"--- EXPORT: Отладочная сетка сохранена: {path}")

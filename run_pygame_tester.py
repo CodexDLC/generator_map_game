@@ -1,13 +1,13 @@
 # Файл: run_pygame_tester.py
 import sys
 import json
-# --- ИЗМЕНЕНИЕ: Убираем 'import pygame' отсюда ---
 import traceback
 
 from game_engine_restructured.world_actor import WorldActor
 from game_engine_restructured.core.preset import load_preset
 from game_engine_restructured.world.regions import RegionManager
 from game_engine_restructured.world.processing.base_processor import BaseProcessor
+from pygame_tester.world_manager import WorldManager
 
 from pygame_tester.config import (
     SCREEN_WIDTH, SCREEN_HEIGHT, BACKGROUND_COLOR, ARTIFACTS_ROOT,
@@ -29,7 +29,6 @@ def get_seed_from_console() -> int:
 
 
 def main():
-    # --- ИЗМЕНЕНИЕ: Переносим 'import pygame' сюда! ---
     import pygame
 
     print("--- Pygame World Viewer & Generator ---")
@@ -62,7 +61,7 @@ def main():
     camera = Camera(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
     renderer = Renderer(screen)
     world_map = WorldMapViewer(ARTIFACTS_ROOT, city_seed)
-
+    world_manager = WorldManager(city_seed) # НОВЫЙ ЭКЗЕМПЛЯР МЕНЕДЖЕРА
 
     side_menu = SideMenu(SCREEN_WIDTH - MENU_WIDTH, 0, MENU_WIDTH, SCREEN_HEIGHT, world_map)
 
@@ -79,7 +78,7 @@ def main():
                     continue
 
             camera.process_inputs(dt)
-            world_map.draw(game_surface, camera)
+            world_map.draw(game_surface, camera, world_manager) # ПЕРЕДАЕМ МЕНЕДЖЕР
             renderer.draw_player_marker(game_surface)
 
             screen.fill(BACKGROUND_COLOR)
