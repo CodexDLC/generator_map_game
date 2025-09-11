@@ -2,26 +2,27 @@
 from typing import Dict
 
 # Палитра для pygame_tester.
-# Определяет по одному основному цвету для каждого биома для визуальной отладки.
 PYGAME_PALETTE: Dict[str, str] = {
-    # --- Общие типы ---
-    "base_dirt": "#8B4513",        # Коричневый (грязь)
-    "base_rock": "#9aa0a6",        # Серый (скалы)
-    "base_sand": "#e0cda8",        # Песочный
-    "road": "#d2b48c",             # Дорога
+    # --- Базовые слои ---
+    "base_dirt": "#8B4513",
+    "base_grass": "#90A959",
+    "base_sand": "#e0cda8",
+    "base_rock": "#9aa0a6",
+    "base_road": "#6E6E6E", # Брусчатка
+    "base_cracked": "#B7A649",
+    "base_waterbed": "#A2A2A2",
 
-    # --- Основные цвета биомов ---
-    "forest_floor": "#6A7B44",     # Умеренный лес (зеленый)
-    "plains_grass": "#90A959",     # Равнины (светло-зеленый)
-    "savanna_drygrass": "#B7A649", # Саванна (желтоватый)
-    "desert_ground": "#D8B578",    # Пустыня (песочно-оранжевый)
-    "jungle_darkfloor": "#4E5731", # Джунгли (темно-зеленый)
-    "taiga_moss": "#5F6F4F",       # Тайга (серо-зеленый)
-    "tundra_snowground": "#E1E1E1",# Тундра (светло-серый, почти белый)
+    # --- Детальные слои (могут понадобиться для отладки) ---
+    "overlay_snow": "#E1E1E1",
+    "overlay_leafs_green": "#6A7B44",
+    "overlay_leafs_autumn": "#C06B3E",
+    "overlay_flowers": "#D2A1D2",
+    "overlay_dirt_grass": "#7C9A54",
+    "overlay_desert_stones": "#C8B578",
 
     # --- Навигация ---
     "water": "#3573b8",
     "bridge": "#b8b8b8",
     "obstacle_prop": "#444444",
-    "void": "#0F0F19",             # Цвет фона
+    "void": "#0F0F19",
 }

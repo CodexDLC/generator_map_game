@@ -11,9 +11,10 @@ from ...core import constants as const
 class ForestBrush(FeatureBrush):
     def apply(self, tree_rock_ratio: float = 0.95, min_distance: int = 2, **kwargs):
         """
-        Применяет "кисть" для генерации леса в два этапа:
-        1. Создает "пятно" леса и закрашивает его поверхность нужной текстурой.
-        2. Расставляет внутри пятна деревья и камни как непроходимые объекты.
+        Применяет "кисть" для генерации леса:
+        1. Создает "пятно" леса на основе шума.
+        2. Внутри пятна меняет базовую текстуру и добавляет слой листьев.
+        3. Расставляет внутри деревья и камни как непроходимые объекты.
         """
         cfg = getattr(self.preset, "scatter", {})
         if not cfg.get("enabled", False):
@@ -33,43 +34,37 @@ class ForestBrush(FeatureBrush):
 
         scatter_mask = [[False for _ in range(self.size)] for _ in range(self.size)]
 
-        # --- ИЗМЕНЕНИЕ: Лес может расти на земле, песке и разных видах травы ---
-        allowed_base_surfaces = (
-            const.KIND_BASE_DIRT, const.KIND_BASE_SAND,
-            const.KIND_PLAINS_GRASS, const.KIND_SAVANNA_DRYGRASS
-        )
+        # Лес может расти только на траве
+        allowed_base_surfaces = (const.KIND_BASE_GRASS,)
 
         for z in range(self.size):
             for x in range(self.size):
                 if self.surface_grid[z][x] in allowed_base_surfaces:
                     wx = self.result.cx * self.size + x
                     wz = self.result.cz * self.size + z
-                    group_val = (
-                                        group_noise_gen.noise2(wx * group_freq, wz * group_freq) + 1.0
-                                ) / 2.0
+                    group_val = (group_noise_gen.noise2(wx * group_freq, wz * group_freq) + 1.0) / 2.0
                     if group_val > group_threshold:
-                        detail_val = (
-                                             detail_noise_gen.noise2(wx * detail_freq, wz * detail_freq)
-                                             + 1.0
-                                     ) / 2.0
+                        detail_val = (detail_noise_gen.noise2(wx * detail_freq, wz * detail_freq) + 1.0) / 2.0
                         if detail_val > detail_threshold:
                             scatter_mask[z][x] = True
 
-        # --- ЭТАП 2: Раскрашиваем всю область леса на СЛОЕ ПОВЕРХНОСТЕЙ ---
+        # --- ЭТАП 2: Раскрашиваем область леса и добавляем детальные слои ---
         possible_points = []
+        leaf_overlay_id = const.SURFACE_KIND_TO_ID.get(const.KIND_OVERLAY_LEAFS_GREEN, 0)
+
         for z in range(self.size):
             for x in range(self.size):
                 if scatter_mask[z][x]:
-                    # --- ИЗМЕНЕНИЕ: Используем новую константу для лесной земли ---
-                    self.surface_grid[z][x] = const.KIND_FOREST_FLOOR
+                    # Меняем базовый слой на землю
+                    self.surface_grid[z][x] = const.KIND_BASE_DIRT
+                    # Добавляем ID слоя с листьями в overlay_grid
+                    self.overlay_grid[z][x] = leaf_overlay_id
                     possible_points.append((x, z))
 
-        # --- ЭТАП 3: Прореживаем и расставляем НЕПРОХОДИМЫЕ объекты на СЛОЕ НАВИГАЦИИ ---
+        # --- ЭТАП 3: Прореживаем и расставляем НЕПРОХОДИМЫЕ объекты (без изменений) ---
         rng = random.Random(self.result.stage_seeds.get("obstacles", self.result.seed))
         rng.shuffle(possible_points)
-        placement_forbidden = [
-            [False for _ in range(self.size)] for _ in range(self.size)
-        ]
+        placement_forbidden = [[False for _ in range(self.size)] for _ in range(self.size)]
         tree_count = 0
         rock_count = 0
 
@@ -77,15 +72,15 @@ class ForestBrush(FeatureBrush):
             if placement_forbidden[z][x]:
                 continue
 
-            # Внутри лесной зоны ставим либо дерево, либо камень как препятствие
+            # Ставим либо дерево, либо камень как препятствие
             if rng.random() < tree_rock_ratio:
-                # --- ИЗМЕНЕНИЕ: Используем новую константу ---
                 self.nav_grid[z][x] = const.NAV_OBSTACLE
                 tree_count += 1
             else:
                 self.nav_grid[z][x] = const.NAV_OBSTACLE
-                # Дополнительно меняем поверхность под камнем на каменистую
                 self.surface_grid[z][x] = const.KIND_BASE_ROCK
+                # Убираем листья из-под камня
+                self.overlay_grid[z][x] = 0
                 rock_count += 1
 
             # Блокируем "защитную зону" вокруг нового объекта
@@ -97,6 +92,4 @@ class ForestBrush(FeatureBrush):
 
         total = tree_count + rock_count
         if total > 0:
-            print(
-                f"--- FOREST BRUSH: Painted forest area and placed {tree_count} trees, {rock_count} rocks in chunk ({self.result.cx}, {self.result.cz})"
-            )
+            print(f"--- FOREST BRUSH: Painted forest area and placed {tree_count} trees, {rock_count} rocks.")

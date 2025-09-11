@@ -74,19 +74,32 @@ class WorldMapViewer:
             return self.raw_layer_cache[cache_key]
 
         grid_data = world_manager.load_raw_json(cx, cz, layer_name)
-        # --- ИЗМЕНЕНИЕ: Проверяем, что grid_data не пустой numpy-массив ---
         if grid_data is None or grid_data.size == 0:
             return None
 
-        # Нормализуем данные
-        min_val = np.min(grid_data)
-        max_val = np.max(grid_data)
+        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+
+        # Получаем глобальные min/max значения из пресета
+        min_val, max_val = 0.0, 1.0  # Значения по умолчанию
+        if layer_name == "temperature":
+            temp_cfg = world_manager.preset.climate.get("temperature", {})
+            min_val, max_val = temp_cfg.get("clamp_c", [-15.0, 35.0])
+        elif layer_name == "humidity":
+            hum_cfg = world_manager.preset.climate.get("humidity", {})
+            min_val, max_val = hum_cfg.get("clamp", [0.0, 1.0])
+
+        # Нормализуем данные, используя глобальные значения
+        # Сначала обрезаем значения по краям, чтобы избежать выхода за диапазон 0-1
+        grid_data = np.clip(grid_data, min_val, max_val)
+
         if max_val - min_val == 0:
             norm_data = np.zeros_like(grid_data, dtype=float)
         else:
             norm_data = (grid_data - min_val) / (max_val - min_val)
 
-        # Создаем поверхность и раскрашиваем
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
+        # Создаем поверхность и раскрашиваем (этот блок без изменений)
         surface = pygame.Surface((CHUNK_SIZE, CHUNK_SIZE))
         if layer_name == "temperature":
             pixels = (norm_data * 255).astype(np.uint8)

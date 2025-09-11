@@ -29,7 +29,7 @@ def build_local_roads(result: GenResult, region: Region, preset: Preset) -> None
     if not plan_for_chunk or not plan_for_chunk.waypoints:
         return
 
-    # --- ИЗМЕНЕНИЯ: Получаем спецификацию гекс-сетки ---
+    # ... (код для получения локальных waypoints без изменений)
     grid_spec = HexGridSpec(
         edge_m=0.63,
         meters_per_pixel=0.8,
@@ -61,9 +61,6 @@ def build_local_roads(result: GenResult, region: Region, preset: Preset) -> None
     )
     router = BaseRoadRouter(policy=policy)
 
-    # --- ИЗМЕНЕНИЯ: Используем новый HexGridSpec для перевода координат ---
-    # Мы пока не используем гексовую сетку для pathfinding напрямую,
-    # поэтому просто передаем существующие данные
     paths = find_path_network(
         surface_grid, nav_grid, height_grid, local_waypoints, router=router
     )
@@ -72,13 +69,13 @@ def build_local_roads(result: GenResult, region: Region, preset: Preset) -> None
         print(f"[ROADS][WARN] chunk={chunk_key} Could not connect waypoints.")
         return
 
-    for path in paths:
-        if path:
-            # --- ИЗМЕНЕНИЕ: Передаем новую ширину зоны выравнивания ---
-            carve_ramp_along_path(
-                height_grid, path, width=7
-            )  # 3 (дорога) + 2*2 (откосы) = 7
+    # --- ИЗМЕНЕНИЕ: Отключаем выравнивание рельефа ---
+    # for path in paths:
+    #     if path:
+    #         carve_ramp_along_path(
+    #             height_grid, path, width=7
+    #         )
 
-    # --- ИЗМЕНЕНИЕ: Возвращаем визуальную ширину дороги к 3 ---
+    # Оставляем только "раскраску" дороги
     apply_paths_to_grid(surface_grid, nav_grid, overlay_grid, paths, width=3)
     print(f"[ROADS] chunk={chunk_key} Successfully applied paths.")

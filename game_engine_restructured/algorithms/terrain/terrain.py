@@ -8,7 +8,6 @@ from opensimplex import OpenSimplex
 
 from .features import fbm2d
 from .slope import compute_slope_mask
-# --- ИЗМЕНЕНИЕ: Импортируем весь модуль констант ---
 from ...core import constants as const
 from ...core.constants import NAV_PASSABLE
 
@@ -42,34 +41,7 @@ def _quantize_heights(grid: np.ndarray, step: float):
     np.round(grid / step, out=grid)
     grid *= step
 
-
-def _apply_terraform_rules(grid: np.ndarray, max_theoretical_height: float, rules: List[Any]):
-    if not rules or max_theoretical_height <= 0:
-        return
-
-    normalized_grid = grid / max_theoretical_height
-
-    for rule in rules:
-        if not rule.get("enabled", False):
-            continue
-
-        mask = (normalized_grid >= rule["noise_from"]) & (normalized_grid < rule["noise_to"])
-        if not np.any(mask):
-            continue
-
-        if rule["type"] == "remap":
-            source_range = rule["noise_to"] - rule["noise_from"]
-            if source_range <= 0: continue
-
-            t = (normalized_grid[mask] - rule["noise_from"]) / source_range
-            target_range = rule["remap_to_to"] - rule["remap_to_from"]
-            normalized_grid[mask] = rule["remap_to_from"] + t * target_range
-
-        elif rule["type"] == "flatten":
-            normalized_grid[mask] = rule["target_noise"]
-
-    np.multiply(normalized_grid, max_theoretical_height, out=grid)
-
+# --- ИЗМЕНЕНИЕ: Функция _apply_terraform_rules полностью удалена ---
 
 def generate_elevation(
         seed: int, cx: int, cz: int, size: int, preset: Any
@@ -129,9 +101,7 @@ def generate_elevation(
         _apply_shaping_curve(normalized_grid, float(cfg.get("shaping_power", 1.0)))
         height_grid = normalized_grid * total_max_amp
 
-    tf_cfg = getattr(preset, "terraform", {})
-    if tf_cfg.get("enabled", False):
-        _apply_terraform_rules(height_grid, total_max_amp, tf_cfg.get("rules", []))
+    # --- ИЗМЕНЕНИЕ: Вызов терраформинга здесь удален ---
 
     height_grid = _smooth_grid(height_grid, int(cfg.get("smoothing_passes", 0)))
     _quantize_heights(height_grid, float(cfg.get("quantization_step_m", 0.0)))
@@ -152,7 +122,6 @@ def classify_terrain(
     size = len(surface_grid)
     for z in range(size):
         for x in range(size):
-            # --- ИЗМЕНЕНИЕ: Используем новую базовую грязь ---
             surface_grid[z][x] = const.KIND_BASE_DIRT
             nav_grid[z][x] = NAV_PASSABLE
 
@@ -186,5 +155,4 @@ def apply_slope_obstacles(height_grid_with_margin: np.ndarray, surface_grid: Lis
         mask = mask[margin:-margin, margin:-margin]
 
     for z, x in np.argwhere(mask):
-        # --- ИЗМЕНЕНИЕ: Вместо KIND_SLOPE используем KIND_BASE_ROCK ---
         surface_grid[z][x] = const.KIND_BASE_ROCK

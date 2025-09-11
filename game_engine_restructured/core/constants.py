@@ -3,68 +3,47 @@ from __future__ import annotations
 from typing import Dict, Tuple
 
 # =======================================================================
-# СЛОЙ 1: ПОВЕРХНОСТИ (32 ID для control.r32)
+# СЛОЙ 1: ПОВЕРХНОСТИ (ЕДИНЫЙ СЕТ ДЛЯ TERRAIN3D)
+# Все текстуры ландшафта, которые будут использоваться в одном сете.
+# Сначала идут базовые слои, затем — слои для смешивания (детальные).
 # =======================================================================
 
-# --- ID 0-3: ОБЩИЕ БАЗОВЫЕ ТИПЫ И ДОРОГИ ---
-KIND_BASE_DIRT = "base_dirt"
-KIND_BASE_ROCK = "base_rock"
-KIND_BASE_SAND = "base_sand"
-KIND_ROAD_PAVED = "road_paved"
+# --- Группа 1: Базовые поверхности ---
+KIND_BASE_DIRT = "base_dirt"                # ID 0
+KIND_BASE_GRASS = "base_grass"              # ID 1
+KIND_BASE_SAND = "base_sand"                # ID 2
+KIND_BASE_ROCK = "base_rock"                # ID 3
+KIND_BASE_ROAD = "base_road"                # ID 4
+KIND_BASE_CRACKED = "base_cracked"          # ID 5
+KIND_BASE_WATERBED = "base_waterbed"        # ID 6
 
-# --- ID 4-7: БИОМ "УМЕРЕННЫЙ ЛЕС" (Temperate Forest) ---
-KIND_FOREST_FLOOR = "forest_floor"
-KIND_FOREST_GRASS = "forest_grass"
-KIND_FOREST_FLOWERS = "forest_flowers"
-KIND_FOREST_AUTUMN = "forest_autumn"
+# --- Группа 2: Детальные (накладываемые) поверхности ---
+KIND_OVERLAY_SNOW = "overlay_snow"                  # ID 7
+KIND_OVERLAY_LEAFS_GREEN = "overlay_leafs_green"    # ID 8
+KIND_OVERLAY_LEAFS_AUTUMN = "overlay_leafs_autumn"  # ID 9
+KIND_OVERLAY_FLOWERS = "overlay_flowers"            # ID 10
+KIND_OVERLAY_DIRT_GRASS = "overlay_dirt_grass"      # ID 11
+KIND_OVERLAY_DESERT_STONES = "overlay_desert_stones" # ID 12
 
-KIND_PLAINS_GRASS = "plains_grass"
-KIND_PLAINS_FLOWERS = "plains_flowers"
-KIND_PLAINS_DIRT = "plains_dirt"
-KIND_PLAINS_STONES = "plains_stones"
 
-KIND_SAVANNA_DRYGRASS = "savanna_drygrass"
-KIND_SAVANNA_CRACKED = "savanna_cracked"
-KIND_SAVANNA_ROCKY = "savanna_rocky"
-KIND_SAVANNA_SAND = "savanna_sand"
-
-KIND_DESERT_GROUND = "desert_ground"
-KIND_DESERT_SAND = "desert_sand"
-KIND_DESERT_STONES = "desert_stones"
-KIND_DESERT_CRACKED = "desert_cracked_dark"
-
-KIND_JUNGLE_DARKFLOOR = "jungle_darkfloor"
-KIND_JUNGLE_LEAFS = "jungle_leafs"
-KIND_JUNGLE_MUD = "jungle_mud"
-KIND_JUNGLE_ROOTS = "jungle_roots"
-
-KIND_TAIGA_MOSS = "taiga_moss"
-KIND_TAIGA_NEEDLES = "taiga_needles"
-KIND_TAIGA_SNOWDUST = "taiga_snowdust"
-KIND_TAIGA_WETSTONE = "taiga_wetstone"
-
-KIND_TUNDRA_SNOWGROUND = "tundra_snowground"
-KIND_TUNDRA_ICEROCK = "tundra_icerock"
-KIND_TUNDRA_FLOWERS = "tundra_flowers"
-KIND_TUNDRA_FROZENDIRT = "tundra_frozendirt"
-
-# --- Автоматическая генерация словарей ID ---
+# --- Автоматическая генерация единого словаря ID ---
+# Порядок здесь определяет финальные ID!
 _SURFACE_KIND_NAMES: Tuple[str, ...] = (
-    "base_dirt", "base_rock", "base_sand", "road_paved",
-    "forest_floor", "forest_grass", "forest_flowers", "forest_autumn",
-    "plains_grass", "plains_flowers", "plains_dirt", "plains_stones",
-    "savanna_drygrass", "savanna_cracked", "savanna_rocky", "savanna_sand",
-    "desert_ground", "desert_sand", "desert_stones", "desert_cracked_dark",
-    "jungle_darkfloor", "jungle_leafs", "jungle_mud", "jungle_roots",
-    "taiga_moss", "taiga_needles", "taiga_snowdust", "taiga_wetstone",
-    "tundra_snowground", "tundra_icerock", "tundra_flowers", "tundra_frozendirt",
+    # Базовые
+    KIND_BASE_DIRT, KIND_BASE_GRASS, KIND_BASE_SAND, KIND_BASE_ROCK,
+    KIND_BASE_ROAD, KIND_BASE_CRACKED, KIND_BASE_WATERBED,
+    # Детальные
+    KIND_OVERLAY_SNOW, KIND_OVERLAY_LEAFS_GREEN, KIND_OVERLAY_LEAFS_AUTUMN,
+    KIND_OVERLAY_FLOWERS, KIND_OVERLAY_DIRT_GRASS, KIND_OVERLAY_DESERT_STONES,
 )
+
 SURFACE_KIND_TO_ID: Dict[str, int] = {name: i for i, name in enumerate(_SURFACE_KIND_NAMES)}
 SURFACE_ID_TO_KIND: Dict[int, str] = {i: name for i, name in enumerate(_SURFACE_KIND_NAMES)}
 SURFACE_KINDS: Tuple[str, ...] = _SURFACE_KIND_NAMES
 
+
 # =======================================================================
-# СЛОЙ 2: НАВИГАЦИЯ (остается без изменений)
+# СЛОЙ НАВИГАЦИИ (остается без изменений)
 # =======================================================================
 NAV_PASSABLE = "passable"
 NAV_OBSTACLE = "obstacle_prop"

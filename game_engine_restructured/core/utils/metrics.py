@@ -2,7 +2,6 @@
 from __future__ import annotations
 from typing import Dict, List
 
-# --- ИЗМЕНЕНИЕ: Импортируем весь модуль как const ---
 from .. import constants as const
 
 
@@ -28,11 +27,10 @@ def compute_metrics(
         for v in row:
             nav_counts[v] = nav_counts.get(v, 0) + 1
 
-    # --- ИЗМЕНЕНИЕ: Считаем "открытые" клетки по сумме проходимых биомов ---
-    # (Это более правильный подход для новой системы)
+    # --- ИЗМЕНЕНИЕ: Считаем "открытые" клетки по сумме новых базовых поверхностей ---
     walkable_kinds = (
-        const.KIND_BASE_DIRT, const.KIND_FOREST_FLOOR, const.KIND_PLAINS_GRASS,
-        const.KIND_SAVANNA_DRYGRASS, const.KIND_JUNGLE_DARKFLOOR, const.KIND_TAIGA_MOSS
+        const.KIND_BASE_DIRT, const.KIND_BASE_GRASS, const.KIND_BASE_SAND,
+        const.KIND_BASE_CRACKED, const.KIND_BASE_WATERBED
     )
     open_cells = sum(surface_counts.get(k, 0) for k in walkable_kinds)
 

@@ -10,9 +10,10 @@ class FeatureBrush:
     def __init__(self, result: GenResult, preset: Any):
         self.result = result
         self.preset = preset
-        # --- ИЗМЕНЕНИЕ: Получаем доступ к обоим слоям ---
+        # --- Получаем доступ ко всем нужным слоям ---
         self.surface_grid = result.layers["surface"]
         self.nav_grid = result.layers["navigation"]
+        self.overlay_grid = result.layers["overlay"] # <--- ВОТ ЭТА СТРОКА
         self.size = len(self.surface_grid)
 
     def apply(self, **kwargs):

@@ -2,14 +2,14 @@
   "id": "world/base_default",
   "version": 2,
   "size": 256,
-  "cell_size": 1.0,
-  "region_size": 3,
-  "initial_load_radius": 0,
+  "cell_size": 0.5,
+  "region_size": 9,
+  "initial_load_radius": 1,
 
   "elevation": {
     "enabled": true,
     "max_height_m": 150.0,
-    "sea_level_m": 15.0,
+    "sea_level_m": 30.0,
     "shaping_power": 1.02,
     "smoothing_passes": 1,
     "quantization_step_m": 0.0,
@@ -31,9 +31,11 @@
 	  "river_chance_per_chunk": 0.5,
 	  "river_num_droplets": 4000,
 	  "river_threshold": 0.01,
-	  "river_excavate_depth_m": -3.0,
+	  "river_excavate_depth_m": -1.0,
 	  "river_curl_noise_scale": 200.0,
-	  "river_curl_noise_strength": 0.3
+	  "river_curl_noise_strength": 0.3,
+      "river_min_width_m" : 3,
+      "river_max_width_m" : 10
 	},
 
   "climate": {
@@ -62,11 +64,23 @@
 
   "export": {
     "palette": {
-      "base_dirt": "#8B4513", "base_rock": "#9aa0a6", "base_sand": "#e0cda8",
-      "road_paved": "#A9A9A9", "road_dirt": "#8B4513", "forest_floor": "#6A7B44",
-      "plains_grass": "#90A959", "savanna_drygrass": "#B7A649", "desert_ground": "#D8B578",
-      "jungle_darkfloor": "#4E5331", "taiga_moss": "#5F6F4F", "tundra_snowground": "#E1E1E1",
-      "water": "#3573b8", "bridge": "#b8b8b8", "obstacle_prop": "#444444", "void": "#0F0F19"
+      "base_dirt": "#8B4513",
+      "base_grass": "#90A959",
+      "base_sand": "#e0cda8",
+      "base_rock": "#9aa0a6",
+      "base_road": "#6E6E6E",
+      "base_cracked": "#B7A649",
+      "base_waterbed": "#A2A2A2",
+      "overlay_snow": "#E1E1E1",
+      "overlay_leafs_green": "#6A7B44",
+      "overlay_leafs_autumn": "#C06B3E",
+      "overlay_flowers": "#D2A1D2",
+      "overlay_dirt_grass": "#7C9A54",
+      "overlay_desert_stones": "#C8B578",
+      "water": "#3573b8",
+      "bridge": "#b8b8b8",
+      "obstacle_prop": "#444444",
+      "void": "#0F0F19"
     }
   },
   "pre_rules": { "enabled": false }

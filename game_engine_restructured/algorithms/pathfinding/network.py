@@ -60,14 +60,14 @@ def find_path_network(
             paths.append(path)
     return paths
 
-
 def apply_paths_to_grid(
-        surface_grid: List[List[str]],
-        nav_grid: List[List[str]],
-        overlay_grid: List[List[int]],
-        paths: Iterable[List[Coord]],
+        surface_grid: list[list[str]],
+        nav_grid: list[list[str]],
+        overlay_grid: list[list[int]],
+        paths: Iterable[list[tuple[int, int]]],
         width: int = 1,
-        road_type: str = const.KIND_ROAD_PAVED,  # --- ИЗМЕНЕНИЕ: Добавляем тип дороги
+        # --- ИЗМЕНЕНИЕ: Используем новую, правильную константу ---
+        road_type: str = const.KIND_BASE_ROAD,
 ) -> None:
     h = len(surface_grid)
     w = len(surface_grid[0]) if h else 0
@@ -75,20 +75,14 @@ def apply_paths_to_grid(
     # --- ИЗМЕНЕНИЕ: Получаем ID дороги по-новому ---
     road_id = const.SURFACE_KIND_TO_ID.get(road_type, 0)
 
+    # --- Здесь была ошибка в типе surface_grid, исправлено ---
     def paint(x: int, z: int):
         if 0 <= x < w and 0 <= z < h:
-            overlay_grid[z][x] = road_id
+            # --- ИЗМЕНЕНИЕ: Дорога должна менять базовый слой, а не overlay ---
+            surface_grid[z][x] = road_type
 
             # --- ИЗМЕНЕНИЕ: Используем новые константы ---
             if nav_grid[z][x] == const.NAV_WATER:
                 nav_grid[z][x] = const.NAV_BRIDGE
             else:
                 nav_grid[z][x] = const.NAV_PASSABLE
-
-    for path in paths:
-        if not path:
-            continue
-        for x, z in path:
-            for dz in range(width):
-                for dx in range(width):
-                    paint(x + dx, z + dz)

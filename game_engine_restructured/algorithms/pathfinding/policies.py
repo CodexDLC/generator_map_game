@@ -53,9 +53,9 @@ def make_road_policy(
     """Политика для ГЕНЕРАЦИИ ДОРОГ."""
     policy = make_base_policy()
 
-    # Используем одну и ту же стоимость для разных дорог
+    # --- ИЗМЕНЕНИЕ: Используем правильную константу для дороги ---
     policy.terrain_factor[const.KIND_BASE_DIRT] = 0.5
-    policy.terrain_factor[const.KIND_ROAD_PAVED] = 0.5
+    policy.terrain_factor[const.KIND_BASE_ROAD] = 0.5 # <--- БЫЛО KIND_ROAD_PAVED
 
     if allow_slopes:
         policy.terrain_factor[const.KIND_BASE_ROCK] = slope_cost
@@ -72,8 +72,9 @@ def make_nav_policy() -> PathPolicy:
     """Политика для ПЕРСОНАЖА/ИИ."""
     policy = make_base_policy()
 
+    # --- ИЗМЕНЕНИЕ: Используем правильную константу для дороги ---
     policy.terrain_factor[const.KIND_BASE_DIRT] = 0.8
-    policy.terrain_factor[const.KIND_ROAD_PAVED] = 0.6
+    policy.terrain_factor[const.KIND_BASE_ROAD] = 0.6 # <--- БЫЛО KIND_ROAD_PAVED
     policy.terrain_factor[const.KIND_BASE_ROCK] = float("inf")
 
     return policy

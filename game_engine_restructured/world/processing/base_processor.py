@@ -7,7 +7,9 @@ from ...core.grid.hex import HexGridSpec
 from ...core.types import GenResult
 from ...core.utils.rng import init_rng
 from ...core.utils.layers import make_empty_layers
+# --- НАЧАЛО ИЗМЕНЕНИЙ: Добавляем недостающий импорт ---
 from ...algorithms.terrain.terrain import generate_elevation, classify_terrain
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
 
 class BaseProcessor:
@@ -57,7 +59,6 @@ class BaseProcessor:
         }
 
         # Сохраняем elevation_grid_with_margin для будущих этапов
-        # Временно сохраним его в поле, которое не сериализуется
         result.temp_data = {"elevation_with_margin": elevation_grid_with_margin}
 
         return result

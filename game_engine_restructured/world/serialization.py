@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Any, Tuple
 
+from .planners.river_planner import RiverPlan
 # --- НАЧАЛО ИЗМЕНЕНИЙ ---
 
 from .road_types import ChunkRoadPlan
@@ -23,6 +24,8 @@ class RegionMetaContract:
     # Сюда мы будем добавлять планы биомов, рек и т.д.
     road_plan: Dict[Tuple[int, int], ChunkRoadPlan] = field(default_factory=dict)
     # Можно добавить информацию о "швах" на границах для биомов
+    river_plan: RiverPlan = field(default_factory=RiverPlan)
+
     edge_data: Dict[str, Any] = field(default_factory=dict)
 
 

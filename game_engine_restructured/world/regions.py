@@ -8,14 +8,18 @@ import concurrent.futures
 
 from ..core.preset import Preset
 from ..core.types import GenResult
-# --- ИЗМЕНЕНИЕ: Импортируем новую функцию сохранения ---
 from ..core.export import write_region_meta, write_raw_chunk
 from .processing.base_processor import BaseProcessor
 from .processing.region_processor import RegionProcessor
+
+# --- НАЧАЛО ИЗМЕНЕНИЙ В ИМПОРТАХ ---
 from .serialization import RegionMetaContract
 from .planners.road_planner import plan_roads_for_region
-from .planners.biome_planner import assign_biome_to_region
-from .grid_utils import region_base
+from .planners.river_planner import plan_rivers_for_region, RiverPlan
+from .grid_utils import region_base, _stitch_layers  # <--- ДОБАВЛЯЕМ НУЖНЫЕ ИМПОРТЫ
+
+
+# --- КОНЕЦ ИЗМЕНЕНИЙ В ИМПОРТАХ ---
 
 
 class RegionManager:
@@ -65,19 +69,43 @@ class RegionManager:
                     print(f"!!! Base chunk generation failed: {exc}")
 
         if len(base_chunks) != len(tasks):
-            print(f"!!! [RegionManager] ERROR: Not all base chunks were generated for region ({scx}, {scz}). Halting.")
+            print(f"!!! [RegionManager] ERROR: Not all base chunks generated. Halting.")
             return
         print("[RegionManager] -> All base chunks generated.")
 
         processed_chunks = self.region_processor.process(scx, scz, base_chunks)
 
-        biome_type = assign_biome_to_region(self.world_seed, scx, scz)
-        road_plan = plan_roads_for_region(scx, scz, self.world_seed, self.preset, processed_chunks, biome_type)
+        # --- НАЧАЛО ИСПРАВЛЕННОГО БЛОКА ---
+        # Получаем "сшитые" карты из обработанных чанков для планировщиков
+        stitched_layers, _ = _stitch_layers(
+            self.preset.region_size, self.preset.size, processed_chunks,
+            ['height', 'navigation']
+        )
 
-        meta_contract = RegionMetaContract(scx=scx, scz=scz, world_seed=self.world_seed, road_plan=road_plan)
+        # 1. Планируем дороги
+        road_plan = plan_roads_for_region(
+            scx, scz, self.world_seed, self.preset, processed_chunks
+        )
+
+        # 2. Планируем реки
+        river_plan = plan_rivers_for_region(
+            stitched_layers['height'],
+            stitched_layers['navigation'],
+            self.preset,
+            self.world_seed
+        )
+
+        # 3. Сохраняем ВСЕ планы в мета-файл
+        meta_contract = RegionMetaContract(
+            scx=scx, scz=scz, world_seed=self.world_seed,
+            road_plan=road_plan,
+            river_plan=river_plan
+        )
+        # --- КОНЕЦ ИСПРАВЛЕННОГО БЛОКА ---
+
         write_region_meta(str(region_meta_path), meta_contract)
 
-        # --- ИЗМЕНЕНИЕ: Сохраняем чанки в новом, компактном формате ---
+        # Сохраняем финальные "сырые" чанки
         for (cx, cz), chunk_data in processed_chunks.items():
             path_prefix = str(self.raw_data_path / "chunks" / f"{cx}_{cz}")
             write_raw_chunk(path_prefix, chunk_data)

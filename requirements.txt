@@ -5,3 +5,4 @@ imageio
 opensimplex
 Pillow
 scipy
+numba

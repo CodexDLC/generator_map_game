@@ -53,7 +53,7 @@ def write_raw_chunk(path_prefix: str, chunk_data: GenResult):
     meta_path = path_prefix + ".meta.json"
     grid_path = path_prefix + ".npz"
 
-    # 1. Готовим и сохраняем метаданные
+    # 1. Готовим и сохраняем метаданные (этот блок без изменений)
     meta = {
         "version": chunk_data.version, "type": chunk_data.type,
         "seed": chunk_data.seed, "cx": chunk_data.cx, "cz": chunk_data.cz,
@@ -63,7 +63,7 @@ def write_raw_chunk(path_prefix: str, chunk_data: GenResult):
     }
     _atomic_write_json(meta_path, meta)
 
-    # 2. Готовим и сохраняем сетки в бинарном формате
+    # 2. Готовим и сохраняем сетки в бинарном формате (этот блок без изменений)
     height_grid = np.array(chunk_data.layers.get("height_q", {}).get("grid", []), dtype=np.float32)
 
     surface_str = chunk_data.layers.get("surface", [])
@@ -72,11 +72,16 @@ def write_raw_chunk(path_prefix: str, chunk_data: GenResult):
     nav_str = chunk_data.layers.get("navigation", [])
     nav_ids = np.array([[NAV_KIND_TO_ID.get(kind, 1) for kind in row] for row in nav_str], dtype=np.uint8)
 
-    # --- ВОТ ОНО, РЕШЕНИЕ: Убеждаемся, что папка существует, перед записью бинарного файла ---
-    _ensure_path_exists(grid_path)
-
+    # --- ИСПРАВЛЕНИЕ ---
+    _ensure_path_exists(grid_path)  # Убеждаемся, что папка существует (это из прошлого исправления, оставляем)
     tmp_path = grid_path + ".tmp"
-    np.savez_compressed(tmp_path, height=height_grid, surface=surface_ids, navigation=nav_ids)
+
+    # Открываем временный файл для записи в бинарном режиме
+    with open(tmp_path, "wb") as f:
+        # Передаем в функцию сам файл (f), а не его имя
+        np.savez_compressed(f, height=height_grid, surface=surface_ids, navigation=nav_ids)
+
+    # Теперь os.replace найдет правильный файл '.../1_0.npz.tmp'
     os.replace(tmp_path, grid_path)
 
 
@@ -89,36 +94,40 @@ def read_raw_chunk(path_prefix: str) -> GenResult | None:
     if not os.path.exists(meta_path) or not os.path.exists(grid_path):
         return None
 
-    # 1. Читаем метаданные
-    with open(meta_path, "r", encoding="utf-8") as f:
-        meta = json.load(f)
+    try:
+        # 1. Читаем метаданные
+        with open(meta_path, "r", encoding="utf-8") as f:
+            meta = json.load(f)
 
-    # 2. Читаем сетки
-    grid_data = np.load(grid_path)
-    height_grid = grid_data['height'].tolist()
+        # 2. Читаем сетки
+        with np.load(grid_path) as grid_data:
+            height_grid = grid_data['height'].tolist()
 
-    surface_ids = grid_data['surface']
-    surface_str = [[SURFACE_ID_TO_KIND.get(id, "base_dirt") for id in row] for row in surface_ids]
+            surface_ids = grid_data['surface']
+            surface_str = [[SURFACE_ID_TO_KIND.get(int(id_val), "base_dirt") for id_val in row] for row in surface_ids]
 
-    nav_ids = grid_data['navigation']
-    nav_str = [[NAV_ID_TO_KIND.get(id, "obstacle_prop") for id in row] for row in nav_ids]
+            nav_ids = grid_data['navigation']
+            nav_str = [[NAV_ID_TO_KIND.get(int(id_val), "obstacle_prop") for id_val in row] for row in nav_ids]
 
-    from ..core.grid.hex import HexGridSpec
-    grid_spec = HexGridSpec(**meta['grid_spec']) if meta.get('grid_spec') else None
+        from ..core.grid.hex import HexGridSpec
+        grid_spec = HexGridSpec(**meta['grid_spec']) if meta.get('grid_spec') else None
 
-    # 3. Собираем объект GenResult
-    result = GenResult(
-        version=meta['version'], type=meta['type'], seed=meta['seed'],
-        cx=meta['cx'], cz=meta['cz'], size=meta['size'], cell_size=meta['cell_size'],
-        grid_spec=grid_spec, stage_seeds=meta['stage_seeds'],
-        layers={
-            "height_q": {"grid": height_grid},
-            "surface": surface_str,
-            "navigation": nav_str,
-            "overlay": [[0 for _ in range(meta['size'])] for _ in range(meta['size'])]
-        }
-    )
-    return result
+        # 3. Собираем объект GenResult
+        result = GenResult(
+            version=meta['version'], type=meta['type'], seed=meta['seed'],
+            cx=meta['cx'], cz=meta['cz'], size=meta['size'], cell_size=meta['cell_size'],
+            grid_spec=grid_spec, stage_seeds=meta['stage_seeds'],
+            layers={
+                "height_q": {"grid": height_grid},
+                "surface": surface_str,
+                "navigation": nav_str,
+                "overlay": [[0 for _ in range(meta['size'])] for _ in range(meta['size'])]
+            }
+        )
+        return result
+    except Exception as e:
+        print(f"!!! ERROR reading raw chunk {path_prefix}: {e}")
+        return None
 
 
 def write_region_meta(path: str, meta_contract: RegionMetaContract):
@@ -302,8 +311,25 @@ def write_server_hex_map(path: str, hex_map_data: Dict[str, Any]):
 def write_raw_json_grid(path: str, grid: Any):
     _ensure_path_exists(path)
     tmp_path = path + ".tmp"
-    output_data = {"data": grid}
+
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+    # Проверяем, является ли grid массивом NumPy
+    if NUMPY_OK and isinstance(grid, np.ndarray):
+        # Конвертируем его в список Python
+        grid_list = grid.tolist()
+    else:
+        grid_list = grid
+
+    # Округляем значения, если это список float'ов
+    if isinstance(grid_list, list) and grid_list and isinstance(grid_list[0], list) and isinstance(grid_list[0][0],
+                                                                                                   float):
+        rounded_grid = [[round(val, 2) for val in row] for row in grid_list]
+        output_data = {"data": rounded_grid}
+    else:
+        output_data = {"data": grid_list}
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
     with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(output_data, f, indent=2, ensure_ascii=False)
+        json.dump(output_data, f, indent=None, separators=(',', ':'))
     os.replace(tmp_path, path)
     print(f"--- EXPORT: Отладочная сетка сохранена: {path}")
