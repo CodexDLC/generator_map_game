@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import Dict, Tuple
 import numpy as np
+from pathlib import Path
 
 from ...core import constants as const
 from ...core.preset import Preset
@@ -14,9 +15,10 @@ from ...core.export import write_raw_json_grid
 
 
 class RegionProcessor:
-    def __init__(self, preset: Preset, world_seed: int):
+    def __init__(self, preset: Preset, world_seed: int, artifacts_root: Path):
         self.preset = preset
         self.world_seed = world_seed
+        self.artifacts_root = artifacts_root # <--- ДОБАВЛЕНО
 
     def process(self, scx: int, scz: int, base_chunks: Dict[Tuple[int, int], GenResult]) -> Dict[
         Tuple[int, int], GenResult]:
@@ -53,7 +55,7 @@ class RegionProcessor:
             base_cx,
             base_cz,
             region_pixel_size,
-            region_size  # ПЕРЕДАЕМ НОВЫЙ ПАРАМЕТР
+            region_size
         )
 
         # СОХРАНЯЕМ СЛОИ ДЛЯ ОТЛАДКИ В RAW ПАПКУ

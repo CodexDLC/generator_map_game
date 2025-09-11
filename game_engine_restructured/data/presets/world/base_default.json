@@ -3,7 +3,7 @@
   "version": 2,
   "size": 256,
   "cell_size": 1.0,
-  "region_size": 5,
+  "region_size": 3,
   "initial_load_radius": 0,
 
   "elevation": {

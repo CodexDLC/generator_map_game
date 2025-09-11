@@ -3,6 +3,7 @@ import json
 import pathlib
 import struct
 from typing import Dict, Tuple
+import numpy as np
 
 from game_engine_restructured.core.constants import SURFACE_ID_TO_KIND, NAV_PASSABLE
 from game_engine_restructured.core.grid.hex import HexGridSpec
@@ -109,15 +110,17 @@ class WorldManager:
     def _get_chunk_path(self, world_id: str, seed: int, cx: int, cz: int) -> pathlib.Path:
         return ARTIFACTS_ROOT / "world" / world_id / str(seed) / f"{cx}_{cz}"
 
-    def load_raw_json(self, cx: int, cz: int, layer_name: str) -> list | None:
+    def load_raw_json(self, cx: int, cz: int, layer_name: str) -> np.ndarray | None:
         """
-        Загружает данные из сырого JSON-файла для указанного слоя из папки world_raw.
+        Загружает "сырые" данные слоя для одного чанка.
+        Если данные региональные, "вырезает" нужный фрагмент.
         """
         region_size = self.preset.region_size
-        region_cx = cx // region_size
-        region_cz = cz // region_size
+        offset = region_size // 2
+        scx = (cx + offset) // region_size if cx >= -offset else (cx - offset) // region_size
+        scz = (cz + offset) // region_size if cz >= -offset else (cz - offset) // region_size
 
-        raw_dir = ARTIFACTS_ROOT / "world_raw" / str(self.world_seed) / "regions" / f"{region_cx}_{region_cz}"
+        raw_dir = ARTIFACTS_ROOT / "world_raw" / str(self.world_seed) / "regions" / f"{scx}_{scz}"
         file_path = raw_dir / f"{layer_name}.json"
 
         if not file_path.exists():
@@ -127,7 +130,23 @@ class WorldManager:
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                return data.get("data")
+                full_grid = np.array(data.get("data"))
+
+            # --- ИСПРАВЛЕНИЕ: Вырезаем нужный чанк из региона ---
+            base_cx = scx * region_size - offset
+            base_cz = scz * region_size - offset
+
+            local_cx = cx - base_cx
+            local_cz = cz - base_cz
+
+            start_x = local_cx * CHUNK_SIZE
+            start_z = local_cz * CHUNK_SIZE
+            end_x = start_x + CHUNK_SIZE
+            end_z = start_z + CHUNK_SIZE
+
+            chunk_grid = full_grid[start_z:end_z, start_x:end_x]
+            return chunk_grid
+
         except (IOError, json.JSONDecodeError) as e:
             print(f"--- ERROR: Failed to load raw JSON from {file_path}: {e}")
             return None

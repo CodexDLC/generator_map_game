@@ -73,36 +73,32 @@ class WorldMapViewer:
         if cache_key in self.raw_layer_cache:
             return self.raw_layer_cache[cache_key]
 
-        data = world_manager.load_raw_json(cx, cz, layer_name)
-        if data is None or not data:
+        grid_data = world_manager.load_raw_json(cx, cz, layer_name)
+        # --- ИЗМЕНЕНИЕ: Проверяем, что grid_data не пустой numpy-массив ---
+        if grid_data is None or grid_data.size == 0:
             return None
-
-        # Конвертируем список списков в numpy массив для удобства
-        grid_data = np.array(data)
 
         # Нормализуем данные
         min_val = np.min(grid_data)
         max_val = np.max(grid_data)
         if max_val - min_val == 0:
-            norm_data = np.zeros_like(grid_data)
+            norm_data = np.zeros_like(grid_data, dtype=float)
         else:
             norm_data = (grid_data - min_val) / (max_val - min_val)
 
         # Создаем поверхность и раскрашиваем
         surface = pygame.Surface((CHUNK_SIZE, CHUNK_SIZE))
         if layer_name == "temperature":
-            # От синего (холод) до красного (тепло)
-            pixels = (np.interp(norm_data, [0, 1], [0, 255])).astype(int)
+            pixels = (norm_data * 255).astype(np.uint8)
             colors = np.zeros((CHUNK_SIZE, CHUNK_SIZE, 3), dtype=np.uint8)
-            colors[:, :, 0] = pixels  # Красный канал
-            colors[:, :, 2] = 255 - pixels  # Синий канал
+            colors[:, :, 0] = pixels
+            colors[:, :, 2] = 255 - pixels
             pygame.surfarray.blit_array(surface, colors)
         elif layer_name == "humidity":
-            # От коричневого (сухо) до зеленого (влажно)
-            pixels = (np.interp(norm_data, [0, 1], [0, 255])).astype(int)
+            pixels = (norm_data * 255).astype(np.uint8)
             colors = np.zeros((CHUNK_SIZE, CHUNK_SIZE, 3), dtype=np.uint8)
-            colors[:, :, 0] = pixels // 2  # Коричневый
-            colors[:, :, 1] = pixels  # Зеленый канал
+            colors[:, :, 0] = pixels // 2
+            colors[:, :, 1] = pixels
             pygame.surfarray.blit_array(surface, colors)
         else:
             return None

@@ -6,18 +6,13 @@ import json
 
 from .core.preset import Preset
 from .core.export import (
-    write_client_chunk_meta,
-    write_chunk_preview,
-    write_heightmap_r16,
-    write_control_map_r32,
-    write_world_meta_json,
-    write_objects_json,
-    write_navigation_rle,
-    write_server_hex_map
+    write_client_chunk_meta, write_chunk_preview, write_heightmap_r16,
+    write_control_map_r32, write_world_meta_json, write_objects_json,
+    write_navigation_rle, write_server_hex_map, read_raw_chunk  # <--- ИЗМЕНЕНИЕ
 )
 from .world.grid_utils import region_base
 from .world.regions import RegionManager
-from .world.processing.detail_processor import DetailProcessor  # <--- ИЗМЕНЕНИЕ
+from .world.processing.detail_processor import DetailProcessor
 from .world.context import Region
 from .world.road_types import RoadWaypoint, ChunkRoadPlan
 from .world.prefab_manager import PrefabManager
@@ -41,7 +36,6 @@ class WorldActor:
 
         prefabs_path = Path(__file__).parent / "data" / "prefabs.json"
         self.prefab_manager = PrefabManager(prefabs_path)
-        # --- ИНИЦИАЛИЗИРУЕМ НОВЫЙ DETAIL PROCESSOR ---
         self.detail_processor = DetailProcessor(preset, self.prefab_manager)
 
     def _log(self, message: str):
@@ -62,9 +56,7 @@ class WorldActor:
 
         for i, (scx, scz) in enumerate(regions_to_generate):
             print(f"\n--- [{i + 1}/{total_regions}] Processing Region ({scx}, {scz}) ---")
-            # Эта функция теперь запускает весь новый пайплайн (base -> region)
             region_manager.generate_raw_region(scx, scz)
-            # Эта функция запускает финальный этап (detail)
             self._detail_region(scx, scz)
 
     def _detail_region(self, scx: int, scz: int):
@@ -105,22 +97,15 @@ class WorldActor:
                 chunk_cx, chunk_cz = base_cx + dx, base_cz + dz
                 self._log(f"  -> Detailing chunk ({chunk_cx},{chunk_cz})...")
 
-                raw_chunk_path = self.raw_data_path / "chunks" / f"{chunk_cx}_{chunk_cz}.json"
-                if not raw_chunk_path.exists():
+                # --- ИЗМЕНЕНИЕ: Загружаем чанк из нового бинарного формата ---
+                path_prefix = str(self.raw_data_path / "chunks" / f"{chunk_cx}_{chunk_cz}")
+                chunk_for_detailing = read_raw_chunk(path_prefix)
+
+                if not chunk_for_detailing:
                     self._log(f"!!! [WorldActor] WARN: Raw chunk file not found for ({chunk_cx},{chunk_cz}). Skipping.")
                     continue
 
-                # --- НОВЫЙ ПОРЯДОК: ЗАГРУЗКА И ВЫЗОВ DETAIL PROCESSOR ---
-                with open(raw_chunk_path, "r", encoding="utf-8") as f:
-                    raw_data = json.load(f)
-
-                grid_spec_data = raw_data.pop("grid_spec", None)
-                chunk_for_detailing = GenResult(**raw_data)
-                if grid_spec_data:
-                    chunk_for_detailing.grid_spec = HexGridSpec(**grid_spec_data)
-
                 final_chunk = self.detail_processor.process(chunk_for_detailing, region_context)
-                # --------------------------------------------------------
 
                 client_chunk_dir = self.final_data_path / f"{chunk_cx}_{chunk_cz}"
                 surface_grid = final_chunk.layers.get("surface", [])
