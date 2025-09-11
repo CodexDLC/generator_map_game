@@ -132,9 +132,10 @@ class WorldActor:
                 nav_path = client_chunk_dir / "navigation.rle.json"
                 write_navigation_rle(str(nav_path), nav_grid, final_chunk.grid_spec)
 
-                if final_chunk.hex_map_data:
-                    server_hex_map_path = client_chunk_dir / "server_hex_map.json"
-                    write_server_hex_map(str(server_hex_map_path), final_chunk.hex_map_data)
+                #  не удалять и не включать пока что запрет
+                # if final_chunk.hex_map_data:
+                #     server_hex_map_path = client_chunk_dir / "server_hex_map.json"
+                #     write_server_hex_map(str(server_hex_map_path), final_chunk.hex_map_data)
 
                 preview_path = client_chunk_dir / "preview.png"
                 palette = self.preset.export.get("palette", {})

@@ -45,14 +45,14 @@ class DetailProcessor:
         build_local_roads(chunk, region_context, self.preset)
 
         # --- ЭТАП 3: Генерация данных для гексагональной карты сервера ---
-        if chunk.grid_spec:
-            print(f"  -> Generating server hex map for chunk ({chunk.cx},{chunk.cz})...")
-            chunk.hex_map_data = generate_hex_map_from_pixels(
-                chunk.grid_spec,
-                chunk.layers["surface"],
-                chunk.layers["navigation"],
-                chunk.layers["height_q"]["grid"]
-            )
+        # if chunk.grid_spec:
+        #     print(f"  -> Generating server hex map for chunk ({chunk.cx},{chunk.cz})...")
+        #     chunk.hex_map_data = generate_hex_map_from_pixels(
+        #         chunk.grid_spec,
+        #         chunk.layers["surface"],
+        #         chunk.layers["navigation"],
+        #         chunk.layers["height_q"]["grid"]
+        #     )
 
         chunk.capabilities["has_biomes"] = True
         chunk.capabilities["has_roads"] = True
