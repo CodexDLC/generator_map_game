@@ -37,6 +37,7 @@ class GenResult:
     hex_map_data: Dict[str, Any] = field(default_factory=dict)
 
 
+
     def header(self) -> Dict[str, Any]:
         return {
             "version": self.version,

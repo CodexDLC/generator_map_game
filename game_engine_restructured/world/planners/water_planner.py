@@ -1,55 +1,56 @@
-# Файл: game_engine_restructured/world/planners/water_planner.py
 from __future__ import annotations
-from typing import TYPE_CHECKING, Dict, Tuple, List
+from typing import TYPE_CHECKING
 import numpy as np
+import random
+import math
+from opensimplex import OpenSimplex
+
+# ИЗМЕНЕНИЕ: Удалены импорты, которые не используются в этих функциях
+# from ...core import constants as const
+# from ..grid_utils import _stitch_layers, _apply_changes_to_chunks
 
 if TYPE_CHECKING:
+    from ...core.preset.model import Preset
     from ...core.types import GenResult
 
 
-def _stitch_layers(region_size: int, chunk_size: int, base_chunks: Dict[Tuple[int, int], GenResult],
-                   layer_names: List[str]) -> Tuple[Dict[str, np.ndarray], Tuple[int, int]]:
-    """Склеивает указанные слои из всех чанков региона в большие numpy-массивы."""
-    region_pixel_size = region_size * chunk_size
+def _generate_lakes_on_stitched_map(stitched_heights: np.ndarray, preset: Preset, seed: int):
+    """Генерирует озера прямо на большой карте высот региона."""
+    water_cfg = preset.water
+    if not water_cfg or not water_cfg.get("enabled"): return
 
-    all_cx = [c[0] for c in base_chunks.keys()]
-    all_cz = [c[1] for c in base_chunks.keys()]
-    base_cx, base_cz = min(all_cx), min(all_cz)
+    rng = random.Random(seed)
+    num_lakes_to_try = (preset.region_size ** 2) // 2
 
-    stitched_layers = {}
-    for name in layer_names:
-        # Определяем тип данных для массива
-        is_object_array = name in ['surface', 'navigation']
-        dtype = object if is_object_array else np.float32
-        stitched_layers[name] = np.zeros((region_pixel_size, region_pixel_size), dtype=dtype)
+    for _ in range(num_lakes_to_try):
+        if rng.random() > water_cfg.get("lake_chance_base", 0.1): continue
 
-    for (cx, cz), chunk_data in base_chunks.items():
-        start_x = (cx - base_cx) * chunk_size
-        start_y = (cz - base_cz) * chunk_size
+        size = stitched_heights.shape[0]
+        min_radius = water_cfg.get("lake_min_radius", 15)
+        max_radius = water_cfg.get("lake_max_radius", 50)
+        radius = rng.randint(min_radius, max_radius)
 
-        for name in layer_names:
-            # Универсальный способ получить данные слоя (либо из 'layers', либо из 'height_q')
-            source_data = chunk_data.layers.get(name)
-            if name == 'height' and not source_data:
-                source_data = chunk_data.layers.get("height_q", {}).get("grid")
+        border = radius + 32  # Безопасная зона
+        center_x = rng.randint(border, size - border)
+        center_z = rng.randint(border, size - border)
 
-            if source_data:
-                grid = np.array(source_data)
-                stitched_layers[name][start_y:start_y + chunk_size, start_x:start_x + chunk_size] = grid
+        z_coords, x_coords = np.ogrid[:size, :size]
+        dist_sq = (x_coords - center_x) ** 2 + (z_coords - center_z) ** 2
+        lake_mask = dist_sq < radius ** 2
 
-    return stitched_layers, (base_cx, base_cz)
+        if not np.any(lake_mask): continue
 
+        shore_heights = stitched_heights[lake_mask]
+        if shore_heights.size == 0: continue
 
-def _apply_changes_to_chunks(stitched_layers: Dict[str, np.ndarray], base_chunks: Dict[Tuple[int, int], GenResult],
-                             base_cx: int, base_cz: int, chunk_size: int):
-    """Нарезает измененные слои обратно в объекты чанков."""
-    for (cx, cz), chunk in base_chunks.items():
-        start_x = (cx - base_cx) * chunk_size
-        start_y = (cz - base_cz) * chunk_size
+        avg_shore_height = np.mean(shore_heights)
+        flatten_depth = water_cfg.get("lake_flatten_depth_m", -5.0)
+        target_height = avg_shore_height + flatten_depth
 
-        for name, grid in stitched_layers.items():
-            sub_grid = grid[start_y:start_y + chunk_size, start_x:start_x + chunk_size]
-            if name == 'height':
-                chunk.layers["height_q"]["grid"] = sub_grid.tolist()
-            else:
-                chunk.layers[name] = sub_grid.tolist()
+        stitched_heights[lake_mask] = target_height
+
+def _generate_rivers_on_stitched_map(stitched_heights: np.ndarray, preset: Preset, seed: int):
+    """
+    TODO: Здесь будет логика генерации рек.
+    """
+    pass

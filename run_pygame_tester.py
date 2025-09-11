@@ -6,8 +6,8 @@ import traceback
 
 from game_engine_restructured.world_actor import WorldActor
 from game_engine_restructured.core.preset import load_preset
-from game_engine_restructured.world.processing.base_processor import BaseGenerator
 from game_engine_restructured.world.regions import RegionManager
+from game_engine_restructured.world.processing.base_processor import BaseProcessor
 
 from pygame_tester.config import (
     SCREEN_WIDTH, SCREEN_HEIGHT, BACKGROUND_COLOR, ARTIFACTS_ROOT,
@@ -42,8 +42,7 @@ def main():
     preset_data = json.loads(PRESET_PATH.read_text(encoding='utf-8'))
     preset = load_preset(preset_data)
 
-    base_generator = BaseGenerator(preset)
-    region_manager = RegionManager(city_seed, preset, base_generator, ARTIFACTS_ROOT)
+    region_manager = RegionManager(city_seed, preset, ARTIFACTS_ROOT)
     world_actor = WorldActor(city_seed, preset, ARTIFACTS_ROOT, progress_callback=print)
 
     world_actor.prepare_starting_area(region_manager)

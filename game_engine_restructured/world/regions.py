@@ -9,8 +9,8 @@ import concurrent.futures
 from ..core.preset import Preset
 from ..core.types import GenResult
 from ..core.export import write_region_meta
-from .processing.base_processor import BaseProcessor  # <--- ИЗМЕНЕНИЕ
-from .processing.region_processor import RegionProcessor  # <--- НОВЫЙ ИМПОРТ
+from .processing.base_processor import BaseProcessor
+from .processing.region_processor import RegionProcessor
 from .serialization import RegionMetaContract
 from .planners.road_planner import plan_roads_for_region
 from .planners.biome_planner import assign_biome_to_region
@@ -29,9 +29,9 @@ class RegionManager:
         self.artifacts_root = artifacts_root
         self.raw_data_path = self.artifacts_root / "world_raw" / str(self.world_seed)
 
-        # Инициализируем процессоры
+        # ИЗМЕНЕНИЕ: Теперь передаем world_seed в RegionProcessor при его создании
         self.base_processor = BaseProcessor(preset)
-        self.region_processor = RegionProcessor(preset)
+        self.region_processor = RegionProcessor(preset, world_seed)
 
     def _generate_chunk_task(self, cx: int, cz: int) -> Tuple[Tuple[int, int], GenResult]:
         """Задача для одного потока: сгенерировать БАЗОВЫЙ чанк."""
@@ -71,14 +71,12 @@ class RegionManager:
         print("[RegionManager] -> All base chunks generated.")
 
         # --- ЭТАП 2: РЕГИОНАЛЬНАЯ ОБРАБОТКА (вода, биомы) ---
+        # ИЗМЕНЕНИЕ: В process() больше не нужно передавать world_seed
         processed_chunks = self.region_processor.process(scx, scz, base_chunks)
 
         # --- ЭТАП 3: Сохранение результата ---
-        # (В будущем здесь еще будет вызов DetailProcessor перед сохранением)
-
         biome_type = assign_biome_to_region(self.world_seed, scx, scz)
 
-        # Дороги пока планируем по-старому, но на уже обработанных чанках
         road_plan = plan_roads_for_region(scx, scz, self.world_seed, self.preset, processed_chunks, biome_type)
 
         meta_contract = RegionMetaContract(scx=scx, scz=scz, world_seed=self.world_seed, road_plan=road_plan)
@@ -87,7 +85,6 @@ class RegionManager:
         for (cx, cz), chunk_data in processed_chunks.items():
             raw_chunk_path = self.raw_data_path / "chunks" / f"{cx}_{cz}.json"
             raw_chunk_path.parent.mkdir(parents=True, exist_ok=True)
-            # Убираем временные данные перед сериализацией
             if hasattr(chunk_data, 'temp_data'):
                 delattr(chunk_data, 'temp_data')
 
