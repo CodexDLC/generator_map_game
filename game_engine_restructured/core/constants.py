@@ -70,3 +70,46 @@ NAV_KIND_TO_ID: Dict[str, int] = {
     NAV_BRIDGE: 7,
 }
 NAV_ID_TO_KIND: Dict[int, str] = {v: k for k, v in NAV_KIND_TO_ID.items()}
+
+# ===== NumPy dtypes для слоёв (если NumPy доступен) =====
+try:
+    import numpy as _np
+except Exception:
+    _np = None
+
+SURFACE_DTYPE = _np.uint16 if _np else int
+NAV_DTYPE     = _np.uint8  if _np else int
+
+# ===== Обратные словари KIND -> ID (если не заданы где-то выше) =====
+if "SURFACE_KIND_TO_ID" not in globals():
+    SURFACE_KIND_TO_ID = {v: k for k, v in SURFACE_ID_TO_KIND.items()}
+if "NAV_KIND_TO_ID" not in globals():
+    NAV_KIND_TO_ID = {v: k for k, v in NAV_ID_TO_KIND.items()}
+
+# ===== Универсальные преобразователи =====
+def as_surface_id(kind_or_id):
+    if isinstance(kind_or_id, int):
+        return kind_or_id
+    if _np and isinstance(kind_or_id, _np.integer):
+        return int(kind_or_id)
+    return SURFACE_KIND_TO_ID.get(kind_or_id, 0)
+
+def as_nav_id(kind_or_id):
+    if isinstance(kind_or_id, int):
+        return kind_or_id
+    if _np and isinstance(kind_or_id, _np.integer):
+        return int(kind_or_id)
+    return NAV_KIND_TO_ID.get(kind_or_id, 0)
+
+# ===== Безопасная запись в массивы (принимают и строки, и ID) =====
+def surface_fill(arr, kind_or_id):
+    arr.fill(as_surface_id(kind_or_id))
+
+def surface_set(arr, mask, kind_or_id):
+    arr[mask] = as_surface_id(kind_or_id)
+
+def nav_fill(arr, kind_or_id):
+    arr.fill(as_nav_id(kind_or_id))
+
+def nav_set(arr, mask, kind_or_id):
+    arr[mask] = as_nav_id(kind_or_id)

@@ -10,87 +10,89 @@ from ...algorithms.hydrology.fast_hydrology import (
     _build_d8_flow_directions, _flow_accumulation_from_dirs,
     _label_connected_components
 )
+from ...core.constants import (
+    KIND_BASE_WATERBED, NAV_WATER,
+    surface_set, nav_set
+)
+from scipy.ndimage import distance_transform_edt, label, binary_dilation
 
 if TYPE_CHECKING:
     from ...core.preset.model import Preset
 
+# ---------------- sea level ----------------
 
-def apply_sea_level(
-        # ... (код этой функции остается без изменений) ...
-        stitched_heights: np.ndarray,
-        stitched_surface: np.ndarray,
-        stitched_nav: np.ndarray,
-        preset: Preset
-):
-    sea_level = preset.elevation.get("sea_level_m", 15.0)
-    if sea_level is None: return
-    print(f"  -> Applying sea level at {sea_level}m...")
-    water_mask = stitched_heights <= sea_level
-    rock_mask = stitched_surface == const.KIND_BASE_ROCK
-    final_water_mask = water_mask & ~rock_mask
-    stitched_surface[final_water_mask] = const.KIND_BASE_WATERBED
-    stitched_nav[final_water_mask] = const.NAV_WATER
+def apply_sea_level(height: np.ndarray,
+                    surface: np.ndarray,
+                    nav: np.ndarray,
+                    preset) -> np.ndarray:
+    sea = float(getattr(preset, "elevation", {}).get("sea_level_m", 40.0))
+    is_water = (height < sea)
+    surface_set(surface, is_water, KIND_BASE_WATERBED)
+    nav_set(nav,       is_water, NAV_WATER)
+    return is_water
 
+# ---------------- lakes ----------------
 
-def generate_highland_lakes(
-        # ... (код этой функции остается без изменений) ...
-        stitched_heights: np.ndarray,
-        stitched_surface: np.ndarray,
-        stitched_nav: np.ndarray,
-        stitched_humidity: np.ndarray | None,
-        preset: Preset,
-        seed: int
-):
-    water_cfg = preset.water
+def generate_highland_lakes(stitched_heights: np.ndarray,
+                            stitched_surface: np.ndarray,
+                            stitched_nav: np.ndarray,
+                            stitched_humidity: np.ndarray | None,
+                            preset: "Preset",
+                            seed: int) -> None:
+    water_cfg = getattr(preset, "water", {})
     if not water_cfg or not water_cfg.get("enabled", False):
         return
     print("  -> Searching for highland lakes (realistic pour point method)...")
+
     rng = random.Random(seed)
-    sea_level = preset.elevation.get("sea_level_m", 15.0)
-    from scipy.ndimage import label
+    sea_level = getattr(preset, "elevation", {}).get("sea_level_m", 40.0)
+
     land_mask = stitched_heights > sea_level
-    inverted_land = ~land_mask
-    labeled_water, num_labels = label(inverted_land)
-    edge_labels = np.unique(np.concatenate((labeled_water[0, :], labeled_water[-1, :],
-                                            labeled_water[:, 0], labeled_water[:, -1])))
-    lakes_created = 0
-    for i in range(1, num_labels + 1):
+    inverted  = ~land_mask
+    labeled, num = label(inverted)
+
+    edge_labels = np.unique(np.concatenate((labeled[0, :], labeled[-1, :], labeled[:, 0], labeled[:, -1])))
+
+    lakes = 0
+    for i in range(1, num + 1):
         if i in edge_labels:
             continue
-        basin_mask = labeled_water == i
-        from scipy.ndimage import binary_dilation
-        border_mask = binary_dilation(basin_mask) & ~basin_mask
-        if not np.any(border_mask):
+        basin = (labeled == i)
+        border = binary_dilation(basin) & ~basin
+        if not np.any(border):
             continue
-        border_heights = stitched_heights[border_mask]
-        pour_point_height = np.min(border_heights)
-        lake_mask = basin_mask & (stitched_heights < pour_point_height)
+        pour_h = np.min(stitched_heights[border])
+        lake_mask = basin & (stitched_heights < pour_h)
         if not np.any(lake_mask):
             continue
+
         if stitched_humidity is not None:
-            avg_humidity = np.mean(stitched_humidity[lake_mask])
-            base_chance = water_cfg.get("lake_chance_base", 0.1)
-            hum_multiplier = water_cfg.get("lake_chance_humidity_multiplier", 3.0)
-            final_chance = base_chance + (base_chance * avg_humidity * hum_multiplier)
-            if rng.random() > final_chance:
+            avg_h = float(np.mean(stitched_humidity[lake_mask]))
+            base  = water_cfg.get("lake_chance_base", 0.10)
+            mult  = water_cfg.get("lake_chance_humidity_multiplier", 3.0)
+            chance = base + base * avg_h * mult
+            if rng.random() > chance:
                 continue
-        stitched_surface[lake_mask] = const.KIND_BASE_WATERBED
-        stitched_nav[lake_mask] = const.NAV_WATER
-        lakes_created += 1
-    if lakes_created > 0:
-        print(f"    -> Created {lakes_created} realistic highland lakes.")
 
+        surface_set(stitched_surface, lake_mask, KIND_BASE_WATERBED)
+        nav_set(    stitched_nav,     lake_mask, NAV_WATER)
+        lakes += 1
 
-def generate_rivers(
-        stitched_heights_ext: np.ndarray,
-        preset: Preset,
-        chunk_size: int
-) -> np.ndarray:
+    if lakes:
+        print(f"    -> Created {lakes} realistic highland lakes.")
+
+# ---------------- rivers ----------------
+
+def generate_rivers(stitched_heights_ext: np.ndarray,
+                    stitched_surface_ext: np.ndarray,
+                    stitched_nav_ext: np.ndarray,
+                    preset: "Preset",
+                    chunk_size: int) -> np.ndarray:
     """
-    Генерирует маску рек, используя бинарный поиск для достижения целевого
-    количества истоков в CORE-области.
+    Генерирует маску рек (EXT), делает бинарный поиск порога аккумуляции
+    под целевое число истоков в CORE, вырезает русло переменной ширины.
     """
-    river_cfg = preset.water.get("river", {})
+    river_cfg = getattr(preset, "water", {}).get("river", {})
     if not river_cfg or not river_cfg.get("enabled", False):
         return np.zeros_like(stitched_heights_ext, dtype=bool)
 
@@ -98,47 +100,64 @@ def generate_rivers(
     t0 = time.perf_counter()
 
     flow_dirs = _build_d8_flow_directions(stitched_heights_ext)
-    flow_map = _flow_accumulation_from_dirs(stitched_heights_ext, flow_dirs)
+    flow_map  = _flow_accumulation_from_dirs(stitched_heights_ext, flow_dirs)
 
-    target_sources = river_cfg.get("target_sources_core", 3)
+    target_sources = int(river_cfg.get("target_sources_core", 3))
+    border_px      = int(chunk_size)
 
-    # --- Бинарный поиск порога ---
-    low_thr = 1.0
-    high_thr = np.max(flow_map)
+    # --- binary search over threshold ---
+    low_thr  = 1.0
+    high_thr = float(np.max(flow_map))
     best_mask = np.zeros_like(flow_map, dtype=bool)
 
-    border_px = chunk_size
-
-    for _ in range(river_cfg.get("binary_search_iters", 12)):
+    iters = int(river_cfg.get("binary_search_iters", 12))
+    for _ in range(iters):
         mid_thr = (low_thr + high_thr) / 2.0
-        if mid_thr <= low_thr: break
+        if mid_thr <= low_thr or high_thr - low_thr < 1.0:
+            break
 
-        potential_mask_ext = flow_map > mid_thr
-
-        # --- Ключевой момент: считаем истоки только в CORE-области ---
-        core_mask = potential_mask_ext[border_px:-border_px, border_px:-border_px]
-        _, num_sources = _label_connected_components(core_mask)
+        cand = flow_map > mid_thr
+        core = cand[border_px:-border_px, border_px:-border_px]
+        num_sources = 0 if not np.any(core) else _label_connected_components(core)[1]
 
         if num_sources < target_sources:
-            high_thr = mid_thr  # Слишком мало рек, нужно снижать порог
+            high_thr = mid_thr
         else:
-            low_thr = mid_thr  # Слишком много рек, нужно повышать порог
-            best_mask = potential_mask_ext
+            low_thr  = mid_thr
+            best_mask = cand
 
-    # --- Фильтрация коротких рек ---
-    final_labels, num_labels = _label_connected_components(best_mask)
-    min_len = river_cfg.get("min_length_px", 128)
+    # --- фильтрация коротких ---
+    labels, n = _label_connected_components(best_mask)
+    min_len = int(river_cfg.get("min_length_px", 128))
+    for i in range(1, n + 1):
+        seg = (labels == i)
+        if int(np.sum(seg)) < min_len:
+            best_mask[seg] = False
 
-    for i in range(1, num_labels + 1):
-        river_segment = final_labels == i
-        if np.sum(river_segment) < min_len:
-            best_mask[river_segment] = False
+    # --- вырезаем русло ---
+    if np.any(best_mask):
+        river_dist = distance_transform_edt(~best_mask)
+
+        W0    = float(river_cfg.get("base_width_px", 1.5))
+        beta  = float(river_cfg.get("width_exponent", 0.6))
+        Wmax  = float(river_cfg.get("max_width_px", 10.0))
+
+        thr   = max(low_thr, 1.0)
+        normF = np.log(np.maximum(1.0, flow_map / (thr + 1e-6)))
+
+        width = np.clip(W0 * normF ** beta, 0, Wmax)
+        depth = np.clip(width * 0.4, 0.5, 5.0)
+
+        carve_mask   = (river_dist <= np.ceil(width)) & best_mask
+        height_delta = depth * np.maximum(0.0, 1.0 - river_dist / (width + 1e-6))
+
+        stitched_heights_ext[carve_mask] -= height_delta[carve_mask]
+        surface_set(stitched_surface_ext, best_mask, const.KIND_BASE_WATERBED)
+        nav_set(    stitched_nav_ext,     best_mask, const.NAV_WATER)
 
     t1 = time.perf_counter()
-    final_core_mask = best_mask[border_px:-border_px, border_px:-border_px]
-    _, final_sources = _label_connected_components(final_core_mask)
-
-    print(
-        f"    -> River network finalized in {(t1 - t0) * 1000:.1f} ms. Target sources: {target_sources}, Final: {final_sources}.")
-
+    core_mask = best_mask[border_px:-border_px, border_px:-border_px]
+    final_sources = 0 if not np.any(core_mask) else _label_connected_components(core_mask)[1]
+    print(f"    -> River network finalized in {(t1 - t0) * 1000:.1f} ms. "
+          f"Target sources: {target_sources}, Final: {final_sources}.")
     return best_mask

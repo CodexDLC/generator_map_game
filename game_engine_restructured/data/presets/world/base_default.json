@@ -3,36 +3,36 @@
   "version": 2,
   "size": 256,
   "cell_size": 0.5,
-  "region_size": 9,
-  "initial_load_radius": 1,
+  "region_size": 5,
+  "initial_load_radius": 0,
   "elevation": {
     "enabled": true,
-    "max_height_m": 150.0,
-    "sea_level_m": 40.0,
-    "shaping_power": 1.1,
+    "max_height_m": 300.0,
+    "sea_level_m": 65.0,
+    "shaping_power": 1.25,
     "smoothing_passes": 1,
     "quantization_step_m": 0.0,
     "spectral": {
       "continents": {
-        "scale_tiles": 8000,
+        "scale_tiles": 6000,
         "amp_m": 120.0,
         "ridge": true,
         "octaves": 2
       },
       "hills": {
-        "scale_tiles": 1400,
-        "amp_m": 40.0,
+        "scale_tiles": 900,
+        "amp_m": 60.0,
         "octaves": 2
       },
       "detail": {
         "scale_tiles": 150,
-        "amp_m": 7.0,
+        "amp_m": 8.0,
         "octaves": 1
       }
     },
     "warp": {
-      "scale_tiles": 4000,
-      "strength_m": 200.0
+      "scale_tiles": 3000,
+      "strength_m": 160.0
     }
   },
   "water": {
@@ -41,9 +41,12 @@
     "lake_chance_humidity_multiplier": 3.0,
     "river": {
       "enabled": true,
-      "target_sources_core": 3,
+      "target_sources_core": 5,
       "min_length_px": 128,
-      "binary_search_iters": 12
+      "binary_search_iters": 8,
+      "base_width_px": 3,
+      "max_width_px": 30.0,
+      "width_exponent": 0.65
     }
   },
   "climate": {
@@ -60,10 +63,10 @@
       "noise_layers": {
         "macro": {
           "scale_km": 12.0,
-          "amp_c": 6.0
+          "amp_c": 5
         },
         "meso": {
-          "scale_km": 2.5,
+          "scale_km": 1.5,
           "amp_c": 3.0
         },
         "micro": {
@@ -81,12 +84,12 @@
       ],
       "noise_layers": {
         "macro": {
-          "scale_km": 16.0,
+          "scale_km": 10.0,
           "amp": 0.3
         },
         "meso": {
-          "scale_km": 3.0,
-          "amp": 0.2
+          "scale_km": 1.5,
+          "amp": 0.25
         }
       },
       "dry_T0_c": 19.0,

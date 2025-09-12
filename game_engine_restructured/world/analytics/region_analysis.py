@@ -37,6 +37,7 @@ def _seam_rmse(A_core: np.ndarray, B_core: np.ndarray, side: str) -> float | str
         return "ERROR"
 
 
+
 # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
 
@@ -59,9 +60,24 @@ class RegionAnalysis:
 
     # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
+
     def run(self, neighbor_data: Dict[str, Dict[str, np.ndarray] | None]):
         """Выполняет все расчёты для отчёта."""
-        self._calculate_stats()  # Объединяем расчеты
+
+        # ⬇⬇⬇ САНИТАРНАЯ ПРОВЕРКА ВЫСОТЫ (ставим ПЕРЕД статистикой) ⬇⬇⬇
+        h = self.layers_core.get("height")
+        if h is not None:
+            rng = float(h.max() - h.min())
+            if rng < 1e-3:
+                print(f"[WARN] Height range ~{rng:.6f} "
+                      f"(region {self.scx},{self.scz}). "
+                      f"Похоже, высота перезаписана (apply_sea_level?).")
+                self.report["height_suspicious"] = True
+            else:
+                self.report["height_suspicious"] = False
+        # ⬆⬆⬆ САНИТАРНАЯ ПРОВЕРКА ВЫСОТЫ ⬆⬆⬆
+
+        self._calculate_stats()
         self._check_seams(neighbor_data)
         self._calculate_gradients(neighbor_data)
 
@@ -151,6 +167,7 @@ class RegionAnalysis:
 
     # --- КОНЕЦ НОВОГО КОДА ---
 
+
     def print_report(self):
         """Выводит отформатированный отчёт в консоль."""
         seam_report = self.report.get("seams", {})
@@ -173,6 +190,7 @@ class RegionAnalysis:
             grad_str = " | ".join([f"{k}: {v:+.3f}" for k, v in grad_report.items()])
         else:
             grad_str = str(grad_report)
+
 
         s = self.report.get("stats", {"mean": {}, "std_dev": {}})
 

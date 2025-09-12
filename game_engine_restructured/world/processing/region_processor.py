@@ -4,16 +4,17 @@ import time
 from pathlib import Path
 from typing import Dict, Tuple
 import numpy as np
-# --- ИСПРАВЛЕНИЕ: Заменяем импорт ---
 from ...core import constants as const
+from ...core.constants import SURFACE_ID_TO_KIND, NAV_ID_TO_KIND
 
 from ..analytics.region_analysis import RegionAnalysis, _extract_core
 from ...algorithms.climate.climate import generate_climate_maps
 from ...core.preset import Preset
 from ...core.types import GenResult
-from ..grid_utils import _stitch_layers, region_base
+from ..grid_utils import _stitch_layers, region_base, _apply_changes_to_chunks
 
-from ...algorithms.terrain.terrain import apply_slope_obstacles
+# --- ИЗМЕНЕНИЕ: Импортируем новые функции ---
+from ...algorithms.terrain.terrain import generate_elevation_region, classify_terrain, apply_slope_obstacles
 
 from ..planners.water_planner import (
     apply_sea_level,
@@ -23,6 +24,34 @@ from ..planners.water_planner import (
 
 from ...core.export import write_raw_regional_layers
 
+import os, time
+
+
+
+
+class _Prof:
+    def __init__(self, tag: str, enabled: bool = True):
+        self.enabled = enabled
+        self.tag = tag
+        self.t0 = time.perf_counter()
+        self.t = self.t0
+        self.events = []
+
+    def lap(self, name: str):
+        if not self.enabled:
+            return
+        now = time.perf_counter()
+        self.events.append((name, (now - self.t) * 1000.0))
+        self.t = now
+
+    def end(self):
+        if not self.enabled:
+            return
+        total = (time.perf_counter() - self.t0) * 1000.0
+        print(f"[PROFILE][{self.tag}] total_ms: {total:.2f}")
+        for name, ms in self.events:
+            print(f"[PROFILE][{self.tag}] {name}_ms: {ms:.2f}")
+        print(f"[PROFILE][{self.tag}] ---")
 
 def apply_biomes_to_surface(chunk, preset):
     pass
@@ -37,53 +66,70 @@ class RegionProcessor:
 
     def process(self, scx: int, scz: int, chunks_with_border: Dict[Tuple[int, int], GenResult]) -> Dict[
         Tuple[int, int], GenResult]:
-
         t_start = time.perf_counter()
         print(f"[RegionProcessor] STARTING for region ({scx}, {scz})...")
+        prof = _Prof(tag=f"{scx},{scz}", enabled=True)
 
+        # --- sizes / scratch как у тебя ---
         preset_region_size = self.preset.region_size
         chunk_size = self.preset.size
         processing_region_size = preset_region_size + 2
-
-        # --- УПРАВЛЕНИЕ ПАМЯТЬЮ: Создаем scratch-буферы ---
         ext_size = processing_region_size * chunk_size
         scratch_a = np.empty((ext_size, ext_size), dtype=np.float32)
         scratch_b = np.empty((ext_size, ext_size), dtype=np.float32)
+        scratch_buffers = {'a': scratch_a, 'b': scratch_b}
 
-        stitched_layers_ext, (base_cx_bordered, base_cz_bordered) = _stitch_layers(
-            processing_region_size, chunk_size, chunks_with_border,
-            ['height', 'surface', 'navigation']
+        stitched_layers_ext = {}
+        stitched_layers_ext['height'] = generate_elevation_region(
+            self.world_seed, scx, scz, preset_region_size, chunk_size, self.preset, scratch_buffers
         )
 
-        # Этап 1: Базовый рельеф и вода
-        apply_slope_obstacles(stitched_layers_ext['height'], stitched_layers_ext['surface'], self.preset)
+        stitched_surface_ext = np.empty((ext_size, ext_size), dtype=const.SURFACE_DTYPE)
+        stitched_nav_ext = np.empty((ext_size, ext_size), dtype=const.NAV_DTYPE)
+        classify_terrain(stitched_layers_ext['height'], stitched_surface_ext, stitched_nav_ext, self.preset)
+        stitched_layers_ext['surface'] = stitched_surface_ext
+        stitched_layers_ext['navigation'] = stitched_nav_ext
+
+        assert stitched_surface_ext.dtype != object and stitched_nav_ext.dtype != object, \
+            "surface/navigation must be numeric (IDs), not object"
+
+        # море
         apply_sea_level(stitched_layers_ext['height'], stitched_layers_ext['surface'],
                         stitched_layers_ext['navigation'], self.preset)
+        apply_slope_obstacles(stitched_layers_ext['height'], stitched_layers_ext['surface'], self.preset)
 
-        # Этап 2: Генерация рек (единый источник истины)
-        river_mask_ext = generate_rivers(stitched_layers_ext['height'], self.preset, chunk_size)
+        prof.lap("t0_elevation_surface_sea")
+
+        # t1: реки
+        river_mask_ext = generate_rivers(
+            stitched_layers_ext['height'],
+            stitched_layers_ext['surface'],
+            stitched_layers_ext['navigation'],
+            self.preset,
+            chunk_size
+        )
         stitched_layers_ext['river'] = river_mask_ext
+        prof.lap("t1_rivers")
 
-        # Применяем физические изменения от рек
-        stitched_layers_ext['height'][river_mask_ext] -= 1.0
-        stitched_layers_ext['surface'][river_mask_ext] = const.KIND_BASE_WATERBED
-        stitched_layers_ext['navigation'][river_mask_ext] = const.NAV_WATER
-
-        # Этап 3: Климат, который теперь зависит от надежной карты рек
+        # t2: климат
         climate_maps = generate_climate_maps(
             stitched_layers_ext, self.preset, self.world_seed,
-            base_cx_bordered, base_cz_bordered,
-            ext_size,
-            scratch_buffers={'a': scratch_a, 'b': scratch_b} # Передаем буферы
+            0, 0, ext_size, scratch_buffers=scratch_buffers
         )
         stitched_layers_ext.update(climate_maps)
+        prof.lap("t2_climate")
 
-        # Этап 4: Озера (могут немного влиять на влажность)
-        generate_highland_lakes(stitched_layers_ext['height'], stitched_layers_ext['surface'],
-                                stitched_layers_ext['navigation'],
-                                stitched_layers_ext.get("humidity"), self.preset, self.world_seed)
+        # t3: озёра
+        generate_highland_lakes(
+            stitched_layers_ext['height'],
+            stitched_layers_ext['surface'],
+            stitched_layers_ext['navigation'],
+            stitched_layers_ext.get("humidity"),
+            self.preset, self.world_seed
+        )
+        prof.lap("t3_lakes")
 
-        # Этап 5: Аналитика и кэширование
+        # t4: аналитика
         analysis = RegionAnalysis(scx, scz, stitched_layers_ext, chunk_size)
         neighbor_data = {
             "north": self.processed_region_cache.get((scx, scz - 1)),
@@ -91,40 +137,39 @@ class RegionProcessor:
         }
         analysis.run(neighbor_data)
         analysis.print_report()
-
         self.processed_region_cache[(scx, scz)] = analysis.layers_core.copy()
         final_layers_core = analysis.layers_core
+        prof.lap("t4_analysis")
 
-        # Этап 6: Нарезка и применение биомов
+        # t5: нарезка + биомы + экспорт
         base_cx, base_cz = region_base(scx, scz, preset_region_size)
-        final_chunks = {}
-        for dz in range(preset_region_size):
-            for dx in range(preset_region_size):
-                cx, cz = base_cx + dx, base_cz + dz
-                chunk = chunks_with_border.get((cx, cz))
-                if not chunk: continue
-                final_chunks[(cx, cz)] = chunk
-
-                x0, z0 = dx * chunk_size, dz * chunk_size
-                for name, grid in final_layers_core.items():
-                    # Проверяем, что слой существует в чанке или это высота
-                    if name in chunk.layers or name == 'height' or name in climate_maps:
-                        sub_grid_np = grid[z0:z0 + chunk_size, x0:x0 + chunk_size]
-                        if name == 'height':
-                            chunk.layers["height_q"]["grid"] = sub_grid_np.tolist()
-                        else:
-                            # Копируем все слои (включая климатические) в чанк
-                            chunk.layers[name] = sub_grid_np.tolist()
+        final_chunks = {
+            k: v for k, v in chunks_with_border.items()
+            if base_cx <= k[0] < base_cx + preset_region_size and base_cz <= k[1] < base_cz + preset_region_size
+        }
+        _apply_changes_to_chunks(final_layers_core, final_chunks, base_cx, base_cz, chunk_size)
 
         for chunk in final_chunks.values():
+            # конверсия surface/nav в текстовые только здесь — после нарезки
+            if isinstance(chunk.layers.get('surface'), np.ndarray):
+                sid = chunk.layers['surface']
+                chunk.layers['surface'] = [[SURFACE_ID_TO_KIND.get(int(x), "base_dirt") for x in row] for row in sid]
+            if isinstance(chunk.layers.get('navigation'), np.ndarray):
+                nid = chunk.layers['navigation']
+                chunk.layers['navigation'] = [[NAV_ID_TO_KIND.get(int(x), "obstacle_prop") for x in row] for row in nid]
             apply_biomes_to_surface(chunk, self.preset)
 
-        # Этап 7: Сохранение артефактов
         region_raw_path = self.artifacts_root / "world_raw" / str(self.world_seed) / "regions" / f"{scx}_{scz}"
         layers_to_save = {k: v for k, v in final_layers_core.items() if
                           k in ['temperature', 'humidity', 'shadow', 'coast', 'river', 'temp_dry']}
         if layers_to_save:
-            write_raw_regional_layers(str(region_raw_path / "climate_layers.npz"), layers_to_save)
+            write_raw_regional_layers(str(region_raw_path / "climate_layers.npz"), layers_to_save, verbose=True)
+        prof.lap("t5_slice_biomes_export")
+
+        prof.end()  # печать сводки профиля
+
+
+
 
         print(
             f"[RegionProcessor] FINISHED for region ({scx}, {scz}). Total time: {(time.perf_counter() - t_start) * 1000:.2f} ms")

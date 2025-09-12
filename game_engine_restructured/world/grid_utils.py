@@ -6,10 +6,10 @@ import numpy as np
 
 
 def _stitch_layers(
-    region_size: int,
-    chunk_size: int,
-    base_chunks: Dict[Tuple[int, int], GenResult],
-    layer_names: List[str],
+        region_size: int,
+        chunk_size: int,
+        base_chunks: Dict[Tuple[int, int], GenResult],
+        layer_names: List[str],
 ) -> Tuple[Dict[str, np.ndarray], Tuple[int, int]]:
     """Склеивает указанные слои из всех чанков региона в большие numpy-массивы."""
     region_pixel_size = region_size * chunk_size
@@ -37,18 +37,18 @@ def _stitch_layers(
             if source_data:
                 grid = np.array(source_data)
                 stitched_layers[name][
-                    start_y : start_y + chunk_size, start_x : start_x + chunk_size
+                    start_y: start_y + chunk_size, start_x: start_x + chunk_size
                 ] = grid
 
     return stitched_layers, (base_cx, base_cz)
 
 
 def _apply_changes_to_chunks(
-    stitched_layers: Dict[str, np.ndarray],
-    base_chunks: Dict[Tuple[int, int], GenResult],
-    base_cx: int,
-    base_cz: int,
-    chunk_size: int,
+        stitched_layers: Dict[str, np.ndarray],
+        base_chunks: Dict[Tuple[int, int], GenResult],
+        base_cx: int,
+        base_cz: int,
+        chunk_size: int,
 ):
     """Нарезает измененные слои обратно в объекты чанков."""
     for (cx, cz), chunk in base_chunks.items():
@@ -57,11 +57,14 @@ def _apply_changes_to_chunks(
 
         for name, grid in stitched_layers.items():
             sub_grid = grid[
-                start_y : start_y + chunk_size, start_x : start_x + chunk_size
+                start_y: start_y + chunk_size, start_x: start_x + chunk_size
             ]
-            if name == "height":
+
+            # --- ИЗМЕНЕНИЕ: Упрощаем и делаем более надежным ---
+            if name == 'height':
                 chunk.layers["height_q"]["grid"] = sub_grid.tolist()
-            else:
+            elif name in chunk.layers:
+                # Конвертируем numpy-срез обратно в список списков
                 chunk.layers[name] = sub_grid.tolist()
 
 
@@ -128,10 +131,10 @@ def _get_pixel_to_hex_map(grid_spec: HexGridSpec) -> np.ndarray:
 
 
 def generate_hex_map_from_pixels(
-    grid_spec: HexGridSpec,
-    surface_grid: List[List[str]],
-    nav_grid: List[List[str]],
-    height_grid: List[List[float]],
+        grid_spec: HexGridSpec,
+        surface_grid: List[List[str]],
+        nav_grid: List[List[str]],
+        height_grid: List[List[float]],
 ) -> Dict[str, Any]:
     """
     Создает словарь с данными для каждого гекса, используя метод приоритетов.

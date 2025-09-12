@@ -3,13 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Any, Tuple
 
-from .planners.river_planner import RiverPlan
-# --- НАЧАЛО ИЗМЕНЕНИЙ ---
-
+# --- ИЗМЕНЕНИЕ: Убираем устаревший импорт ---
+# from .planners.river_planner import RiverPlan
 from .road_types import ChunkRoadPlan
 
 
-# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 # --- Контракт 1: Метаданные для сервера ---
 @dataclass
 class RegionMetaContract:
@@ -22,10 +20,10 @@ class RegionMetaContract:
     scx: int = 0
     scz: int = 0
     world_seed: int = 0
-    # Сюда мы будем добавлять планы биомов, рек и т.д.
+    # Сюда мы будем добавлять планы биомов, дорог и т.д.
     road_plan: Dict[Tuple[int, int], ChunkRoadPlan] = field(default_factory=dict)
-    # Можно добавить информацию о "швах" на границах для биомов
-    river_plan: RiverPlan = field(default_factory=RiverPlan)
+    # --- ИЗМЕНЕНИЕ: Удаляем поле river_plan ---
+    # river_plan: RiverPlan = field(default_factory=RiverPlan)
 
     edge_data: Dict[str, Any] = field(default_factory=dict)
 
@@ -42,7 +40,5 @@ class ClientChunkContract:
     cx: int = 0
     cz: int = 0
     grid: Dict[str, Any] = field(default_factory=dict)
-    # --- ИЗМЕНЕНИЕ: Вместо данных слоев теперь пути к файлам ---
     layer_files: Dict[str, str] = field(default_factory=dict)
-    # Другие данные для клиента (точки интереса, квесты и т.д.)
     points_of_interest: List[Any] = field(default_factory=list)
