@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Tuple
 from pathlib import Path
 import dataclasses
 
+
 from .utils.rle import encode_rle_rows
 from ..world.serialization import RegionMetaContract, ClientChunkContract
 from ..world.object_types import PlacedObject
@@ -43,14 +44,14 @@ def _atomic_write_json(path: str, data: Any, verbose: bool = False):
 
     # --- НАЧАЛО ИЗМЕНЕНИЙ ---
     def default_serializer(o):
-        """
-        Умный сериализатор, который умеет обрабатывать dataclass'ы
-        и числовые типы numpy.
-        """
-        if isinstance(o, np.integer):
-            return int(o)
-        if isinstance(o, np.floating):
-            return float(o)
+        try:
+            import numpy as _np
+            if isinstance(o, _np.integer):
+                return int(o)
+            if isinstance(o, _np.floating):
+                return float(o)
+        except Exception:
+            pass
         if dataclasses.is_dataclass(o):
             return dataclasses.asdict(o)
         raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
@@ -225,48 +226,80 @@ def write_objects_json(path: str, objects: list[PlacedObject], verbose: bool = F
 
 def write_chunk_preview(
     path: str,
-    surface_grid: List[List[str]],
-    nav_grid: List[List[str]],
+    surface_grid,   # может быть List[List[str]] ИЛИ np.ndarray с int-IDs
+    nav_grid,       # то же самое
     palette: Dict[str, str],
     verbose: bool = False,
 ):
     if not PIL_OK:
         return
+
+    # --- НОВОЕ: нормализация входа до строковых гридов ---
+    def _ensure_str_grid(grid, id2name: Dict[int, str], default_name: str) -> List[List[str]]:
+        """
+        Принимает либо список списков строк, либо np.ndarray с числовыми ID.
+        Возвращает список списков строковых названий тайлов.
+        """
+        # NumPy массив чисел -> в строки
+        if NUMPY_OK and isinstance(grid, np.ndarray):
+            if grid.dtype == object:
+                # уже строки, просто приводим к list-of-lists
+                return grid.tolist()
+            # числовой массив -> в названия
+            h, w = grid.shape
+            out = [[default_name] * w for _ in range(h)]
+            for z in range(h):
+                row = out[z]
+                for x in range(w):
+                    row[x] = id2name.get(int(grid[z, x]), default_name)
+            return out
+        # Уже list-of-lists строк?
+        return grid
+
+    surface_grid = _ensure_str_grid(surface_grid, SURFACE_ID_TO_KIND, "base_dirt")
+    nav_grid     = _ensure_str_grid(nav_grid,     NAV_ID_TO_KIND,     "passable")
+
     try:
         h = len(surface_grid)
         w = len(surface_grid[0]) if h else 0
         if w == 0 or h == 0:
             return
 
-        def hex_to_rgb(s: str) -> Tuple[int, int, int, int]:
+        def hex_to_rgba(s: str) -> Tuple[int, int, int, int]:
             s = s.lstrip("#")
-            if len(s) == 8:
-                return (
-                    int(s[2:4], 16),
-                    int(s[4:6], 16),
-                    int(s[6:8], 16),
-                    int(s[0:2], 16),
-                )
-            return int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16), 255
+            if len(s) == 8:  # AARRGGBB (если вдруг дадут с альфой)
+                return (int(s[2:4],16), int(s[4:6],16), int(s[6:8],16), int(s[0:2],16))
+            return (int(s[0:2],16), int(s[2:4],16), int(s[4:6],16), 255)
 
         img = Image.new("RGBA", (w, h))
-        px = img.load()
+        px  = img.load()
+
+        # 1) базовый слой по surface
         for z in range(h):
+            row_s = surface_grid[z]
             for x in range(w):
-                px[x, z] = hex_to_rgb(palette.get(surface_grid[z][x], "#FF00FF"))
+                px[x, z] = hex_to_rgba(palette.get(row_s[x], "#8B4513"))  # fallback — коричневый
+
+        # 2) поверх — навигация (вода/мосты/препятствия)
         for z in range(h):
+            row_n = nav_grid[z]
             for x in range(w):
-                if nav_grid[z][x] != "passable":
-                    px[x, z] = hex_to_rgb(palette.get(nav_grid[z][x], "#FF00FF"))
+                if row_n[x] != "passable":
+                    px[x, z] = hex_to_rgba(palette.get(row_n[x], "#444444"))
+
+        # апскейл ×2 как раньше
         img_resized = img.resize((w * 2, h * 2), Image.Resampling.NEAREST)
+
         _ensure_path_exists(path)
         tmp_path = path + ".tmp"
         img_resized.save(tmp_path, format="PNG")
         os.replace(tmp_path, path)
         if verbose:
             print(f"--- EXPORT: Preview image saved: {path}")
+
     except Exception as e:
         print(f"!!! LOG: CRITICAL ERROR while creating preview.png: {e}")
+
 
 
 def _pack_control_data(base_id=0, overlay_id=0, blend=0, nav=True) -> np.uint32:
@@ -425,3 +458,6 @@ def write_server_hex_map(path: str, hex_map_data: Dict[str, Any]):
         print(f"--- EXPORT: Серверная карта гексов (.json) сохранена: {path}")
     except Exception as e:
         print(f"!!! LOG: КРИТИЧЕСКАЯ ОШИБКА при создании server_hex_map.json: {e}")
+
+
+

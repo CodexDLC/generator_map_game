@@ -27,6 +27,8 @@ from ...core.export import write_raw_regional_layers
 import os, time
 
 
+def _rng(a: np.ndarray) -> float:
+    return float(a.max() - a.min())
 
 
 class _Prof:
@@ -79,10 +81,9 @@ class RegionProcessor:
         scratch_b = np.empty((ext_size, ext_size), dtype=np.float32)
         scratch_buffers = {'a': scratch_a, 'b': scratch_b}
 
-        stitched_layers_ext = {}
-        stitched_layers_ext['height'] = generate_elevation_region(
+        stitched_layers_ext = {'height': generate_elevation_region(
             self.world_seed, scx, scz, preset_region_size, chunk_size, self.preset, scratch_buffers
-        )
+        )}
 
         stitched_surface_ext = np.empty((ext_size, ext_size), dtype=const.SURFACE_DTYPE)
         stitched_nav_ext = np.empty((ext_size, ext_size), dtype=const.NAV_DTYPE)
@@ -116,8 +117,21 @@ class RegionProcessor:
             stitched_layers_ext, self.preset, self.world_seed,
             0, 0, ext_size, scratch_buffers=scratch_buffers
         )
+
+        for bad in ("height", "surface", "navigation", "sea", "water_surface", "river"):
+            if bad in climate_maps:
+                print(f"[FIXUP] Dropping '{bad}' from climate_maps to avoid overwrite")
+                climate_maps.pop(bad, None)
+
         stitched_layers_ext.update(climate_maps)
         prof.lap("t2_climate")
+
+        h = stitched_layers_ext["height"]
+        print(f"[CHECK] height_after_climate: min={float(h.min()):.4f} "
+              f"max={float(h.max()):.4f} rng={_rng(h):.6f}")
+
+        if not np.isfinite(h).all():
+            print("[WARN] height contains NaN/Inf after climate")
 
         # t3: озёра
         generate_highland_lakes(
@@ -141,6 +155,9 @@ class RegionProcessor:
         final_layers_core = analysis.layers_core
         prof.lap("t4_analysis")
 
+
+
+
         # t5: нарезка + биомы + экспорт
         base_cx, base_cz = region_base(scx, scz, preset_region_size)
         final_chunks = {
@@ -160,11 +177,14 @@ class RegionProcessor:
             apply_biomes_to_surface(chunk, self.preset)
 
         region_raw_path = self.artifacts_root / "world_raw" / str(self.world_seed) / "regions" / f"{scx}_{scz}"
-        layers_to_save = {k: v for k, v in final_layers_core.items() if
-                          k in ['temperature', 'humidity', 'shadow', 'coast', 'river', 'temp_dry']}
+        layers_to_save = {k: v for k, v in final_layers_core.items()
+                          if k in ['temperature', 'humidity', 'shadow', 'coast', 'river_effect', 'temp_dry']}
         if layers_to_save:
             write_raw_regional_layers(str(region_raw_path / "climate_layers.npz"), layers_to_save, verbose=True)
         prof.lap("t5_slice_biomes_export")
+
+
+
 
         prof.end()  # печать сводки профиля
 

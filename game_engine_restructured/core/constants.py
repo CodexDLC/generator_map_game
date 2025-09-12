@@ -54,6 +54,7 @@ SURFACE_ID_TO_KIND: Dict[int, str] = {
 }
 SURFACE_KINDS: Tuple[str, ...] = _SURFACE_KIND_NAMES
 
+KIND_NAME_TO_ID = {v: k for k, v in SURFACE_ID_TO_KIND.items()}
 
 # =======================================================================
 # СЛОЙ НАВИГАЦИИ (остается без изменений)
