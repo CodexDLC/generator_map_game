@@ -72,7 +72,31 @@ class RegionProcessor:
         t_prev = t_curr
 
         # ЭТАП 3: НАРЕЗАЕМ КАРТУ ОБРАТНО НА ЧАНКИ
-        _apply_changes_to_chunks(stitched_layers, base_chunks, base_cx, base_cz, chunk_size)
+
+        for (cx, cz), chunk in base_chunks.items():
+            x0 = (cx - base_cx) * chunk_size
+            z0 = (cz - base_cz) * chunk_size
+            # Используем exclusive срезы, как вы и предложили
+            x1 = x0 + chunk_size
+            z1 = z0 + chunk_size
+
+            for name, grid in stitched_layers.items():
+                # Вырезаем нужный фрагмент
+                sub_grid_np = grid[z0:z1, x0:x1]
+
+                # Проверка на корректность размера
+                assert sub_grid_np.shape == (chunk_size, chunk_size), \
+                    f"Chunk ({cx},{cz}) slice error! Expected ({chunk_size},{chunk_size}), got {sub_grid_np.shape}"
+
+                # Конвертируем обратно в списки и сохраняем в чанк
+                sub_grid_list = sub_grid_np.tolist()
+                if name == 'height':
+                    chunk.layers["height_q"]["grid"] = sub_grid_list
+                # --- ИСПРАВЛЕНИЕ: Добавляем 'temperature' и 'humidity' в список слоев для нарезки ---
+                elif name in ['surface', 'navigation', 'temperature', 'humidity']:
+                    chunk.layers[name] = sub_grid_list
+
+        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
         t_curr = time.perf_counter()
         timings['8_slice_to_chunks_ms'] = (t_curr - t_prev) * 1000
         t_prev = t_curr
@@ -84,7 +108,6 @@ class RegionProcessor:
         timings['9_apply_climate_ms'] = (t_curr - t_prev) * 1000
         t_prev = t_curr
 
-        # ... (остальной код с таймерами и выводом без изменений)
         region_raw_path = self.artifacts_root / "world_raw" / str(self.world_seed) / "regions" / f"{scx}_{scz}"
         region_raw_path.mkdir(parents=True, exist_ok=True)
         if 'temperature' in stitched_layers:
