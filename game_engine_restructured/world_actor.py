@@ -1,5 +1,7 @@
 # Файл: game_engine_restructured/world_actor.py
 from __future__ import annotations
+
+import hashlib
 import os
 from pathlib import Path
 import json
@@ -37,6 +39,8 @@ class WorldActor:
         prefabs_path = Path(__file__).parent / "data" / "prefabs.json"
         self.prefab_manager = PrefabManager(prefabs_path)
         self.detail_processor = DetailProcessor(preset, self.prefab_manager)
+        self.overwrite_existing: bool = False
+        self.generator_version: str = "0.1.0"
 
     def _log(self, message: str):
         if self.progress_callback:
@@ -144,3 +148,32 @@ class WorldActor:
                 client_meta_path = client_chunk_dir / "chunk.json"
                 contract = ClientChunkContract(cx=chunk_cx, cz=chunk_cz)
                 write_client_chunk_meta(str(client_meta_path), contract)
+
+    def _sha1_json(obj) -> str:
+        return hashlib.sha1(json.dumps(obj, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+    def _read_json_safe(p: Path):
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return None
+
+    def _chunk_complete(dir_path: Path, required: list[str]) -> bool:
+        # все файлы есть и не пустые
+        for name in required:
+            fp = dir_path / name
+            if not fp.exists() or fp.stat().st_size <= 0:
+                return False
+        # проверяем флаг «успешной сборки»
+        ok_flag = dir_path / ".ok"
+        return ok_flag.exists()
+
+    def _chunk_up_to_date(dir_path: Path, preset_dict: dict, gen_version: str) -> bool:
+        meta = _read_json_safe(dir_path / "chunk.json")
+        if not meta:
+            return False
+        if meta.get("generator_version") != gen_version:
+            return False
+        want = _sha1_json(preset_dict)
+        return meta.get("preset_hash") == want

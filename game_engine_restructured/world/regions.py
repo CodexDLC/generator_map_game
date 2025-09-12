@@ -17,6 +17,8 @@ from .serialization import RegionMetaContract
 from .planners.road_planner import plan_roads_for_region
 from .planners.river_planner import plan_rivers_for_region, RiverPlan
 from .grid_utils import region_base, _stitch_layers  # <--- ДОБАВЛЯЕМ НУЖНЫЕ ИМПОРТЫ
+from pathlib import Path
+
 
 
 # --- КОНЕЦ ИЗМЕНЕНИЙ В ИМПОРТАХ ---
@@ -34,8 +36,11 @@ class RegionManager:
         self.artifacts_root = artifacts_root
         self.raw_data_path = self.artifacts_root / "world_raw" / str(self.world_seed)
 
+
         self.base_processor = BaseProcessor(preset)
         self.region_processor = RegionProcessor(preset, world_seed, self.artifacts_root)
+
+
 
     def _generate_chunk_task(self, cx: int, cz: int) -> Tuple[Tuple[int, int], GenResult]:
         """Задача для одного потока: сгенерировать БАЗОВЫЙ чанк."""
