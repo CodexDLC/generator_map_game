@@ -3,13 +3,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Dict
 import numpy as np
 from math import radians, cos, sin
-from scipy.ndimage import binary_erosion
+from scipy.ndimage import binary_erosion, gaussian_filter
 
 from ...core.preset.model import Preset
 from ...core import constants as const
 from .climate_helpers import (
     _derive_seed, _fbm_amplitude, _fbm_grid,
-    _gauss_with_halo, _vectorized_smoothstep
+     _vectorized_smoothstep
 )
 from ..hydrology.fast_hydrology import _chamfer_distance_transform
 
@@ -23,8 +23,10 @@ def generate_climate_maps(
         world_seed: int,
         base_cx: int,
         base_cz: int,
-        region_pixel_size: int
+        region_pixel_size: int,
+        scratch_buffers: Dict[str, np.ndarray] # Принимаем буферы
 ) -> Dict[str, np.ndarray]:
+
     climate_cfg = preset.climate
     if not climate_cfg.get("enabled"): return {}
     mpp = float(preset.cell_size)
@@ -100,7 +102,10 @@ def generate_climate_maps(
 
         humidity_final = humidity_base * (1.0 - 0.5 * dry_final)
 
-        Hs = _gauss_with_halo(height_grid_ext, sigma=1.0, pad=16)
+        Hs_padded = stitched_layers_ext['height'] # Больше не нужен ручной pad
+        gaussian_filter(Hs_padded, sigma=1.0, output=scratch_buffers['a'], mode='reflect', truncate=3.0)
+        Hs = scratch_buffers['a']
+
         gz, gx = np.gradient(Hs, mpp)
         ang = float(humidity_cfg.get("wind_dir_deg", 225.0))
         wdx, wdz = cos(radians(ang)), -sin(radians(ang))
@@ -110,7 +115,9 @@ def generate_climate_maps(
 
         water_core = binary_erosion(is_water, iterations=3)
         coast_dist_for_effect = _chamfer_distance_transform(~water_core)
-        coast_term = _gauss_with_halo(np.exp(-coast_dist_for_effect * mpp / 250.0), sigma=2.0, pad=16)
+        coast_exp_term = np.exp(-coast_dist_for_effect * mpp / 250.0)
+        gaussian_filter(coast_exp_term, sigma=2.0, output=scratch_buffers['b'], mode='reflect', truncate=3.0)
+        coast_term = scratch_buffers['b']
 
         humidity_final += coast_term * humidity_cfg.get("w_coast", 0.35)
         humidity_final += lift * humidity_cfg.get("w_orography", 0.3)

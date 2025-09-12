@@ -4,7 +4,8 @@ import time
 from pathlib import Path
 from typing import Dict, Tuple
 import numpy as np
-from numba.cuda import const
+# --- ИСПРАВЛЕНИЕ: Заменяем импорт ---
+from ...core import constants as const
 
 from ..analytics.region_analysis import RegionAnalysis, _extract_core
 from ...algorithms.climate.climate import generate_climate_maps
@@ -14,14 +15,12 @@ from ..grid_utils import _stitch_layers, region_base
 
 from ...algorithms.terrain.terrain import apply_slope_obstacles
 
-# --- НАЧАЛО ИЗМЕНЕНИЙ: Импортируем генератор рек ---
 from ..planners.water_planner import (
     apply_sea_level,
     generate_highland_lakes,
     generate_rivers,
 )
 
-# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 from ...core.export import write_raw_regional_layers
 
 
@@ -34,20 +33,23 @@ class RegionProcessor:
         self.preset = preset
         self.world_seed = world_seed
         self.artifacts_root = artifacts_root
-        # --- ИЗМЕНЕНИЕ: В кэше теперь храним 'ядра' регионов ---
         self.processed_region_cache: Dict[Tuple[int, int], Dict[str, np.ndarray]] = {}
 
     def process(self, scx: int, scz: int, chunks_with_border: Dict[Tuple[int, int], GenResult]) -> Dict[
         Tuple[int, int], GenResult]:
 
-        # --- НАЧАЛО ИЗМЕНЕНИЙ: Полностью перестроенный конвейер ---
         t_start = time.perf_counter()
         print(f"[RegionProcessor] STARTING for region ({scx}, {scz})...")
 
         preset_region_size = self.preset.region_size
         chunk_size = self.preset.size
-
         processing_region_size = preset_region_size + 2
+
+        # --- УПРАВЛЕНИЕ ПАМЯТЬЮ: Создаем scratch-буферы ---
+        ext_size = processing_region_size * chunk_size
+        scratch_a = np.empty((ext_size, ext_size), dtype=np.float32)
+        scratch_b = np.empty((ext_size, ext_size), dtype=np.float32)
+
         stitched_layers_ext, (base_cx_bordered, base_cz_bordered) = _stitch_layers(
             processing_region_size, chunk_size, chunks_with_border,
             ['height', 'surface', 'navigation']
@@ -71,7 +73,8 @@ class RegionProcessor:
         climate_maps = generate_climate_maps(
             stitched_layers_ext, self.preset, self.world_seed,
             base_cx_bordered, base_cz_bordered,
-            processing_region_size * chunk_size
+            ext_size,
+            scratch_buffers={'a': scratch_a, 'b': scratch_b} # Передаем буферы
         )
         stitched_layers_ext.update(climate_maps)
 

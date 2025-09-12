@@ -37,12 +37,6 @@ def _edt_with_halo(mask: np.ndarray, pad: int, mpp: float) -> np.ndarray:
     d = distance_transform_edt(~pad_mask)
     return d[pad:-pad, pad:-pad] * mpp
 
-def _gauss_with_halo(arr: np.ndarray, sigma: float, pad: int) -> np.ndarray:
-    """Применяет фильтр Гаусса с 'ореолом'."""
-    pad_arr = _pad_reflect(arr, pad)
-    g = gaussian_filter(pad_arr, sigma=sigma)
-    return g[pad:-pad, pad:-pad]
-
 # =======================================================================
 # БЛОК 2: NUMBA JIT ХЕЛПЕРЫ (ДЛЯ ВЫСОКОЙ ПРОИЗВОДИТЕЛЬНОСТИ)
 # =======================================================================
