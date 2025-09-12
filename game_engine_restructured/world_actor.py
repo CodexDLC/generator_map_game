@@ -10,7 +10,7 @@ from .core.preset import Preset
 from .core.export import (
     write_client_chunk_meta, write_chunk_preview, write_heightmap_r16,
     write_control_map_r32, write_world_meta_json, write_objects_json,
-    write_navigation_rle, write_server_hex_map, read_raw_chunk  # <--- ИЗМЕНЕНИЕ
+    write_navigation_rle, read_raw_chunk
 )
 from .world.grid_utils import region_base
 from .world.regions import RegionManager
@@ -19,13 +19,55 @@ from .world.context import Region
 from .world.road_types import RoadWaypoint, ChunkRoadPlan
 from .world.prefab_manager import PrefabManager
 from .world.serialization import ClientChunkContract
+# GenResult и HexGridSpec могут понадобиться для аннотаций в будущем, пока оставим
 from .core.types import GenResult
 from .core.grid.hex import HexGridSpec
 
 
+# --- НАЧАЛО ИЗМЕНЕНИЙ: Вспомогательные функции вынесены из класса ---
+
+def _sha1_json(obj) -> str:
+    """Вычисляет SHA1 хэш для JSON-совместимого объекта."""
+    return hashlib.sha1(json.dumps(obj, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _read_json_safe(p: Path):
+    """Безопасно читает JSON файл, возвращая None в случае ошибки."""
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (IOError, json.JSONDecodeError):  # Уточнили тип исключений
+        return None
+
+
+def _chunk_complete(dir_path: Path, required: list[str]) -> bool:
+    """Проверяет, что все необходимые файлы чанка существуют и не пустые."""
+    for name in required:
+        fp = dir_path / name
+        if not fp.exists() or fp.stat().st_size <= 0:
+            return False
+    ok_flag = dir_path / ".ok"
+    return ok_flag.exists()
+
+
+def _chunk_up_to_date(dir_path: Path, preset_dict: dict, gen_version: str) -> bool:
+    """Проверяет, соответствует ли чанк текущей версии генератора и пресета."""
+    meta = _read_json_safe(dir_path / "chunk.json")
+    if not meta:
+        return False
+    if meta.get("generator_version") != gen_version:
+        return False
+    want = _sha1_json(preset_dict)
+    return meta.get("preset_hash") == want
+
+
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
+
 class WorldActor:
     def __init__(
-            self, seed: int, preset: Preset, artifacts_root: Path, progress_callback=None
+            self, seed: int, preset: Preset, artifacts_root: Path,
+            progress_callback=None, verbose: bool = False
     ):
         self.seed = seed
         self.preset = preset
@@ -35,10 +77,11 @@ class WorldActor:
                 self.artifacts_root / "world" / "world_location" / str(self.seed)
         )
         self.progress_callback = progress_callback
+        self.verbose = verbose
 
         prefabs_path = Path(__file__).parent / "data" / "prefabs.json"
         self.prefab_manager = PrefabManager(prefabs_path)
-        self.detail_processor = DetailProcessor(preset, self.prefab_manager)
+        self.detail_processor = DetailProcessor(preset, self.prefab_manager, verbose=self.verbose)
         self.overwrite_existing: bool = False
         self.generator_version: str = "0.1.0"
 
@@ -99,14 +142,16 @@ class WorldActor:
         for dz in range(region_size):
             for dx in range(region_size):
                 chunk_cx, chunk_cz = base_cx + dx, base_cz + dz
-                self._log(f"  -> Detailing chunk ({chunk_cx},{chunk_cz})...")
+                if self.verbose:
+                    self._log(f"  -> Detailing chunk ({chunk_cx},{chunk_cz})...")
 
-                # --- ИЗМЕНЕНИЕ: Загружаем чанк из нового бинарного формата ---
                 path_prefix = str(self.raw_data_path / "chunks" / f"{chunk_cx}_{chunk_cz}")
                 chunk_for_detailing = read_raw_chunk(path_prefix)
 
                 if not chunk_for_detailing:
-                    self._log(f"!!! [WorldActor] WARN: Raw chunk file not found for ({chunk_cx},{chunk_cz}). Skipping.")
+                    if self.verbose:
+                        self._log(
+                            f"!!! [WorldActor] WARN: Raw chunk file not found for ({chunk_cx},{chunk_cz}). Skipping.")
                     continue
 
                 final_chunk = self.detail_processor.process(chunk_for_detailing, region_context)
@@ -118,62 +163,22 @@ class WorldActor:
                 height_grid = final_chunk.layers.get("height_q", {}).get("grid", [])
 
                 if not all([surface_grid, nav_grid, height_grid]):
-                    self._log(
-                        f"!!! [WorldActor] ERROR: Chunk ({chunk_cx},{chunk_cz}) missing essential layers. Skipping export.")
+                    if self.verbose:
+                        self._log(
+                            f"!!! [WorldActor] ERROR: Chunk ({chunk_cx},{chunk_cz}) missing essential layers. Skipping export.")
                     continue
 
-                heightmap_path = client_chunk_dir / "heightmap.r16"
                 max_height = float(self.preset.elevation.get("max_height_m", 1.0))
-                write_heightmap_r16(str(heightmap_path), height_grid, max_height)
 
-                controlmap_path = client_chunk_dir / "control.r32"
-                write_control_map_r32(str(controlmap_path), surface_grid, nav_grid, overlay_grid)
-
-                objects_path = client_chunk_dir / "objects.json"
-                placed_objects = getattr(final_chunk, 'placed_objects', [])
-                write_objects_json(str(objects_path), placed_objects)
-
-                nav_path = client_chunk_dir / "navigation.rle.json"
-                write_navigation_rle(str(nav_path), nav_grid, final_chunk.grid_spec)
-
-                #  не удалять и не включать пока что запрет
-                # if final_chunk.hex_map_data:
-                #     server_hex_map_path = client_chunk_dir / "server_hex_map.json"
-                #     write_server_hex_map(str(server_hex_map_path), final_chunk.hex_map_data)
-
-                preview_path = client_chunk_dir / "preview.png"
-                palette = self.preset.export.get("palette", {})
-                write_chunk_preview(str(preview_path), surface_grid, nav_grid, palette)
-
-                client_meta_path = client_chunk_dir / "chunk.json"
-                contract = ClientChunkContract(cx=chunk_cx, cz=chunk_cz)
-                write_client_chunk_meta(str(client_meta_path), contract)
-
-    def _sha1_json(obj) -> str:
-        return hashlib.sha1(json.dumps(obj, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
-
-    def _read_json_safe(p: Path):
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return None
-
-    def _chunk_complete(dir_path: Path, required: list[str]) -> bool:
-        # все файлы есть и не пустые
-        for name in required:
-            fp = dir_path / name
-            if not fp.exists() or fp.stat().st_size <= 0:
-                return False
-        # проверяем флаг «успешной сборки»
-        ok_flag = dir_path / ".ok"
-        return ok_flag.exists()
-
-    def _chunk_up_to_date(dir_path: Path, preset_dict: dict, gen_version: str) -> bool:
-        meta = _read_json_safe(dir_path / "chunk.json")
-        if not meta:
-            return False
-        if meta.get("generator_version") != gen_version:
-            return False
-        want = _sha1_json(preset_dict)
-        return meta.get("preset_hash") == want
+                write_heightmap_r16(str(client_chunk_dir / "heightmap.r16"), height_grid, max_height,
+                                    verbose=self.verbose)
+                write_control_map_r32(str(client_chunk_dir / "control.r32"), surface_grid, nav_grid, overlay_grid,
+                                      verbose=self.verbose)
+                write_objects_json(str(client_chunk_dir / "objects.json"), getattr(final_chunk, 'placed_objects', []),
+                                   verbose=self.verbose)
+                write_navigation_rle(str(client_chunk_dir / "navigation.rle.json"), nav_grid, final_chunk.grid_spec,
+                                     verbose=self.verbose)
+                write_chunk_preview(str(client_chunk_dir / "preview.png"), surface_grid, nav_grid,
+                                    self.preset.export.get("palette", {}), verbose=self.verbose)
+                write_client_chunk_meta(str(client_chunk_dir / "chunk.json"),
+                                        ClientChunkContract(cx=chunk_cx, cz=chunk_cz), verbose=self.verbose)

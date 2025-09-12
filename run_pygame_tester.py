@@ -6,16 +6,16 @@ import traceback
 from game_engine_restructured.world_actor import WorldActor
 from game_engine_restructured.core.preset import load_preset
 from game_engine_restructured.world.regions import RegionManager
-from game_engine_restructured.world.processing.base_processor import BaseProcessor
 from pygame_tester.world_manager import WorldManager
 
 from pygame_tester.config import (
     SCREEN_WIDTH, SCREEN_HEIGHT, BACKGROUND_COLOR, ARTIFACTS_ROOT,
-    VIEWPORT_WIDTH, VIEWPORT_HEIGHT, MENU_WIDTH, PRESET_PATH
+    VIEWPORT_WIDTH, VIEWPORT_HEIGHT, MENU_WIDTH, PRESET_PATH, CHUNK_SIZE
 )
 from pygame_tester.renderer import Renderer, Camera
 from pygame_tester.ui import SideMenu
 from pygame_tester.world_map_viewer import WorldMapViewer
+from game_engine_restructured.world.grid_utils import region_base
 
 
 def get_seed_from_console() -> int:
@@ -34,19 +34,25 @@ def main():
     print("--- Pygame World Viewer & Generator ---")
     city_seed = get_seed_from_console()
 
-    # =======================================================
-    # ШАГ 1: ГЕНЕРАЦИЯ МИРА
-    # =======================================================
-    print("\n--- World Generation Initializing ---")
     preset_data = json.loads(PRESET_PATH.read_text(encoding='utf-8'))
     preset = load_preset(preset_data)
 
-    region_manager = RegionManager(city_seed, preset, ARTIFACTS_ROOT)
-    world_actor = WorldActor(city_seed, preset, ARTIFACTS_ROOT, progress_callback=print)
+    # =======================================================
+    # ШАГ 1: ГЕНЕРАЦИЯ МИРА (С ПРОВЕРКОЙ)
+    # =======================================================
+    final_world_path = ARTIFACTS_ROOT / "world" / "world_location" / str(city_seed)
 
-    world_actor.prepare_starting_area(region_manager)
+    if final_world_path.exists() and any(final_world_path.iterdir()):
+        print(f"\n--- World for seed '{city_seed}' already exists. Skipping generation. ---")
+    else:
+        print("\n--- World Generation Initializing ---")
+        region_manager = RegionManager(city_seed, preset, ARTIFACTS_ROOT)
+        world_actor = WorldActor(city_seed, preset, ARTIFACTS_ROOT, progress_callback=print)
 
-    print("\n--- World Generation Complete. Starting Viewer ---")
+        world_actor.prepare_starting_area(region_manager)
+        print("\n--- World Generation Complete. ---")
+
+    print("\n--- Starting Viewer ---")
 
     # =======================================================
     # ШАГ 2: ЗАПУСК ПРОСМОТРЩИКА
@@ -60,8 +66,27 @@ def main():
 
     camera = Camera(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
     renderer = Renderer(screen)
-    world_map = WorldMapViewer(ARTIFACTS_ROOT, city_seed)
-    world_manager = WorldManager(city_seed) # НОВЫЙ ЭКЗЕМПЛЯР МЕНЕДЖЕРА
+
+    radius = preset.initial_load_radius
+    region_size = preset.region_size
+    min_scx = -radius
+    min_scz = -radius
+    min_cx_world, min_cz_world = region_base(min_scx, min_scz, region_size)
+
+    # --- НАЧАЛО ИЗМЕНЕНИЙ: Центрируем камеру при запуске ---
+    preview_size = CHUNK_SIZE * 2
+
+    # Вычисляем "мировые" координаты центральной точки карты (центра чанка 0,0)
+    center_world_x = (0 - min_cx_world) * preview_size + (preview_size / 2)
+    center_world_y = (0 - min_cz_world) * preview_size + (preview_size / 2)
+
+    # Устанавливаем позицию камеры так, чтобы эта точка оказалась в центре вьюпорта
+    camera.x = center_world_x - (camera.viewport_width / (2 * camera.zoom))
+    camera.y = center_world_y - (camera.viewport_height / (2 * camera.zoom))
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
+    world_map = WorldMapViewer(ARTIFACTS_ROOT, city_seed, min_cx=min_cx_world, min_cz=min_cz_world)
+    world_manager = WorldManager(city_seed)
 
     side_menu = SideMenu(SCREEN_WIDTH - MENU_WIDTH, 0, MENU_WIDTH, SCREEN_HEIGHT, world_map)
 
@@ -78,7 +103,7 @@ def main():
                     continue
 
             camera.process_inputs(dt)
-            world_map.draw(game_surface, camera, world_manager) # ПЕРЕДАЕМ МЕНЕДЖЕР
+            world_map.draw(game_surface, camera, world_manager)
             renderer.draw_player_marker(game_surface)
 
             screen.fill(BACKGROUND_COLOR)
