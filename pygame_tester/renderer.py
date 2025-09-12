@@ -5,8 +5,15 @@ import traceback
 from typing import Dict, Tuple
 
 from pygame_tester.config import (
-    SCREEN_HEIGHT, SCREEN_WIDTH, PLAYER_COLOR,
-    ERROR_COLOR, MENU_WIDTH, BACKGROUND_COLOR, CAMERA_ZOOM_SPEED, VIEWPORT_WIDTH, CAMERA_MOVE_SPEED_PIXELS
+    SCREEN_HEIGHT,
+    SCREEN_WIDTH,
+    PLAYER_COLOR,
+    ERROR_COLOR,
+    MENU_WIDTH,
+    BACKGROUND_COLOR,
+    CAMERA_ZOOM_SPEED,
+    VIEWPORT_WIDTH,
+    CAMERA_MOVE_SPEED_PIXELS,
 )
 
 
@@ -58,9 +65,10 @@ class Camera:
 
     def get_visible_world_rect(self) -> pygame.Rect:
         return pygame.Rect(
-            self.x, self.y,
+            self.x,
+            self.y,
             self.viewport_width / self.zoom,
-            self.viewport_height / self.zoom
+            self.viewport_height / self.zoom,
         )
 
 
@@ -74,7 +82,8 @@ class Renderer:
         self.error_message = message
 
     def draw_error_banner(self):
-        if not self.error_message: return
+        if not self.error_message:
+            return
         font = pygame.font.SysFont("Arial", 20, bold=True)
         text_surf = font.render(self.error_message, True, (255, 255, 0))
         bg_rect = text_surf.get_rect(center=(VIEWPORT_WIDTH / 2, 30)).inflate(20, 10)
@@ -85,12 +94,26 @@ class Renderer:
     def draw_player_marker(self, surface: pygame.Surface):
         center_x, center_y = surface.get_width() // 2, surface.get_height() // 2
         pygame.draw.circle(surface, PLAYER_COLOR, (center_x, center_y), 10, 2)
-        pygame.draw.line(surface, PLAYER_COLOR, (center_x, center_y - 15), (center_x, center_y + 15), 2)
-        pygame.draw.line(surface, PLAYER_COLOR, (center_x - 15, center_y), (center_x + 15, center_y), 2)
+        pygame.draw.line(
+            surface,
+            PLAYER_COLOR,
+            (center_x, center_y - 15),
+            (center_x, center_y + 15),
+            2,
+        )
+        pygame.draw.line(
+            surface,
+            PLAYER_COLOR,
+            (center_x - 15, center_y),
+            (center_x + 15, center_y),
+            2,
+        )
 
     def draw_status(self, camera: Camera, world_map):
-        world_x, world_y = camera.x + camera.viewport_width / (2 * camera.zoom), camera.y + camera.viewport_height / (
-                    2 * camera.zoom)
+        world_x, world_y = (
+            camera.x + camera.viewport_width / (2 * camera.zoom),
+            camera.y + camera.viewport_height / (2 * camera.zoom),
+        )
         cx, cz = world_map.world_pixel_to_chunk_coords(world_x, world_y)
 
         status_text = (

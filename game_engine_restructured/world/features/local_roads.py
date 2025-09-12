@@ -30,11 +30,7 @@ def build_local_roads(result: GenResult, region: Region, preset: Preset) -> None
         return
 
     # ... (код для получения локальных waypoints без изменений)
-    grid_spec = HexGridSpec(
-        edge_m=0.63,
-        meters_per_pixel=0.8,
-        chunk_px=result.size
-    )
+    grid_spec = HexGridSpec(edge_m=0.63, meters_per_pixel=0.8, chunk_px=result.size)
 
     region_size = preset.region_size
     base_cx, base_cz = region_base(region.scx, region.scz, region_size)

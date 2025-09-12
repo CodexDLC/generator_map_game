@@ -36,7 +36,9 @@ class RegionManager:
         return chunk_result
 
     def generate_raw_region(self, scx: int, scz: int):
-        region_meta_path = self.raw_data_path / "regions" / f"{scx}_{scz}" / "region_meta.json"
+        region_meta_path = (
+            self.raw_data_path / "regions" / f"{scx}_{scz}" / "region_meta.json"
+        )
         if region_meta_path.exists():
             print(f"[RegionManager] Raw data for region ({scx},{scz}) already exists.")
             return
@@ -54,7 +56,10 @@ class RegionManager:
 
         chunks_with_border: Dict[Tuple[int, int], GenResult] = {}
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            future_to_chunk = {executor.submit(self._generate_or_get_chunk_task, cx, cz): (cx, cz) for cx, cz in tasks}
+            future_to_chunk = {
+                executor.submit(self._generate_or_get_chunk_task, cx, cz): (cx, cz)
+                for cx, cz in tasks
+            }
             for future in concurrent.futures.as_completed(future_to_chunk):
                 try:
                     chunk_result = future.result()
@@ -63,26 +68,41 @@ class RegionManager:
                 except Exception as exc:
                     print(f"!!! Base chunk generation failed: {exc}")
 
-        print(f"  -> Generated/loaded {len(chunks_with_border)} base chunks (with 1-chunk border).")
+        print(
+            f"  -> Generated/loaded {len(chunks_with_border)} base chunks (with 1-chunk border)."
+        )
 
         processed_chunks = self.region_processor.process(scx, scz, chunks_with_border)
 
         # Для планировщиков и сохранения используем только чанки основного региона (без "фартука")
         final_chunks_for_region = {
-            k: v for k, v in processed_chunks.items()
-            if base_cx <= k[0] < base_cx + region_size and base_cz <= k[1] < base_cz + region_size
+            k: v
+            for k, v in processed_chunks.items()
+            if base_cx <= k[0] < base_cx + region_size
+            and base_cz <= k[1] < base_cz + region_size
         }
 
         stitched_layers_for_planners, _ = _stitch_layers(
-            region_size, self.preset.size, final_chunks_for_region, ['height', 'navigation']
+            region_size,
+            self.preset.size,
+            final_chunks_for_region,
+            ["height", "navigation"],
         )
-        road_plan = plan_roads_for_region(scx, scz, self.world_seed, self.preset, final_chunks_for_region)
+        road_plan = plan_roads_for_region(
+            scx, scz, self.world_seed, self.preset, final_chunks_for_region
+        )
         river_plan = plan_rivers_for_region(
-            stitched_layers_for_planners['height'], stitched_layers_for_planners['navigation'], self.preset,
-            self.world_seed
+            stitched_layers_for_planners["height"],
+            stitched_layers_for_planners["navigation"],
+            self.preset,
+            self.world_seed,
         )
         meta_contract = RegionMetaContract(
-            scx=scx, scz=scz, world_seed=self.world_seed, road_plan=road_plan, river_plan=river_plan
+            scx=scx,
+            scz=scz,
+            world_seed=self.world_seed,
+            road_plan=road_plan,
+            river_plan=river_plan,
         )
         write_region_meta(str(region_meta_path), meta_contract)
 

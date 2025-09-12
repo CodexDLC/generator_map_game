@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import math
 from scipy.ndimage import distance_transform_edt, gaussian_filter
-from numba import njit
+from numba import njit, prange
 
 # =======================================================================
 # БЛОК 1: ОБЫЧНЫЕ PYTHON ХЕЛПЕРЫ
@@ -46,6 +46,28 @@ def _gauss_with_halo(arr: np.ndarray, sigma: float, pad: int) -> np.ndarray:
 # =======================================================================
 # БЛОК 2: NUMBA JIT ХЕЛПЕРЫ (ДЛЯ ВЫСОКОЙ ПРОИЗВОДИТЕЛЬНОСТИ)
 # =======================================================================
+
+@njit(inline='always', cache=True)
+def _smoothstep(edge0: float, edge1: float, x: float) -> float:
+    """Гладкая пороговая функция."""
+    t = (x - edge0) / (edge1 - edge0)
+    t = max(0.0, min(1.0, t))
+    return t * t * (3.0 - 2.0 * t)
+
+@njit(cache=True, fastmath=True, parallel=True)
+def _vectorized_smoothstep(edge0: float, edge1: float, x_array: np.ndarray) -> np.ndarray:
+    """Применяет smoothstep ко всему массиву, работая с плоским представлением."""
+    out_flat = np.empty_like(x_array.ravel())
+    in_flat = x_array.ravel()
+    inv_span = 1.0 / (edge1 - edge0)
+    for i in prange(in_flat.size):
+        t = (in_flat[i] - edge0) * inv_span
+        if t < 0.0:
+            t = 0.0
+        elif t > 1.0:
+            t = 1.0
+        out_flat[i] = t * t * (3.0 - 2.0 * t)
+    return out_flat.reshape(x_array.shape)
 
 @njit(inline='always', cache=True)
 def _u32(x: int) -> int: return x & 0xFFFFFFFF

@@ -7,11 +7,11 @@ from typing import List, Dict, Any
 
 from .base_feature import FeatureBrush
 from ..prefab_manager import PrefabManager
+
 # --- ИЗМЕНЕНИЕ: Импортируем весь модуль как const ---
 from ...core import constants as const
 from ...core.grid.hex import HexGridSpec
 from ...core.types import GenResult
-
 
 
 @dataclass
@@ -24,11 +24,17 @@ class PlacedObject:
 
 
 class ObjectBrush(FeatureBrush):
-    def __init__(self, result: GenResult, preset: Any, prefab_manager: PrefabManager, grid_spec: HexGridSpec):
+    def __init__(
+        self,
+        result: GenResult,
+        preset: Any,
+        prefab_manager: PrefabManager,
+        grid_spec: HexGridSpec,
+    ):
         super().__init__(result, preset)
         self.prefab_manager = prefab_manager
         self.grid_spec = grid_spec
-        if not hasattr(self.result, 'placed_objects'):
+        if not hasattr(self.result, "placed_objects"):
             self.result.placed_objects: List[PlacedObject] = []
 
     def apply(self, density: float = 0.01, nav_buffer_m: float = 0.5):
@@ -37,8 +43,12 @@ class ObjectBrush(FeatureBrush):
 
         # --- ИЗМЕНЕНИЕ: Определяем, на какие поверхности можно ставить объекты ---
         allowed_surfaces = [
-            const.KIND_FOREST_FLOOR, const.KIND_FOREST_GRASS, const.KIND_PLAINS_GRASS,
-            const.KIND_TAIGA_MOSS, const.KIND_JUNGLE_DARKFLOOR, const.KIND_BASE_DIRT
+            const.KIND_FOREST_FLOOR,
+            const.KIND_FOREST_GRASS,
+            const.KIND_PLAINS_GRASS,
+            const.KIND_TAIGA_MOSS,
+            const.KIND_JUNGLE_DARKFLOOR,
+            const.KIND_BASE_DIRT,
         ]
 
         for r in range(self.size):
@@ -51,12 +61,15 @@ class ObjectBrush(FeatureBrush):
         num_to_place = int(len(possible_points) * density)
 
         for q, r in possible_points:
-            if not num_to_place: break
-            if (q, r) in blocked_hexes: continue
+            if not num_to_place:
+                break
+            if (q, r) in blocked_hexes:
+                continue
 
             prefab_id = rng.choice(self.prefab_manager.get_all_ids())
             prefab = self.prefab_manager.get_prefab(prefab_id)
-            if not prefab: continue
+            if not prefab:
+                continue
 
             # --- Расчет "следа" (Footprint) ---
             footprint = prefab.footprint
@@ -78,7 +91,10 @@ class ObjectBrush(FeatureBrush):
                     check_q, check_r = q + dq, r + dr
                     center_wx, center_wz = self.grid_spec.axial_to_world(q, r)
                     check_wx, check_wz = self.grid_spec.axial_to_world(check_q, check_r)
-                    if ((check_wx - center_wx) ** 2 / a ** 2 + (check_wz - center_wz) ** 2 / b ** 2) <= 1:
+                    if (
+                        (check_wx - center_wx) ** 2 / a**2
+                        + (check_wz - center_wz) ** 2 / b**2
+                    ) <= 1:
                         hexes_to_block.add((check_q, check_r))
 
             rotation = rng.uniform(0, 360)
@@ -91,4 +107,5 @@ class ObjectBrush(FeatureBrush):
             num_to_place -= 1
 
         print(
-            f"--- OBJECT BRUSH: Placed {len(self.result.placed_objects)} objects in chunk ({self.result.cx}, {self.result.cz})")
+            f"--- OBJECT BRUSH: Placed {len(self.result.placed_objects)} objects in chunk ({self.result.cx}, {self.result.cz})"
+        )

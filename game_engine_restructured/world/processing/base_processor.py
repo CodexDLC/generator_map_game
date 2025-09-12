@@ -7,6 +7,7 @@ from ...core.grid.hex import HexGridSpec
 from ...core.types import GenResult
 from ...core.utils.rng import init_rng
 from ...core.utils.layers import make_empty_layers
+
 # --- НАЧАЛО ИЗМЕНЕНИЙ: Добавляем недостающий импорт ---
 from ...algorithms.terrain.terrain import generate_elevation, classify_terrain
 # --- КОНЕЦ ИЗМЕНЕНИЙ ---
@@ -26,9 +27,7 @@ class BaseProcessor:
         size = int(getattr(self.preset, "size", 128))
 
         grid_spec = HexGridSpec(
-            edge_m=0.63,
-            meters_per_pixel=float(self.preset.cell_size),
-            chunk_px=size
+            edge_m=0.63, meters_per_pixel=float(self.preset.cell_size), chunk_px=size
         )
         t0 = time.perf_counter()
         stage_seeds = init_rng(seed, cx, cz)
@@ -41,9 +40,16 @@ class BaseProcessor:
         layers["height_q"]["grid"] = elevation_grid
 
         result = GenResult(
-            version=self.VERSION, type=self.TYPE, seed=seed, cx=cx, cz=cz,
-            size=size, cell_size=float(self.preset.cell_size), layers=layers,
-            stage_seeds=stage_seeds, grid_spec=grid_spec,
+            version=self.VERSION,
+            type=self.TYPE,
+            seed=seed,
+            cx=cx,
+            cz=cz,
+            size=size,
+            cell_size=float(self.preset.cell_size),
+            layers=layers,
+            stage_seeds=stage_seeds,
+            grid_spec=grid_spec,
         )
 
         # 2. Базовая классификация поверхности

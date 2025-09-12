@@ -18,7 +18,9 @@ from ..grid_utils import generate_hex_map_from_pixels
 
 class DetailProcessor:
     # --- НАЧАЛО ИЗМЕНЕНИЙ ---
-    def __init__(self, preset: Preset, prefab_manager: PrefabManager, verbose: bool = False):
+    def __init__(
+        self, preset: Preset, prefab_manager: PrefabManager, verbose: bool = False
+    ):
         self.preset = preset
         self.prefab_manager = prefab_manager
         self.verbose = verbose
@@ -26,7 +28,7 @@ class DetailProcessor:
     # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
     def process(self, chunk: GenResult, region_context: Region) -> GenResult:
-        if not hasattr(chunk, 'placed_objects'):
+        if not hasattr(chunk, "placed_objects"):
             chunk.placed_objects = []
 
         # --- ЭТАП 1: Применяем кисти для деталей ландшафта ---

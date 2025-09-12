@@ -14,7 +14,9 @@ class BlendingBrush(FeatureBrush):
         # print(f"  -> Applying blending brush for chunk ({self.result.cx}, {self.result.cz})...")
         h, w = self.size, self.size
 
-        dirt_grass_overlay_id = const.SURFACE_KIND_TO_ID.get(const.KIND_OVERLAY_DIRT_GRASS, 0)
+        dirt_grass_overlay_id = const.SURFACE_KIND_TO_ID.get(
+            const.KIND_OVERLAY_DIRT_GRASS, 0
+        )
 
         points_to_blend = []
 
@@ -34,5 +36,8 @@ class BlendingBrush(FeatureBrush):
                 for dx in range(-transition_width, transition_width + 1):
                     nz, nx = z + dz, x + dx
                     if 0 <= nz < h and 0 <= nx < w:
-                        if self.surface_grid[nz][nx] in (const.KIND_BASE_GRASS, const.KIND_BASE_DIRT):
+                        if self.surface_grid[nz][nx] in (
+                            const.KIND_BASE_GRASS,
+                            const.KIND_BASE_DIRT,
+                        ):
                             self.overlay_grid[nz][nx] = dirt_grass_overlay_id

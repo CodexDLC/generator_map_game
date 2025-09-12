@@ -6,7 +6,7 @@ from .. import constants as const
 
 
 def compute_metrics(
-        surface_grid: List[List[str]], nav_grid: List[List[str]]
+    surface_grid: List[List[str]], nav_grid: List[List[str]]
 ) -> Dict[str, float]:
     """
     Считает метрики по чанку, используя оба слоя: surface и navigation.
@@ -29,8 +29,11 @@ def compute_metrics(
 
     # --- ИЗМЕНЕНИЕ: Считаем "открытые" клетки по сумме новых базовых поверхностей ---
     walkable_kinds = (
-        const.KIND_BASE_DIRT, const.KIND_BASE_GRASS, const.KIND_BASE_SAND,
-        const.KIND_BASE_CRACKED, const.KIND_BASE_WATERBED
+        const.KIND_BASE_DIRT,
+        const.KIND_BASE_GRASS,
+        const.KIND_BASE_SAND,
+        const.KIND_BASE_CRACKED,
+        const.KIND_BASE_WATERBED,
     )
     open_cells = sum(surface_counts.get(k, 0) for k in walkable_kinds)
 

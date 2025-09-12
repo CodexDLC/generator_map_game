@@ -13,13 +13,14 @@ from ..road_types import RoadWaypoint
 POI_RECIPES = {
     "placeholder_biome": {
         "ruins_in_clearing": {
-            "tile_types": [KIND_BASE_DIRT, KIND_BASE_SAND], # <--- ИЗМЕНЕНИЕ
+            "tile_types": [KIND_BASE_DIRT, KIND_BASE_SAND],  # <--- ИЗМЕНЕНИЕ
             "search_radius": 5,
             "min_density": 0.8,
             "poi_type": "ruin",
         }
     }
 }
+
 
 def _find_clearing(
     stitched_map: List[List[str]], recipe: dict, rng: random.Random

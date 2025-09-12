@@ -53,10 +53,16 @@ class SideMenu:
         return f"Layer: {mode_name.capitalize()}"
 
     def add_button(self, text, callback):
-        button_y = self.rect.y + self.padding + len(self.buttons) * (self.button_height + self.padding)
+        button_y = (
+            self.rect.y
+            + self.padding
+            + len(self.buttons) * (self.button_height + self.padding)
+        )
         button_x = self.rect.x + self.padding
         button_width = self.rect.width - (2 * self.padding)
-        button = Button(button_x, button_y, button_width, self.button_height, text, callback)
+        button = Button(
+            button_x, button_y, button_width, self.button_height, text, callback
+        )
         self.buttons.append(button)
 
     def handle_event(self, event):
@@ -70,14 +76,18 @@ class SideMenu:
 
     def draw(self, screen):
         menu_surface = pygame.Surface(self.rect.size, pygame.SRCALPHA)
-        pygame.draw.rect(menu_surface, self.bg_color, menu_surface.get_rect(), border_radius=8)
+        pygame.draw.rect(
+            menu_surface, self.bg_color, menu_surface.get_rect(), border_radius=8
+        )
         screen.blit(menu_surface, self.rect.topleft)
 
         for button in self.buttons:
             button.draw(screen)
 
     def toggle_layer_mode(self):
-        self.current_layer_index = (self.current_layer_index + 1) % len(self.layer_modes)
+        self.current_layer_index = (self.current_layer_index + 1) % len(
+            self.layer_modes
+        )
         new_layer = self.layer_modes[self.current_layer_index]
         self.world_map_viewer.set_active_layer(new_layer)
         self.buttons[0].text = self._get_layer_button_text()

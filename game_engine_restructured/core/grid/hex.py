@@ -4,12 +4,14 @@ from typing import Iterable, List, Tuple
 
 SQRT3 = math.sqrt(3.0)
 
+
 @dataclass(frozen=True)
 class HexGridSpec:
     """Спецификация hex-сетки внутри одного чанка."""
-    edge_m: float              # длина ребра гекса в метрах (a)
-    meters_per_pixel: float    # масштаб рельефа (м/пиксель) в heightmap
-    chunk_px: int              # ширина/высота heightmap в пикселях (обычно 256)
+
+    edge_m: float  # длина ребра гекса в метрах (a)
+    meters_per_pixel: float  # масштаб рельефа (м/пиксель) в heightmap
+    chunk_px: int  # ширина/высота heightmap в пикселях (обычно 256)
     orientation: str = "pointy-top"  # других не поддерживаем в этом проекте
 
     @property
@@ -59,8 +61,12 @@ class HexGridSpec:
         yf = -xf - zf
 
         # округление кубических координат
-        rx = round(xf); ry = round(yf); rz = round(zf)
-        dx = abs(rx - xf); dy = abs(ry - yf); dz = abs(rz - zf)
+        rx = round(xf)
+        ry = round(yf)
+        rz = round(zf)
+        dx = abs(rx - xf)
+        dy = abs(ry - yf)
+        dz = abs(rz - zf)
         if dx > dy and dx > dz:
             rx = -ry - rz
         elif dy > dz:
@@ -100,8 +106,12 @@ class HexGridSpec:
     def neighbors(q: int, r: int) -> List[Tuple[int, int]]:
         """Шесть соседей (E, NE, NW, W, SW, SE) в axial."""
         return [
-            (q + 1, r + 0), (q + 1, r - 1), (q + 0, r - 1),
-            (q - 1, r + 0), (q - 1, r + 1), (q + 0, r + 1),
+            (q + 1, r + 0),
+            (q + 1, r - 1),
+            (q + 0, r - 1),
+            (q - 1, r + 0),
+            (q - 1, r + 1),
+            (q + 0, r + 1),
         ]
 
     @staticmethod

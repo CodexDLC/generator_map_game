@@ -8,9 +8,14 @@ import json
 
 from .core.preset import Preset
 from .core.export import (
-    write_client_chunk_meta, write_chunk_preview, write_heightmap_r16,
-    write_control_map_r32, write_world_meta_json, write_objects_json,
-    write_navigation_rle, read_raw_chunk
+    write_client_chunk_meta,
+    write_chunk_preview,
+    write_heightmap_r16,
+    write_control_map_r32,
+    write_world_meta_json,
+    write_objects_json,
+    write_navigation_rle,
+    read_raw_chunk,
 )
 from .world.grid_utils import region_base
 from .world.regions import RegionManager
@@ -19,6 +24,7 @@ from .world.context import Region
 from .world.road_types import RoadWaypoint, ChunkRoadPlan
 from .world.prefab_manager import PrefabManager
 from .world.serialization import ClientChunkContract
+
 # GenResult и HexGridSpec могут понадобиться для аннотаций в будущем, пока оставим
 from .core.types import GenResult
 from .core.grid.hex import HexGridSpec
@@ -26,9 +32,12 @@ from .core.grid.hex import HexGridSpec
 
 # --- НАЧАЛО ИЗМЕНЕНИЙ: Вспомогательные функции вынесены из класса ---
 
+
 def _sha1_json(obj) -> str:
     """Вычисляет SHA1 хэш для JSON-совместимого объекта."""
-    return hashlib.sha1(json.dumps(obj, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+    return hashlib.sha1(
+        json.dumps(obj, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
 
 
 def _read_json_safe(p: Path):
@@ -66,22 +75,28 @@ def _chunk_up_to_date(dir_path: Path, preset_dict: dict, gen_version: str) -> bo
 
 class WorldActor:
     def __init__(
-            self, seed: int, preset: Preset, artifacts_root: Path,
-            progress_callback=None, verbose: bool = False
+        self,
+        seed: int,
+        preset: Preset,
+        artifacts_root: Path,
+        progress_callback=None,
+        verbose: bool = False,
     ):
         self.seed = seed
         self.preset = preset
         self.artifacts_root = artifacts_root
         self.raw_data_path = self.artifacts_root / "world_raw" / str(self.seed)
         self.final_data_path = (
-                self.artifacts_root / "world" / "world_location" / str(self.seed)
+            self.artifacts_root / "world" / "world_location" / str(self.seed)
         )
         self.progress_callback = progress_callback
         self.verbose = verbose
 
         prefabs_path = Path(__file__).parent / "data" / "prefabs.json"
         self.prefab_manager = PrefabManager(prefabs_path)
-        self.detail_processor = DetailProcessor(preset, self.prefab_manager, verbose=self.verbose)
+        self.detail_processor = DetailProcessor(
+            preset, self.prefab_manager, verbose=self.verbose
+        )
         self.overwrite_existing: bool = False
         self.generator_version: str = "0.1.0"
 
@@ -102,7 +117,9 @@ class WorldActor:
         print(f"[WorldActor] Found {total_regions} regions to generate.")
 
         for i, (scx, scz) in enumerate(regions_to_generate):
-            print(f"\n--- [{i + 1}/{total_regions}] Processing Region ({scx}, {scz}) ---")
+            print(
+                f"\n--- [{i + 1}/{total_regions}] Processing Region ({scx}, {scz}) ---"
+            )
             region_manager.generate_raw_region(scx, scz)
             self._detail_region(scx, scz)
 
@@ -111,15 +128,23 @@ class WorldActor:
         meta_path = str(self.final_data_path.parent / "_world_meta.json")
         if not os.path.exists(meta_path):
             write_world_meta_json(
-                meta_path, world_id=WORLD_ID, hex_edge_m=0.63, meters_per_pixel=self.preset.cell_size,
-                chunk_px=self.preset.size, height_min_m=0.0,
+                meta_path,
+                world_id=WORLD_ID,
+                hex_edge_m=0.63,
+                meters_per_pixel=self.preset.cell_size,
+                chunk_px=self.preset.size,
+                height_min_m=0.0,
                 height_max_m=self.preset.elevation.get("max_height_m", 150.0),
             )
 
         self._log(f"[WorldActor] Detailing required for region ({scx},{scz})...")
-        region_meta_path = self.raw_data_path / "regions" / f"{scx}_{scz}" / "region_meta.json"
+        region_meta_path = (
+            self.raw_data_path / "regions" / f"{scx}_{scz}" / "region_meta.json"
+        )
         if not region_meta_path.exists():
-            self._log(f"!!! [WorldActor] ERROR: Meta file for region ({scx},{scz}) not found. Skipping detailing.")
+            self._log(
+                f"!!! [WorldActor] ERROR: Meta file for region ({scx},{scz}) not found. Skipping detailing."
+            )
             return
 
         with open(region_meta_path, "r", encoding="utf-8") as f:
@@ -130,10 +155,16 @@ class WorldActor:
                 cx_str, cz_str = key_str.split(",")
                 chunk_key = (int(cx_str), int(cz_str))
                 new_plan = ChunkRoadPlan()
-                new_plan.waypoints = [RoadWaypoint(**wp_dict) for wp_dict in plan_dict.get("waypoints", [])]
+                new_plan.waypoints = [
+                    RoadWaypoint(**wp_dict)
+                    for wp_dict in plan_dict.get("waypoints", [])
+                ]
                 deserialized_road_plan[chunk_key] = new_plan
             region_context = Region(
-                scx=scx, scz=scz, biome_type="placeholder_biome", road_plan=deserialized_road_plan,
+                scx=scx,
+                scz=scz,
+                biome_type="placeholder_biome",
+                road_plan=deserialized_road_plan,
             )
 
         region_size = self.preset.region_size
@@ -145,16 +176,21 @@ class WorldActor:
                 if self.verbose:
                     self._log(f"  -> Detailing chunk ({chunk_cx},{chunk_cz})...")
 
-                path_prefix = str(self.raw_data_path / "chunks" / f"{chunk_cx}_{chunk_cz}")
+                path_prefix = str(
+                    self.raw_data_path / "chunks" / f"{chunk_cx}_{chunk_cz}"
+                )
                 chunk_for_detailing = read_raw_chunk(path_prefix)
 
                 if not chunk_for_detailing:
                     if self.verbose:
                         self._log(
-                            f"!!! [WorldActor] WARN: Raw chunk file not found for ({chunk_cx},{chunk_cz}). Skipping.")
+                            f"!!! [WorldActor] WARN: Raw chunk file not found for ({chunk_cx},{chunk_cz}). Skipping."
+                        )
                     continue
 
-                final_chunk = self.detail_processor.process(chunk_for_detailing, region_context)
+                final_chunk = self.detail_processor.process(
+                    chunk_for_detailing, region_context
+                )
 
                 client_chunk_dir = self.final_data_path / f"{chunk_cx}_{chunk_cz}"
                 surface_grid = final_chunk.layers.get("surface", [])
@@ -165,20 +201,45 @@ class WorldActor:
                 if not all([surface_grid, nav_grid, height_grid]):
                     if self.verbose:
                         self._log(
-                            f"!!! [WorldActor] ERROR: Chunk ({chunk_cx},{chunk_cz}) missing essential layers. Skipping export.")
+                            f"!!! [WorldActor] ERROR: Chunk ({chunk_cx},{chunk_cz}) missing essential layers. Skipping export."
+                        )
                     continue
 
                 max_height = float(self.preset.elevation.get("max_height_m", 1.0))
 
-                write_heightmap_r16(str(client_chunk_dir / "heightmap.r16"), height_grid, max_height,
-                                    verbose=self.verbose)
-                write_control_map_r32(str(client_chunk_dir / "control.r32"), surface_grid, nav_grid, overlay_grid,
-                                      verbose=self.verbose)
-                write_objects_json(str(client_chunk_dir / "objects.json"), getattr(final_chunk, 'placed_objects', []),
-                                   verbose=self.verbose)
-                write_navigation_rle(str(client_chunk_dir / "navigation.rle.json"), nav_grid, final_chunk.grid_spec,
-                                     verbose=self.verbose)
-                write_chunk_preview(str(client_chunk_dir / "preview.png"), surface_grid, nav_grid,
-                                    self.preset.export.get("palette", {}), verbose=self.verbose)
-                write_client_chunk_meta(str(client_chunk_dir / "chunk.json"),
-                                        ClientChunkContract(cx=chunk_cx, cz=chunk_cz), verbose=self.verbose)
+                write_heightmap_r16(
+                    str(client_chunk_dir / "heightmap.r16"),
+                    height_grid,
+                    max_height,
+                    verbose=self.verbose,
+                )
+                write_control_map_r32(
+                    str(client_chunk_dir / "control.r32"),
+                    surface_grid,
+                    nav_grid,
+                    overlay_grid,
+                    verbose=self.verbose,
+                )
+                write_objects_json(
+                    str(client_chunk_dir / "objects.json"),
+                    getattr(final_chunk, "placed_objects", []),
+                    verbose=self.verbose,
+                )
+                write_navigation_rle(
+                    str(client_chunk_dir / "navigation.rle.json"),
+                    nav_grid,
+                    final_chunk.grid_spec,
+                    verbose=self.verbose,
+                )
+                write_chunk_preview(
+                    str(client_chunk_dir / "preview.png"),
+                    surface_grid,
+                    nav_grid,
+                    self.preset.export.get("palette", {}),
+                    verbose=self.verbose,
+                )
+                write_client_chunk_meta(
+                    str(client_chunk_dir / "chunk.json"),
+                    ClientChunkContract(cx=chunk_cx, cz=chunk_cz),
+                    verbose=self.verbose,
+                )

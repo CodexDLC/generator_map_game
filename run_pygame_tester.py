@@ -9,8 +9,15 @@ from game_engine_restructured.world.regions import RegionManager
 from pygame_tester.world_manager import WorldManager
 
 from pygame_tester.config import (
-    SCREEN_WIDTH, SCREEN_HEIGHT, BACKGROUND_COLOR, ARTIFACTS_ROOT,
-    VIEWPORT_WIDTH, VIEWPORT_HEIGHT, MENU_WIDTH, PRESET_PATH, CHUNK_SIZE
+    SCREEN_WIDTH,
+    SCREEN_HEIGHT,
+    BACKGROUND_COLOR,
+    ARTIFACTS_ROOT,
+    VIEWPORT_WIDTH,
+    VIEWPORT_HEIGHT,
+    MENU_WIDTH,
+    PRESET_PATH,
+    CHUNK_SIZE,
 )
 from pygame_tester.renderer import Renderer, Camera
 from pygame_tester.ui import SideMenu
@@ -34,7 +41,7 @@ def main():
     print("--- Pygame World Viewer & Generator ---")
     city_seed = get_seed_from_console()
 
-    preset_data = json.loads(PRESET_PATH.read_text(encoding='utf-8'))
+    preset_data = json.loads(PRESET_PATH.read_text(encoding="utf-8"))
     preset = load_preset(preset_data)
 
     # =======================================================
@@ -43,11 +50,15 @@ def main():
     final_world_path = ARTIFACTS_ROOT / "world" / "world_location" / str(city_seed)
 
     if final_world_path.exists() and any(final_world_path.iterdir()):
-        print(f"\n--- World for seed '{city_seed}' already exists. Skipping generation. ---")
+        print(
+            f"\n--- World for seed '{city_seed}' already exists. Skipping generation. ---"
+        )
     else:
         print("\n--- World Generation Initializing ---")
         region_manager = RegionManager(city_seed, preset, ARTIFACTS_ROOT)
-        world_actor = WorldActor(city_seed, preset, ARTIFACTS_ROOT, progress_callback=print)
+        world_actor = WorldActor(
+            city_seed, preset, ARTIFACTS_ROOT, progress_callback=print
+        )
 
         world_actor.prepare_starting_area(region_manager)
         print("\n--- World Generation Complete. ---")
@@ -85,10 +96,14 @@ def main():
     camera.y = center_world_y - (camera.viewport_height / (2 * camera.zoom))
     # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
-    world_map = WorldMapViewer(ARTIFACTS_ROOT, city_seed, min_cx=min_cx_world, min_cz=min_cz_world)
+    world_map = WorldMapViewer(
+        ARTIFACTS_ROOT, city_seed, min_cx=min_cx_world, min_cz=min_cz_world
+    )
     world_manager = WorldManager(city_seed)
 
-    side_menu = SideMenu(SCREEN_WIDTH - MENU_WIDTH, 0, MENU_WIDTH, SCREEN_HEIGHT, world_map)
+    side_menu = SideMenu(
+        SCREEN_WIDTH - MENU_WIDTH, 0, MENU_WIDTH, SCREEN_HEIGHT, world_map
+    )
 
     running = True
     while running:

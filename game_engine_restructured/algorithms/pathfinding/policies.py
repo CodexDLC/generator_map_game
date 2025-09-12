@@ -4,13 +4,9 @@ from dataclasses import dataclass, replace
 from typing import Callable, Dict, List
 
 from ...core import constants as const
+
 # --- ИЗМЕНЕНИЕ: Теперь импортируем все нужное из helpers ---
-from .helpers import (
-    Coord,
-    NEI6_AXIAL,
-    heuristic_hex,
-    DEFAULT_TERRAIN_FACTOR
-)
+from .helpers import Coord, NEI6_AXIAL, heuristic_hex, DEFAULT_TERRAIN_FACTOR
 
 
 @dataclass(frozen=True)
@@ -45,17 +41,17 @@ def make_base_policy() -> PathPolicy:
 
 
 def make_road_policy(
-        allow_slopes: bool = True,
-        slope_cost: float = 5.0,
-        allow_water_as_bridge: bool = True,
-        water_bridge_cost: float = 15.0,
+    allow_slopes: bool = True,
+    slope_cost: float = 5.0,
+    allow_water_as_bridge: bool = True,
+    water_bridge_cost: float = 15.0,
 ) -> PathPolicy:
     """Политика для ГЕНЕРАЦИИ ДОРОГ."""
     policy = make_base_policy()
 
     # --- ИЗМЕНЕНИЕ: Используем правильную константу для дороги ---
     policy.terrain_factor[const.KIND_BASE_DIRT] = 0.5
-    policy.terrain_factor[const.KIND_BASE_ROAD] = 0.5 # <--- БЫЛО KIND_ROAD_PAVED
+    policy.terrain_factor[const.KIND_BASE_ROAD] = 0.5  # <--- БЫЛО KIND_ROAD_PAVED
 
     if allow_slopes:
         policy.terrain_factor[const.KIND_BASE_ROCK] = slope_cost
@@ -74,7 +70,7 @@ def make_nav_policy() -> PathPolicy:
 
     # --- ИЗМЕНЕНИЕ: Используем правильную константу для дороги ---
     policy.terrain_factor[const.KIND_BASE_DIRT] = 0.8
-    policy.terrain_factor[const.KIND_BASE_ROAD] = 0.6 # <--- БЫЛО KIND_ROAD_PAVED
+    policy.terrain_factor[const.KIND_BASE_ROAD] = 0.6  # <--- БЫЛО KIND_ROAD_PAVED
     policy.terrain_factor[const.KIND_BASE_ROCK] = float("inf")
 
     return policy

@@ -13,7 +13,7 @@ class FeatureBrush:
         # --- Получаем доступ ко всем нужным слоям ---
         self.surface_grid = result.layers["surface"]
         self.nav_grid = result.layers["navigation"]
-        self.overlay_grid = result.layers["overlay"] # <--- ВОТ ЭТА СТРОКА
+        self.overlay_grid = result.layers["overlay"]  # <--- ВОТ ЭТА СТРОКА
         self.size = len(self.surface_grid)
 
     def apply(self, **kwargs):

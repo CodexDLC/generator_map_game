@@ -42,11 +42,11 @@ def _build_mst(points: List[Coord]) -> List[Tuple[int, int]]:
 
 
 def find_path_network(
-        surface_grid: List[List[str]],
-        nav_grid: List[List[str]],
-        height_grid: Optional[List[List[float]]],
-        points: List[Coord],
-        router: Optional[BaseRoadRouter] = None,
+    surface_grid: List[List[str]],
+    nav_grid: List[List[str]],
+    height_grid: Optional[List[List[float]]],
+    points: List[Coord],
+    router: Optional[BaseRoadRouter] = None,
 ) -> List[List[Coord]]:
     if not points:
         return []
@@ -60,14 +60,15 @@ def find_path_network(
             paths.append(path)
     return paths
 
+
 def apply_paths_to_grid(
-        surface_grid: list[list[str]],
-        nav_grid: list[list[str]],
-        overlay_grid: list[list[int]],
-        paths: Iterable[list[tuple[int, int]]],
-        width: int = 1,
-        # --- ИЗМЕНЕНИЕ: Используем новую, правильную константу ---
-        road_type: str = const.KIND_BASE_ROAD,
+    surface_grid: list[list[str]],
+    nav_grid: list[list[str]],
+    overlay_grid: list[list[int]],
+    paths: Iterable[list[tuple[int, int]]],
+    width: int = 1,
+    # --- ИЗМЕНЕНИЕ: Используем новую, правильную константу ---
+    road_type: str = const.KIND_BASE_ROAD,
 ) -> None:
     h = len(surface_grid)
     w = len(surface_grid[0]) if h else 0

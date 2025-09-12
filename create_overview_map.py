@@ -24,13 +24,13 @@ def create_overview_map(seed: int):
 
     # 1. Находим все чанки и их координаты
     chunk_files = {}
-    min_cx, max_cx = float('inf'), float('-inf')
-    min_cz, max_cz = float('inf'), float('-inf')
+    min_cx, max_cx = float("inf"), float("-inf")
+    min_cz, max_cz = float("inf"), float("-inf")
 
     for chunk_dir in world_path.iterdir():
         if chunk_dir.is_dir():
             try:
-                cx_str, cz_str = chunk_dir.name.split('_')
+                cx_str, cz_str = chunk_dir.name.split("_")
                 cx, cz = int(cx_str), int(cz_str)
                 preview_path = chunk_dir / "preview.png"
                 if preview_path.exists():
@@ -44,7 +44,9 @@ def create_overview_map(seed: int):
         print("!!! ERROR: No valid chunk previews found to create a map.")
         return
 
-    print(f"Found {len(chunk_files)} chunks. Bounds: cx[{min_cx}..{max_cx}], cz[{min_cz}..{max_cz}]")
+    print(
+        f"Found {len(chunk_files)} chunks. Bounds: cx[{min_cx}..{max_cx}], cz[{min_cz}..{max_cz}]"
+    )
 
     # 2. Рассчитываем полный размер карты и коэффициент масштабирования
     map_width_chunks = max_cx - min_cx + 1
@@ -54,17 +56,25 @@ def create_overview_map(seed: int):
 
     # --- ГЛАВНОЕ ИСПРАВЛЕНИЕ: БЕЗОПАСНОЕ МАСШТАБИРОВАНИЕ ---
     scale = 1.0
-    if full_width_px > MAX_OVERVIEW_DIMENSION or full_height_px > MAX_OVERVIEW_DIMENSION:
-        scale = min(MAX_OVERVIEW_DIMENSION / full_width_px, MAX_OVERVIEW_DIMENSION / full_height_px)
+    if (
+        full_width_px > MAX_OVERVIEW_DIMENSION
+        or full_height_px > MAX_OVERVIEW_DIMENSION
+    ):
+        scale = min(
+            MAX_OVERVIEW_DIMENSION / full_width_px,
+            MAX_OVERVIEW_DIMENSION / full_height_px,
+        )
 
     final_map_width = int(full_width_px * scale)
     final_map_height = int(full_height_px * scale)
     final_tile_size = int(PREVIEW_SIZE * scale)
-    if final_tile_size < 1: final_tile_size = 1
+    if final_tile_size < 1:
+        final_tile_size = 1
 
     print(f"Original map size would be: {full_width_px}x{full_height_px} px. (TOO BIG)")
     print(
-        f"Scaling to a safe size: {final_map_width}x{final_map_height} px (each tile will be {final_tile_size}x{final_tile_size}px).")
+        f"Scaling to a safe size: {final_map_width}x{final_map_height} px (each tile will be {final_tile_size}x{final_tile_size}px)."
+    )
 
     # 3. Создаем финальную поверхность и "наклеиваем" на нее масштабированные чанки
     pygame.init()
@@ -75,7 +85,9 @@ def create_overview_map(seed: int):
         try:
             chunk_img = pygame.image.load(str(path))
             # Масштабируем каждый чанк перед вставкой
-            scaled_chunk = pygame.transform.smoothscale(chunk_img, (final_tile_size, final_tile_size))
+            scaled_chunk = pygame.transform.smoothscale(
+                chunk_img, (final_tile_size, final_tile_size)
+            )
 
             local_x = (cx - min_cx) * final_tile_size
             local_y = (cz - min_cz) * final_tile_size
@@ -105,14 +117,20 @@ if __name__ == "__main__":
     # Логика для интерактивного ввода seed, как вы и хотели
     try:
         worlds_dir = ARTIFACTS_ROOT / "world" / "world_location"
-        available_seeds = sorted([int(p.name) for p in worlds_dir.iterdir() if p.name.isdigit()], reverse=True)
+        available_seeds = sorted(
+            [int(p.name) for p in worlds_dir.iterdir() if p.name.isdigit()],
+            reverse=True,
+        )
 
         if not available_seeds:
-            print("No generated worlds found in 'artifacts' folder. Run the generator first.")
+            print(
+                "No generated worlds found in 'artifacts' folder. Run the generator first."
+            )
         else:
             print("Available seeds:", available_seeds)
             seed_str = input(
-                f">>> Enter seed to create overview map (or press Enter for latest: {available_seeds[0]}): ")
+                f">>> Enter seed to create overview map (or press Enter for latest: {available_seeds[0]}): "
+            )
 
             if seed_str:
                 world_seed = int(seed_str)

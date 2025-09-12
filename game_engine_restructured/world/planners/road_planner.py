@@ -11,11 +11,11 @@ from ...core.preset import Preset
 
 
 def plan_roads_for_region(
-        scx: int,
-        scz: int,
-        seed: int,
-        preset: Preset,
-        base_chunks: Dict[Tuple[int, int], GenResult],
+    scx: int,
+    scz: int,
+    seed: int,
+    preset: Preset,
+    base_chunks: Dict[Tuple[int, int], GenResult],
 ) -> Dict[Tuple[int, int], ChunkRoadPlan]:
     """
     Планирует только КЛЮЧЕВЫЕ точки для дорог (маяки),
@@ -55,24 +55,32 @@ def plan_roads_for_region(
         north_pos: GlobalCoord = (center_pos[0], margin)
         north_cx_key = base_cx + (north_pos[0] // chunk_size)
         north_cz_key = base_cz + (north_pos[1] // chunk_size)
-        final_plan[(north_cx_key, north_cz_key)].waypoints.append(RoadWaypoint(pos=north_pos, is_gate=True))
+        final_plan[(north_cx_key, north_cz_key)].waypoints.append(
+            RoadWaypoint(pos=north_pos, is_gate=True)
+        )
 
         # Южный гейт
         south_pos: GlobalCoord = (center_pos[0], region_pixel_size - 1 - margin)
         south_cx_key = base_cx + (south_pos[0] // chunk_size)
         south_cz_key = base_cz + (south_pos[1] // chunk_size)
-        final_plan[(south_cx_key, south_cz_key)].waypoints.append(RoadWaypoint(pos=south_pos, is_gate=True))
+        final_plan[(south_cx_key, south_cz_key)].waypoints.append(
+            RoadWaypoint(pos=south_pos, is_gate=True)
+        )
 
         # Западный гейт
         west_pos: GlobalCoord = (margin, center_pos[1])
         west_cx_key = base_cx + (west_pos[0] // chunk_size)
         west_cz_key = base_cz + (west_pos[1] // chunk_size)
-        final_plan[(west_cx_key, west_cz_key)].waypoints.append(RoadWaypoint(pos=west_pos, is_gate=True))
+        final_plan[(west_cx_key, west_cz_key)].waypoints.append(
+            RoadWaypoint(pos=west_pos, is_gate=True)
+        )
 
         # Восточный гейт
         east_pos: GlobalCoord = (region_pixel_size - 1 - margin, center_pos[1])
         east_cx_key = base_cx + (east_pos[0] // chunk_size)
         east_cz_key = base_cz + (east_pos[1] // chunk_size)
-        final_plan[(east_cx_key, east_cz_key)].waypoints.append(RoadWaypoint(pos=east_pos, is_gate=True))
+        final_plan[(east_cx_key, east_cz_key)].waypoints.append(
+            RoadWaypoint(pos=east_pos, is_gate=True)
+        )
 
     return dict(final_plan)

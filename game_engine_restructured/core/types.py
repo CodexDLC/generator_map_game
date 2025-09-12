@@ -36,8 +36,6 @@ class GenResult:
     # Здесь будут временно храниться данные для server_hex_map.json
     hex_map_data: Dict[str, Any] = field(default_factory=dict)
 
-
-
     def header(self) -> Dict[str, Any]:
         return {
             "version": self.version,

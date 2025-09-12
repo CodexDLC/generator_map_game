@@ -3,6 +3,7 @@ import math
 from typing import Tuple
 import numpy as np
 
+
 def _dilate_bool_mask(mask: np.ndarray, radius: int) -> np.ndarray:
     """Мягкая дилатация (квадратное окно Чебышёва) без wrap-around."""
     if radius <= 0:
@@ -13,13 +14,18 @@ def _dilate_bool_mask(mask: np.ndarray, radius: int) -> np.ndarray:
         for dx in range(-radius, radius + 1):
             if dz == 0 and dx == 0:
                 continue
-            src_y0 = max(0, -dz); src_y1 = h - max(0, dz)
-            src_x0 = max(0, -dx); src_x1 = w - max(0, dx)
-            dst_y0 = max(0, dz);  dst_y1 = h - max(0, -dz)
-            dst_x0 = max(0, dx);  dst_x1 = w - max(0, -dx)
+            src_y0 = max(0, -dz)
+            src_y1 = h - max(0, dz)
+            src_x0 = max(0, -dx)
+            src_x1 = w - max(0, dx)
+            dst_y0 = max(0, dz)
+            dst_y1 = h - max(0, -dz)
+            dst_x0 = max(0, dx)
+            dst_x1 = w - max(0, -dx)
             if src_y0 < src_y1 and src_x0 < src_x1:
                 out[dst_y0:dst_y1, dst_x0:dst_x1] |= mask[src_y0:src_y1, src_x0:src_x1]
     return out
+
 
 def compute_slope_mask(
     height_m: np.ndarray,

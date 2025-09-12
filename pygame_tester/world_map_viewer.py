@@ -22,14 +22,20 @@ class WorldMapViewer:
     - Поддерживает и png-превью, и «сырые» слои (temperature/humidity) по запросу.
     """
 
-    def __init__(self, artifacts_root: pathlib.Path, seed: int, min_cx: int = 0, min_cz: int = 0):
+    def __init__(
+        self, artifacts_root: pathlib.Path, seed: int, min_cx: int = 0, min_cz: int = 0
+    ):
         self.artifacts_root = artifacts_root
         self.seed = seed
-        self.world_path = self.artifacts_root / "world" / "world_location" / str(self.seed)
+        self.world_path = (
+            self.artifacts_root / "world" / "world_location" / str(self.seed)
+        )
         self.raw_path = self.artifacts_root / "world_raw" / str(self.seed)
 
         self.chunk_cache: "OrderedDict[tuple[int,int], pygame.Surface]" = OrderedDict()
-        self.raw_layer_cache: "OrderedDict[tuple[int,int,str], pygame.Surface]" = OrderedDict()
+        self.raw_layer_cache: "OrderedDict[tuple[int,int,str], pygame.Surface]" = (
+            OrderedDict()
+        )
         self.missing: set[tuple[int, int, str]] = set()
 
         self.min_cx = min_cx
@@ -76,7 +82,9 @@ class WorldMapViewer:
         self._lru_put(self.chunk_cache, key, image, self._cache_caps()[0])
         return image
 
-    def _get_raw_layer_image_now(self, cx: int, cz: int, layer_name: str, world_manager) -> pygame.Surface | None:
+    def _get_raw_layer_image_now(
+        self, cx: int, cz: int, layer_name: str, world_manager
+    ) -> pygame.Surface | None:
         key = (cx, cz, layer_name)
         cached = self._lru_get(self.raw_layer_cache, key)
         if cached is not None:
@@ -101,13 +109,13 @@ class WorldMapViewer:
         if layer_name == "temperature":
             px = (norm * 255).astype(np.uint8)
             colors = np.zeros((CHUNK_SIZE, CHUNK_SIZE, 3), dtype=np.uint8)
-            colors[:, :, 0] = px;
+            colors[:, :, 0] = px
             colors[:, :, 2] = 255 - px
             pygame.surfarray.blit_array(surf, colors)
         elif layer_name == "humidity":
             px = (norm * 255).astype(np.uint8)
             colors = np.zeros((CHUNK_SIZE, CHUNK_SIZE, 3), dtype=np.uint8)
-            colors[:, :, 1] = px;
+            colors[:, :, 1] = px
             colors[:, :, 0] = px // 2
             pygame.surfarray.blit_array(surf, colors)
 
@@ -154,7 +162,7 @@ class WorldMapViewer:
         cand.sort(key=priority)
 
         layer = self.active_layer
-        for (cx, cz) in cand:
+        for cx, cz in cand:
             key = (cx, cz, layer)
             if key in self._enqueued or key in self.missing:
                 continue
@@ -186,10 +194,13 @@ class WorldMapViewer:
 
         if self._load_queue:
             pygame.display.set_caption(
-                f"stream queued: {len(self._load_queue)} | cache png={len(self.chunk_cache)} raw={len(self.raw_layer_cache)}")
+                f"stream queued: {len(self._load_queue)} | cache png={len(self.chunk_cache)} raw={len(self.raw_layer_cache)}"
+            )
         target_surface.fill(BACKGROUND_COLOR)
 
-        start_cx_draw, end_cx_draw, start_cz_draw, end_cz_draw = self._calc_visible_bounds(camera)
+        start_cx_draw, end_cx_draw, start_cz_draw, end_cz_draw = (
+            self._calc_visible_bounds(camera)
+        )
         layer = self.active_layer
 
         for cz in range(start_cz_draw, end_cz_draw + 1):
@@ -212,7 +223,9 @@ class WorldMapViewer:
                 elif scaled > 1:
                     placeholder = pygame.Surface((scaled, scaled))
                     placeholder.fill((28, 30, 36))
-                    pygame.draw.rect(placeholder, (60, 60, 70), placeholder.get_rect(), 1)
+                    pygame.draw.rect(
+                        placeholder, (60, 60, 70), placeholder.get_rect(), 1
+                    )
                     target_surface.blit(placeholder, (screen_x, screen_y))
 
         center_wx = camera.x + camera.viewport_width / 2.0
@@ -226,7 +239,8 @@ class WorldMapViewer:
         end_cz_keep = center_cz + keep_radius
 
         chunks_to_keep = set(
-            (cx, cz) for cz in range(start_cz_keep, end_cz_keep + 1)
+            (cx, cz)
+            for cz in range(start_cz_keep, end_cz_keep + 1)
             for cx in range(start_cx_keep, end_cx_keep + 1)
         )
 

@@ -4,6 +4,7 @@ import random
 from opensimplex import OpenSimplex
 
 from .base_feature import FeatureBrush
+
 # --- ИЗМЕНЕНИЕ: Импортируем модуль констант ---
 from ...core import constants as const
 
@@ -42,15 +43,22 @@ class ForestBrush(FeatureBrush):
                 if self.surface_grid[z][x] in allowed_base_surfaces:
                     wx = self.result.cx * self.size + x
                     wz = self.result.cz * self.size + z
-                    group_val = (group_noise_gen.noise2(wx * group_freq, wz * group_freq) + 1.0) / 2.0
+                    group_val = (
+                        group_noise_gen.noise2(wx * group_freq, wz * group_freq) + 1.0
+                    ) / 2.0
                     if group_val > group_threshold:
-                        detail_val = (detail_noise_gen.noise2(wx * detail_freq, wz * detail_freq) + 1.0) / 2.0
+                        detail_val = (
+                            detail_noise_gen.noise2(wx * detail_freq, wz * detail_freq)
+                            + 1.0
+                        ) / 2.0
                         if detail_val > detail_threshold:
                             scatter_mask[z][x] = True
 
         # --- ЭТАП 2: Раскрашиваем область леса и добавляем детальные слои ---
         possible_points = []
-        leaf_overlay_id = const.SURFACE_KIND_TO_ID.get(const.KIND_OVERLAY_LEAFS_GREEN, 0)
+        leaf_overlay_id = const.SURFACE_KIND_TO_ID.get(
+            const.KIND_OVERLAY_LEAFS_GREEN, 0
+        )
 
         for z in range(self.size):
             for x in range(self.size):
@@ -64,7 +72,9 @@ class ForestBrush(FeatureBrush):
         # --- ЭТАП 3: Прореживаем и расставляем НЕПРОХОДИМЫЕ объекты (без изменений) ---
         rng = random.Random(self.result.stage_seeds.get("obstacles", self.result.seed))
         rng.shuffle(possible_points)
-        placement_forbidden = [[False for _ in range(self.size)] for _ in range(self.size)]
+        placement_forbidden = [
+            [False for _ in range(self.size)] for _ in range(self.size)
+        ]
         tree_count = 0
         rock_count = 0
 
@@ -92,4 +102,6 @@ class ForestBrush(FeatureBrush):
 
         total = tree_count + rock_count
         if total > 0:
-            print(f"--- FOREST BRUSH: Painted forest area and placed {tree_count} trees, {rock_count} rocks.")
+            print(
+                f"--- FOREST BRUSH: Painted forest area and placed {tree_count} trees, {rock_count} rocks."
+            )

@@ -9,36 +9,49 @@ from typing import Dict, Tuple
 # =======================================================================
 
 # --- Группа 1: Базовые поверхности ---
-KIND_BASE_DIRT = "base_dirt"                # ID 0
-KIND_BASE_GRASS = "base_grass"              # ID 1
-KIND_BASE_SAND = "base_sand"                # ID 2
-KIND_BASE_ROCK = "base_rock"                # ID 3
-KIND_BASE_ROAD = "base_road"                # ID 4
-KIND_BASE_CRACKED = "base_cracked"          # ID 5
-KIND_BASE_WATERBED = "base_waterbed"        # ID 6
+KIND_BASE_DIRT = "base_dirt"  # ID 0
+KIND_BASE_GRASS = "base_grass"  # ID 1
+KIND_BASE_SAND = "base_sand"  # ID 2
+KIND_BASE_ROCK = "base_rock"  # ID 3
+KIND_BASE_ROAD = "base_road"  # ID 4
+KIND_BASE_CRACKED = "base_cracked"  # ID 5
+KIND_BASE_WATERBED = "base_waterbed"  # ID 6
 
 # --- Группа 2: Детальные (накладываемые) поверхности ---
-KIND_OVERLAY_SNOW = "overlay_snow"                  # ID 7
-KIND_OVERLAY_LEAFS_GREEN = "overlay_leafs_green"    # ID 8
+KIND_OVERLAY_SNOW = "overlay_snow"  # ID 7
+KIND_OVERLAY_LEAFS_GREEN = "overlay_leafs_green"  # ID 8
 KIND_OVERLAY_LEAFS_AUTUMN = "overlay_leafs_autumn"  # ID 9
-KIND_OVERLAY_FLOWERS = "overlay_flowers"            # ID 10
-KIND_OVERLAY_DIRT_GRASS = "overlay_dirt_grass"      # ID 11
-KIND_OVERLAY_DESERT_STONES = "overlay_desert_stones" # ID 12
+KIND_OVERLAY_FLOWERS = "overlay_flowers"  # ID 10
+KIND_OVERLAY_DIRT_GRASS = "overlay_dirt_grass"  # ID 11
+KIND_OVERLAY_DESERT_STONES = "overlay_desert_stones"  # ID 12
 
 
 # --- Автоматическая генерация единого словаря ID ---
 # Порядок здесь определяет финальные ID!
 _SURFACE_KIND_NAMES: Tuple[str, ...] = (
     # Базовые
-    KIND_BASE_DIRT, KIND_BASE_GRASS, KIND_BASE_SAND, KIND_BASE_ROCK,
-    KIND_BASE_ROAD, KIND_BASE_CRACKED, KIND_BASE_WATERBED,
+    KIND_BASE_DIRT,
+    KIND_BASE_GRASS,
+    KIND_BASE_SAND,
+    KIND_BASE_ROCK,
+    KIND_BASE_ROAD,
+    KIND_BASE_CRACKED,
+    KIND_BASE_WATERBED,
     # Детальные
-    KIND_OVERLAY_SNOW, KIND_OVERLAY_LEAFS_GREEN, KIND_OVERLAY_LEAFS_AUTUMN,
-    KIND_OVERLAY_FLOWERS, KIND_OVERLAY_DIRT_GRASS, KIND_OVERLAY_DESERT_STONES,
+    KIND_OVERLAY_SNOW,
+    KIND_OVERLAY_LEAFS_GREEN,
+    KIND_OVERLAY_LEAFS_AUTUMN,
+    KIND_OVERLAY_FLOWERS,
+    KIND_OVERLAY_DIRT_GRASS,
+    KIND_OVERLAY_DESERT_STONES,
 )
 
-SURFACE_KIND_TO_ID: Dict[str, int] = {name: i for i, name in enumerate(_SURFACE_KIND_NAMES)}
-SURFACE_ID_TO_KIND: Dict[int, str] = {i: name for i, name in enumerate(_SURFACE_KIND_NAMES)}
+SURFACE_KIND_TO_ID: Dict[str, int] = {
+    name: i for i, name in enumerate(_SURFACE_KIND_NAMES)
+}
+SURFACE_ID_TO_KIND: Dict[int, str] = {
+    i: name for i, name in enumerate(_SURFACE_KIND_NAMES)
+}
 SURFACE_KINDS: Tuple[str, ...] = _SURFACE_KIND_NAMES
 
 

@@ -27,10 +27,18 @@ def _smooth_grid(grid: np.ndarray, passes: int) -> np.ndarray:
 
     smoothed = grid.copy()
     for _ in range(passes):
-        temp = np.pad(smoothed, pad_width=1, mode='edge')
-        blurred = (temp[:-2, :-2] + temp[:-2, 1:-1] + temp[:-2, 2:] +
-                   temp[1:-1, :-2] + temp[1:-1, 1:-1] + temp[1:-1, 2:] +
-                   temp[2:, :-2] + temp[2:, 1:-1] + temp[2:, 2:]) / 9.0
+        temp = np.pad(smoothed, pad_width=1, mode="edge")
+        blurred = (
+            temp[:-2, :-2]
+            + temp[:-2, 1:-1]
+            + temp[:-2, 2:]
+            + temp[1:-1, :-2]
+            + temp[1:-1, 1:-1]
+            + temp[1:-1, 2:]
+            + temp[2:, :-2]
+            + temp[2:, 1:-1]
+            + temp[2:, 2:]
+        ) / 9.0
         smoothed = blurred
     return smoothed
 
@@ -41,10 +49,12 @@ def _quantize_heights(grid: np.ndarray, step: float):
     np.round(grid / step, out=grid)
     grid *= step
 
+
 # --- ИЗМЕНЕНИЕ: Функция _apply_terraform_rules полностью удалена ---
 
+
 def generate_elevation(
-        seed: int, cx: int, cz: int, size: int, preset: Any
+    seed: int, cx: int, cz: int, size: int, preset: Any
 ) -> Tuple[List[List[float]], np.ndarray]:
     cfg = getattr(preset, "elevation", {})
     spectral_cfg = cfg.get("spectral", {})
@@ -61,8 +71,11 @@ def generate_elevation(
 
     height_grid = np.zeros((working_size, working_size), dtype=np.float32)
 
-    total_max_amp = sum(float(layer_cfg.get("amp_m", 0.0)) for layer_cfg in spectral_cfg.values())
-    if total_max_amp == 0: total_max_amp = 1.0
+    total_max_amp = sum(
+        float(layer_cfg.get("amp_m", 0.0)) for layer_cfg in spectral_cfg.values()
+    )
+    if total_max_amp == 0:
+        total_max_amp = 1.0
 
     for z_idx in range(working_size):
         for x_idx in range(working_size):
@@ -74,8 +87,12 @@ def generate_elevation(
             warped_wx, warped_wz = wx, wz
             if warp_scale > 0 and warp_strength > 0:
                 warp_freq = 1.0 / warp_scale
-                offset_x = warp_noise_x.noise2(wx * warp_freq, wz * warp_freq) * warp_strength
-                offset_z = warp_noise_z.noise2(wx * warp_freq, wz * warp_freq) * warp_strength
+                offset_x = (
+                    warp_noise_x.noise2(wx * warp_freq, wz * warp_freq) * warp_strength
+                )
+                offset_z = (
+                    warp_noise_z.noise2(wx * warp_freq, wz * warp_freq) * warp_strength
+                )
                 warped_wx += offset_x
                 warped_wz += offset_z
 
@@ -83,7 +100,8 @@ def generate_elevation(
             for layer_cfg in spectral_cfg.values():
                 scale = float(layer_cfg.get("scale_tiles", 1.0))
                 amp = float(layer_cfg.get("amp_m", 0.0))
-                if scale <= 0 or amp <= 0: continue
+                if scale <= 0 or amp <= 0:
+                    continue
 
                 freq = 1.0 / scale
                 octaves = int(layer_cfg.get("octaves", 1))
@@ -114,10 +132,10 @@ def generate_elevation(
 
 
 def classify_terrain(
-        elevation_grid: List[List[float]],
-        surface_grid: List[List[str]],
-        nav_grid: List[List[str]],
-        preset: Any,
+    elevation_grid: List[List[float]],
+    surface_grid: List[List[str]],
+    nav_grid: List[List[str]],
+    preset: Any,
 ) -> None:
     size = len(surface_grid)
     for z in range(size):
@@ -126,7 +144,9 @@ def classify_terrain(
             nav_grid[z][x] = NAV_PASSABLE
 
 
-def apply_slope_obstacles(height_grid_with_margin: np.ndarray, surface_grid: List[List[str]], preset: Any) -> None:
+def apply_slope_obstacles(
+    height_grid_with_margin: np.ndarray, surface_grid: List[List[str]], preset: Any
+) -> None:
     s_cfg = dict(getattr(preset, "slope_obstacles", {}) or {})
     if not s_cfg.get("enabled", False):
         return
@@ -138,7 +158,7 @@ def apply_slope_obstacles(height_grid_with_margin: np.ndarray, surface_grid: Lis
     H = height_grid_with_margin
     gz, gx = np.gradient(H, cell)
 
-    tangent_slope = np.sqrt(gx ** 2 + gz ** 2)
+    tangent_slope = np.sqrt(gx**2 + gz**2)
     threshold = math.tan(math.radians(angle))
 
     mask = tangent_slope >= threshold
@@ -146,9 +166,12 @@ def apply_slope_obstacles(height_grid_with_margin: np.ndarray, surface_grid: Lis
     if band > 0:
         try:
             from scipy.ndimage import binary_dilation
+
             mask = binary_dilation(mask, iterations=band)
         except ImportError:
-            print("!!! WARNING: `scipy` not installed. Cannot perform slope band dilation.")
+            print(
+                "!!! WARNING: `scipy` not installed. Cannot perform slope band dilation."
+            )
 
     margin = (mask.shape[0] - len(surface_grid)) // 2
     if margin > 0:

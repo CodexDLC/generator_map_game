@@ -19,7 +19,11 @@ class RockBrush(FeatureBrush):
         for z in range(self.size):
             for x in range(self.size):
                 # --- ИЗМЕНЕНИЕ: Камни могут появляться на земле, траве или песке ---
-                if self.surface_grid[z][x] in (const.KIND_BASE_DIRT, const.KIND_BASE_SAND, const.KIND_BASE_GRASS):
+                if self.surface_grid[z][x] in (
+                    const.KIND_BASE_DIRT,
+                    const.KIND_BASE_SAND,
+                    const.KIND_BASE_GRASS,
+                ):
                     is_near_slope = False
                     for dz in range(-1, 2):
                         for dx in range(-1, 2):
@@ -47,4 +51,6 @@ class RockBrush(FeatureBrush):
                         rock_count += 1
 
         if rock_count > 0:
-            print(f"--- ROCK BRUSH: Painted {rock_count} rocks for chunk ({self.result.cx}, {self.result.cz})")
+            print(
+                f"--- ROCK BRUSH: Painted {rock_count} rocks for chunk ({self.result.cx}, {self.result.cz})"
+            )

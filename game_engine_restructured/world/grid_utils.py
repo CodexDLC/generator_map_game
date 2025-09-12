@@ -5,8 +5,12 @@ from ..core.grid.hex import HexGridSpec
 import numpy as np
 
 
-def _stitch_layers(region_size: int, chunk_size: int, base_chunks: Dict[Tuple[int, int], GenResult],
-                   layer_names: List[str]) -> Tuple[Dict[str, np.ndarray], Tuple[int, int]]:
+def _stitch_layers(
+    region_size: int,
+    chunk_size: int,
+    base_chunks: Dict[Tuple[int, int], GenResult],
+    layer_names: List[str],
+) -> Tuple[Dict[str, np.ndarray], Tuple[int, int]]:
     """Склеивает указанные слои из всех чанков региона в большие numpy-массивы."""
     region_pixel_size = region_size * chunk_size
 
@@ -14,36 +18,52 @@ def _stitch_layers(region_size: int, chunk_size: int, base_chunks: Dict[Tuple[in
     all_cz = [c[1] for c in base_chunks.keys()]
     base_cx, base_cz = min(all_cx), min(all_cz)
 
-    stitched_layers = {name: np.zeros((region_pixel_size, region_pixel_size),
-                                      dtype=object if name in ['surface', 'navigation'] else np.float32) for name in
-                       layer_names}
+    stitched_layers = {
+        name: np.zeros(
+            (region_pixel_size, region_pixel_size),
+            dtype=object if name in ["surface", "navigation"] else np.float32,
+        )
+        for name in layer_names
+    }
 
     for (cx, cz), chunk_data in base_chunks.items():
         start_x = (cx - base_cx) * chunk_size
         start_y = (cz - base_cz) * chunk_size
 
         for name in layer_names:
-            source_data = chunk_data.layers.get(name) or chunk_data.layers.get(f"{name}_q", {}).get("grid")
+            source_data = chunk_data.layers.get(name) or chunk_data.layers.get(
+                f"{name}_q", {}
+            ).get("grid")
             if source_data:
                 grid = np.array(source_data)
-                stitched_layers[name][start_y:start_y + chunk_size, start_x:start_x + chunk_size] = grid
+                stitched_layers[name][
+                    start_y : start_y + chunk_size, start_x : start_x + chunk_size
+                ] = grid
 
     return stitched_layers, (base_cx, base_cz)
 
 
-def _apply_changes_to_chunks(stitched_layers: Dict[str, np.ndarray], base_chunks: Dict[Tuple[int, int], GenResult],
-                             base_cx: int, base_cz: int, chunk_size: int):
+def _apply_changes_to_chunks(
+    stitched_layers: Dict[str, np.ndarray],
+    base_chunks: Dict[Tuple[int, int], GenResult],
+    base_cx: int,
+    base_cz: int,
+    chunk_size: int,
+):
     """Нарезает измененные слои обратно в объекты чанков."""
     for (cx, cz), chunk in base_chunks.items():
         start_x = (cx - base_cx) * chunk_size
         start_y = (cz - base_cz) * chunk_size
 
         for name, grid in stitched_layers.items():
-            sub_grid = grid[start_y:start_y + chunk_size, start_x:start_x + chunk_size]
-            if name == 'height':
+            sub_grid = grid[
+                start_y : start_y + chunk_size, start_x : start_x + chunk_size
+            ]
+            if name == "height":
                 chunk.layers["height_q"]["grid"] = sub_grid.tolist()
             else:
                 chunk.layers[name] = sub_grid.tolist()
+
 
 def region_key(cx: int, cz: int, region_size: int) -> Tuple[int, int]:
     """Calculates the region's unique key (scx, scz) from chunk coordinates."""
@@ -108,10 +128,10 @@ def _get_pixel_to_hex_map(grid_spec: HexGridSpec) -> np.ndarray:
 
 
 def generate_hex_map_from_pixels(
-        grid_spec: HexGridSpec,
-        surface_grid: List[List[str]],
-        nav_grid: List[List[str]],
-        height_grid: List[List[float]],
+    grid_spec: HexGridSpec,
+    surface_grid: List[List[str]],
+    nav_grid: List[List[str]],
+    height_grid: List[List[float]],
 ) -> Dict[str, Any]:
     """
     Создает словарь с данными для каждого гекса, используя метод приоритетов.
@@ -139,7 +159,7 @@ def generate_hex_map_from_pixels(
                 hex_data[hex_coords] = {
                     "heights": [height],
                     "dominant_type": pixel_type,
-                    "min_priority": priority
+                    "min_priority": priority,
                 }
             else:
                 hex_data[hex_coords]["heights"].append(height)
@@ -162,7 +182,7 @@ def generate_hex_map_from_pixels(
             "nav": "passable" if is_passable else "impassable",
             "height": round(avg_height, 2),
             "cost": 1,  # Базовая стоимость передвижения
-            "flags": 0  # Поле для будущих флагов (например, "is_quest_zone")
+            "flags": 0,  # Поле для будущих флагов (например, "is_quest_zone")
         }
 
     return final_hex_map

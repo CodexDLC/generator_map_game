@@ -8,6 +8,7 @@ from .planners.river_planner import RiverPlan
 
 from .road_types import ChunkRoadPlan
 
+
 # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 # --- Контракт 1: Метаданные для сервера ---
 @dataclass

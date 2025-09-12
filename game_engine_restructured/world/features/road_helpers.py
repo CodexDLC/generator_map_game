@@ -11,6 +11,7 @@ from ...core.grid.hex import HexGridSpec
 
 # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
+
 def carve_ramp_along_path(
     elev: list[list[float]],
     path: list[tuple[int, int]],

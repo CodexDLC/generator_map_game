@@ -21,13 +21,13 @@ from .helpers import (
 
 
 def find_path(
-        surface_grid: List[List[str]],
-        nav_grid: List[List[str]],  # <-- Добавляем nav_grid
-        height_grid: Optional[List[List[float]]],
-        start_pos: Tuple[int, int],
-        end_pos: Tuple[int, int],
-        policy: PathPolicy = NAV_POLICY,
-        cost_grid: Optional[List[List[float]]] = None,
+    surface_grid: List[List[str]],
+    nav_grid: List[List[str]],  # <-- Добавляем nav_grid
+    height_grid: Optional[List[List[float]]],
+    start_pos: Tuple[int, int],
+    end_pos: Tuple[int, int],
+    policy: PathPolicy = NAV_POLICY,
+    cost_grid: Optional[List[List[float]]] = None,
 ) -> List[Tuple[int, int]] | None:
     # --- НАЧАЛО ИЗМЕНЕНИЙ ---
     # Мы пока работаем с квадратной сеткой, но будем использовать гексагональную логику

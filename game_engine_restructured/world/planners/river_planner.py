@@ -7,13 +7,17 @@ import random
 
 from ...core.preset import Preset
 from ...core.types import GenResult
-from ..road_types import GlobalCoord, RoadWaypoint  # <--- Будем использовать Waypoint и для рек
+from ..road_types import (
+    GlobalCoord,
+    RoadWaypoint,
+)  # <--- Будем использовать Waypoint и для рек
 from ..grid_utils import region_base
 
 
 @dataclass
 class RiverPlan:
     """План рек для одного региона. Содержит УПРОЩЕННЫЕ пути и 'гейты'."""
+
     # Словарь, где ключ - ID реки, а значение - список ее ключевых точек (waypoints)
     waypoints: Dict[int, List[RoadWaypoint]] = field(default_factory=dict)
     # Информация о точках выхода рек из региона
@@ -21,7 +25,9 @@ class RiverPlan:
 
 
 # --- НАЧАЛО НОВОГО КОДА ---
-def _simplify_path(path: List[GlobalCoord], chunk_size: int, step: int = 30) -> List[RoadWaypoint]:
+def _simplify_path(
+    path: List[GlobalCoord], chunk_size: int, step: int = 30
+) -> List[RoadWaypoint]:
     """
     Упрощает детальный путь, оставляя только ключевые точки ("маяки").
     """
@@ -58,11 +64,12 @@ def _simplify_path(path: List[GlobalCoord], chunk_size: int, step: int = 30) -> 
 
 # --- КОНЕЦ НОВОГО КОДА ---
 
+
 def plan_rivers_for_region(
-        stitched_heights: np.ndarray,
-        stitched_nav: np.ndarray,
-        preset: Preset,
-        seed: int,
+    stitched_heights: np.ndarray,
+    stitched_nav: np.ndarray,
+    preset: Preset,
+    seed: int,
 ) -> RiverPlan:
     # ... (начало функции и создание flow_map без изменений)
     print("  -> Planning river networks...")
@@ -121,6 +128,7 @@ def plan_rivers_for_region(
 # ... (функция _trace_flow без изменений)
 def _trace_flow(start_z, start_x, heights, nav):
     from ...core import constants as const
+
     path = []
     z, x = start_z, start_x
     H, W = heights.shape
@@ -136,7 +144,8 @@ def _trace_flow(start_z, start_x, heights, nav):
 
         for dz in range(-1, 2):
             for dx in range(-1, 2):
-                if dz == 0 and dx == 0: continue
+                if dz == 0 and dx == 0:
+                    continue
                 nz, nx = z + dz, x + dx
                 if 0 <= nz < H and 0 <= nx < W:
                     if heights[nz, nx] < min_h:
