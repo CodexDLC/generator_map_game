@@ -1,8 +1,9 @@
 pygame
 opencv-python
-numpy
 imageio
 opensimplex
 Pillow
-scipy
+numpy==2.2.2
+
 numba
+scipy==1.14.1

@@ -226,79 +226,119 @@ def write_objects_json(path: str, objects: list[PlacedObject], verbose: bool = F
 
 def write_chunk_preview(
     path: str,
-    surface_grid,   # может быть List[List[str]] ИЛИ np.ndarray с int-IDs
-    nav_grid,       # то же самое
+    surface_grid,
+    nav_grid,
     palette: Dict[str, str],
     verbose: bool = False,
 ):
+    """
+    Рисует превью чанка и сохраняет PNG атомарно.
+    Важные отличия:
+    - Если palette пустая — предупредит и применит дефолтные цвета.
+    - Вертикальный FLIP (Image.FLIP_TOP_BOTTOM), чтобы превью стыковались между чанками.
+    - Увеличивает картинку в 2x для наглядности (nearest).
+    """
     if not PIL_OK:
         return
 
-    # --- НОВОЕ: нормализация входа до строковых гридов ---
-    def _ensure_str_grid(grid, id2name: Dict[int, str], default_name: str) -> List[List[str]]:
-        """
-        Принимает либо список списков строк, либо np.ndarray с числовыми ID.
-        Возвращает список списков строковых названий тайлов.
-        """
-        # NumPy массив чисел -> в строки
-        if NUMPY_OK and isinstance(grid, np.ndarray):
-            if grid.dtype == object:
-                # уже строки, просто приводим к list-of-lists
-                return grid.tolist()
-            # числовой массив -> в названия
-            h, w = grid.shape
-            out = [[default_name] * w for _ in range(h)]
-            for z in range(h):
-                row = out[z]
-                for x in range(w):
-                    row[x] = id2name.get(int(grid[z, x]), default_name)
-            return out
-        # Уже list-of-lists строк?
-        return grid
+    # Палитра
+    if not palette:
+        print("[Preview] WARN: preset.export.palette пустая — будут дефолтные цвета.")
+    color_surface_default = "#8B4513"  # base_dirt
+    color_obstacle_default = "#444444" # obstacle / непроходимое
+    color_water_default    = "#3A6FD8"
 
+    def _ensure_str_grid(grid, id2name: Dict[int, str], default_name: str) -> List[List[str]]:
+        # Приводим grid к строковым ключам (kind), если там числа
+        out: List[List[str]] = []
+        for row in grid:
+            new_row: List[str] = []
+            for v in row:
+                if isinstance(v, str):
+                    new_row.append(v)
+                else:
+                    # v — int id → в kind
+                    kind = id2name.get(int(v), default_name)
+                    new_row.append(kind)
+            out.append(new_row)
+        return out
+
+    # Поверхности и навигация как строки
     surface_grid = _ensure_str_grid(surface_grid, SURFACE_ID_TO_KIND, "base_dirt")
     nav_grid     = _ensure_str_grid(nav_grid,     NAV_ID_TO_KIND,     "passable")
 
+    # Построение изображения
     try:
         h = len(surface_grid)
         w = len(surface_grid[0]) if h else 0
         if w == 0 or h == 0:
             return
 
-        def hex_to_rgba(s: str) -> Tuple[int, int, int, int]:
-            s = s.lstrip("#")
-            if len(s) == 8:  # AARRGGBB (если вдруг дадут с альфой)
-                return (int(s[2:4],16), int(s[4:6],16), int(s[6:8],16), int(s[0:2],16))
-            return (int(s[0:2],16), int(s[2:4],16), int(s[4:6],16), 255)
-
         img = Image.new("RGBA", (w, h))
-        px  = img.load()
+        px = img.load()
 
-        # 1) базовый слой по surface
-        for z in range(h):
-            row_s = surface_grid[z]
+        for y in range(h):
+            srow = surface_grid[y]
+            nrow = nav_grid[y]
             for x in range(w):
-                px[x, z] = hex_to_rgba(palette.get(row_s[x], "#8B4513"))  # fallback — коричневый
+                s = srow[x]
+                n = nrow[x]
 
-        # 2) поверх — навигация (вода/мосты/препятствия)
-        for z in range(h):
-            row_n = nav_grid[z]
-            for x in range(w):
-                if row_n[x] != "passable":
-                    px[x, z] = hex_to_rgba(palette.get(row_n[x], "#444444"))
+                # Цвет слоя поверхности
+                col_hex = palette.get(s) if palette else None
+                if not col_hex:
+                    # простые дефолты по базовым классам
+                    if "water" in s:
+                        col_hex = color_water_default
+                    elif "rock" in s:
+                        col_hex = "#9AA0A6"
+                    elif "sand" in s:
+                        col_hex = "#D8C27A"
+                    elif "grass" in s:
+                        col_hex = "#5FAF3A"
+                    else:
+                        col_hex = color_surface_default
 
-        # апскейл ×2 как раньше
+                # Прозрачность/оверлеи по навигации
+                if n != "passable":
+                    # препятствия чуть затемняем
+                    base = col_hex.lstrip("#")
+                    r = int(base[0:2], 16)
+                    g = int(base[2:4], 16)
+                    b = int(base[4:6], 16)
+                    r = max(0, int(r * 0.5))
+                    g = max(0, int(g * 0.5))
+                    b = max(0, int(b * 0.5))
+                    px[x, y] = (r, g, b, 255)
+                else:
+                    base = col_hex.lstrip("#")
+                    r = int(base[0:2], 16)
+                    g = int(base[2:4], 16)
+                    b = int(base[4:6], 16)
+                    px[x, y] = (r, g, b, 255)
+
+        # Ключевой момент: переворот по вертикали для «стыковки»
+        img = img.transpose(Image.FLIP_TOP_BOTTOM)
+
+        # Небольшой апскейл для читаемости
         img_resized = img.resize((w * 2, h * 2), Image.Resampling.NEAREST)
 
         _ensure_path_exists(path)
         tmp_path = path + ".tmp"
         img_resized.save(tmp_path, format="PNG")
-        os.replace(tmp_path, path)
+        try:
+            os.replace(tmp_path, path)
+        except Exception:
+            if os.path.exists(path):
+                os.remove(path)
+            os.rename(tmp_path, path)
+
         if verbose:
             print(f"--- EXPORT: Preview image saved: {path}")
 
     except Exception as e:
-        print(f"!!! LOG: CRITICAL ERROR while creating preview.png: {e}")
+        print(f"[Preview] ERROR: {e}")
+
 
 
 
