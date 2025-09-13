@@ -8,9 +8,9 @@ from scipy.ndimage import binary_erosion, gaussian_filter
 from ...core.preset.model import Preset
 from ...core import constants as const
 from .climate_helpers import (
-    _derive_seed, _fbm_amplitude, _fbm_grid,
-     _vectorized_smoothstep
+    _derive_seed, _vectorized_smoothstep
 )
+from ...core.noise.fast_noise import fbm_grid, fbm_amplitude
 from ..hydrology.fast_hydrology import _chamfer_distance_transform
 
 if TYPE_CHECKING:
@@ -48,8 +48,8 @@ def generate_climate_maps(
             freq = 1.0 / scale_m if scale_m > 0 else 0
             amp = float(layer_cfg.get("amp_c", 0.0))
             seed = _derive_seed(world_seed, f"climate.temperature.{name}")
-            fbm = _fbm_grid(seed, gx0_px, gz0_px, size, mpp, freq, 5, 2.0, 0.5, 0.0)
-            fbm /= _fbm_amplitude(0.5, 5)
+            fbm = fbm_grid(seed, gx0_px, gz0_px, size, mpp, freq, 5, 2.0, 0.5, 0.0)
+            fbm /= fbm_amplitude(0.5, 5)
             total_noise += fbm * amp
         temperature_grid += total_noise
         temperature_grid += height_grid_ext * temp_cfg.get("lapse_rate_c_per_m", -0.0065)
@@ -67,8 +67,8 @@ def generate_climate_maps(
             freq = 1.0 / scale_m if scale_m > 0 else 0
             amp = float(layer_cfg.get("amp", 0.0))
             seed = _derive_seed(world_seed, f"climate.humidity.{name}")
-            fbm = _fbm_grid(seed, gx0_px, gz0_px, size, mpp, freq, 5, 2.0, 0.5, 0.0)
-            fbm /= _fbm_amplitude(0.5, 5)
+            fbm = fbm_grid(seed, gx0_px, gz0_px, size, mpp, freq, 5, 2.0, 0.5, 0.0)
+            fbm /= fbm_amplitude(0.5, 5)
             total_noise_h += fbm * amp
         humidity_base += total_noise_h
 

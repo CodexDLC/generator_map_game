@@ -225,121 +225,102 @@ def write_objects_json(path: str, objects: list[PlacedObject], verbose: bool = F
 
 
 def write_chunk_preview(
-    path: str,
-    surface_grid,
-    nav_grid,
-    palette: Dict[str, str],
-    verbose: bool = False,
+        path: str,
+        surface_grid,
+        nav_grid,
+        palette: Dict[str, str],
+        verbose: bool = False,
 ):
     """
     Рисует превью чанка и сохраняет PNG атомарно.
-    Важные отличия:
-    - Если palette пустая — предупредит и применит дефолтные цвета.
-    - Вертикальный FLIP (Image.FLIP_TOP_BOTTOM), чтобы превью стыковались между чанками.
-    - Увеличивает картинку в 2x для наглядности (nearest).
+    Версия с приоритетной отрисовкой (вода > препятствия > поверхность).
+    Надежно работает с числовыми ID и строковыми kind'ами.
     """
     if not PIL_OK:
         return
 
-    # Палитра
+    # --- 1. Создаем карту цветов из палитры, добавляя "запасные" варианты ---
     if not palette:
         print("[Preview] WARN: preset.export.palette пустая — будут дефолтные цвета.")
-    color_surface_default = "#8B4513"  # base_dirt
-    color_obstacle_default = "#444444" # obstacle / непроходимое
-    color_water_default    = "#3A6FD8"
 
+    color_map = {
+        "water": palette.get("water", "#3A6FD8"),
+        "obstacle_prop": palette.get("obstacle_prop", "#444444"),
+        "bridge": palette.get("bridge", "#C8A452"),
+        "base_dirt": palette.get("base_dirt", "#8B4513"),
+        "base_grass": palette.get("base_grass", "#5FAF3A"),
+        "base_sand": palette.get("base_sand", "#D8C27A"),
+        "base_rock": palette.get("base_rock", "#9AA0A6"),
+        "base_road": palette.get("base_road", "#7A5C3A"),
+    }
+    default_color_hex = color_map["base_dirt"]
+
+    # --- 2. ГАРАНТИРУЕМ, что работаем со строками (конвертируем ID, если нужно) ---
     def _ensure_str_grid(grid, id2name: Dict[int, str], default_name: str) -> List[List[str]]:
-        # Приводим grid к строковым ключам (kind), если там числа
         out: List[List[str]] = []
+        # Проверяем, не пустой ли grid
+        if not grid or not grid[0]:
+            return []
         for row in grid:
             new_row: List[str] = []
             for v in row:
                 if isinstance(v, str):
                     new_row.append(v)
                 else:
-                    # v — int id → в kind
-                    kind = id2name.get(int(v), default_name)
-                    new_row.append(kind)
+                    # Это ключевой момент: превращаем число (ID) обратно в строку (kind)
+                    new_row.append(id2name.get(int(v), default_name))
             out.append(new_row)
         return out
 
-    # Поверхности и навигация как строки
-    surface_grid = _ensure_str_grid(surface_grid, SURFACE_ID_TO_KIND, "base_dirt")
-    nav_grid     = _ensure_str_grid(nav_grid,     NAV_ID_TO_KIND,     "passable")
+    surface_grid_str = _ensure_str_grid(surface_grid, SURFACE_ID_TO_KIND, "base_dirt")
+    nav_grid_str = _ensure_str_grid(nav_grid, NAV_ID_TO_KIND, "passable")
 
-    # Построение изображения
     try:
-        h = len(surface_grid)
-        w = len(surface_grid[0]) if h else 0
+        h = len(surface_grid_str)
+        w = len(surface_grid_str[0]) if h else 0
         if w == 0 or h == 0:
             return
 
-        img = Image.new("RGBA", (w, h))
+        img = Image.new("RGB", (w, h))
         px = img.load()
 
         for y in range(h):
-            srow = surface_grid[y]
-            nrow = nav_grid[y]
             for x in range(w):
-                s = srow[x]
-                n = nrow[x]
+                nav_kind = nav_grid_str[y][x]
+                surface_kind = surface_grid_str[y][x]
 
-                # Цвет слоя поверхности
-                col_hex = palette.get(s) if palette else None
-                if not col_hex:
-                    # простые дефолты по базовым классам
-                    if "water" in s:
-                        col_hex = color_water_default
-                    elif "rock" in s:
-                        col_hex = "#9AA0A6"
-                    elif "sand" in s:
-                        col_hex = "#D8C27A"
-                    elif "grass" in s:
-                        col_hex = "#5FAF3A"
-                    else:
-                        col_hex = color_surface_default
-
-                # Прозрачность/оверлеи по навигации
-                if n != "passable":
-                    # препятствия чуть затемняем
-                    base = col_hex.lstrip("#")
-                    r = int(base[0:2], 16)
-                    g = int(base[2:4], 16)
-                    b = int(base[4:6], 16)
-                    r = max(0, int(r * 0.5))
-                    g = max(0, int(g * 0.5))
-                    b = max(0, int(b * 0.5))
-                    px[x, y] = (r, g, b, 255)
+                final_kind_to_draw = ""
+                # --- 3. Простая и надежная логика приоритетов ---
+                if nav_kind in ("water", "obstacle_prop", "bridge"):
+                    final_kind_to_draw = nav_kind
                 else:
-                    base = col_hex.lstrip("#")
-                    r = int(base[0:2], 16)
-                    g = int(base[2:4], 16)
-                    b = int(base[4:6], 16)
-                    px[x, y] = (r, g, b, 255)
+                    final_kind_to_draw = surface_kind
 
-        # Ключевой момент: переворот по вертикали для «стыковки»
+                hex_color = color_map.get(final_kind_to_draw, default_color_hex)
+
+                hex_color = hex_color.lstrip('#')
+                # Добавляем обработку альфа-канала, если он есть
+                if len(hex_color) == 8:
+                    hex_color = hex_color[2:]  # Убираем AA
+                r, g, b = tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+
+                px[x, y] = (r, g, b)
+
         img = img.transpose(Image.FLIP_TOP_BOTTOM)
-
-        # Небольшой апскейл для читаемости
         img_resized = img.resize((w * 2, h * 2), Image.Resampling.NEAREST)
 
         _ensure_path_exists(path)
         tmp_path = path + ".tmp"
         img_resized.save(tmp_path, format="PNG")
-        try:
-            os.replace(tmp_path, path)
-        except Exception:
-            if os.path.exists(path):
-                os.remove(path)
-            os.rename(tmp_path, path)
+        os.replace(tmp_path, path)
 
         if verbose:
             print(f"--- EXPORT: Preview image saved: {path}")
 
     except Exception as e:
-        print(f"[Preview] ERROR: {e}")
-
-
+        import traceback
+        print(f"[Preview] CRITICAL ERROR: {e}")
+        traceback.print_exc()
 
 
 def _pack_control_data(base_id=0, overlay_id=0, blend=0, nav=True) -> np.uint32:

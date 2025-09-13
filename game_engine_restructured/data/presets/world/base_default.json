@@ -3,36 +3,37 @@
   "version": 2,
   "size": 256,
   "cell_size": 0.5,
-  "region_size": 15,
+  "region_size": 11,
   "initial_load_radius": 0,
   "elevation": {
     "enabled": true,
-    "max_height_m": 600.0,
-    "sea_level_m": 100.0,
+    "max_height_m": 200.0,
+    "sea_level_m": 25.0,
+    "base_height_m": 0.0,
     "shaping_power": 1.0,
     "smoothing_passes": 0,
     "quantization_step_m": 0.0,
     "spectral": {
       "continents": {
-        "scale_tiles": 7000,
-        "amp_m": 500.0,
+        "scale_tiles": 1000,
+        "amp_m": 180.0,
         "ridge": true,
         "octaves": 3
       },
       "hills": {
-        "scale_tiles": 2000,
-        "amp_m": 200.0,
+        "scale_tiles": 200,
+        "amp_m": 0.0,
         "octaves": 4
       },
       "detail": {
-        "scale_tiles": 100,
-        "amp_m": 4.0,
+        "scale_tiles": 10,
+        "amp_m": 0.0,
         "octaves": 2
       }
     },
     "warp": {
-      "scale_tiles": 2000,
-      "strength_m": 200.0
+      "scale_tiles": 200,
+      "strength_m": 10.0
     }
   },
   "water": {
@@ -47,6 +48,12 @@
       "base_width_px": 4,
       "max_width_px": 30.0,
       "width_exponent": 0.65
+    }
+  },
+  "surfaces": {
+    "beach": {
+      "enabled": true,
+      "height_above_sea_m": 3.0
     }
   },
   "climate": {
