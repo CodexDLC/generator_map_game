@@ -57,7 +57,7 @@ def main():
         print("\n--- World Generation Initializing ---")
         region_manager = RegionManager(city_seed, preset, ARTIFACTS_ROOT)
         world_actor = WorldActor(
-            city_seed, preset, ARTIFACTS_ROOT, progress_callback=print
+            city_seed, preset, ARTIFACTS_ROOT, progress_callback=print, verbose=True # <--- ДОБАВЬ ЭТОТ ПАРАМЕТР
         )
 
         world_actor.prepare_starting_area(region_manager)

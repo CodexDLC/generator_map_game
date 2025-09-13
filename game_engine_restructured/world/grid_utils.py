@@ -50,22 +50,28 @@ def _apply_changes_to_chunks(
         base_cz: int,
         chunk_size: int,
 ):
-    """Нарезает измененные слои обратно в объекты чанков."""
+    """
+    Нарезает измененные слои обратно в объекты чанков.
+    ВЕРСЯ 2.0: Передает NumPy-срезы напрямую, без конвертации в списки.
+    """
     for (cx, cz), chunk in base_chunks.items():
         start_x = (cx - base_cx) * chunk_size
         start_y = (cz - base_cz) * chunk_size
 
         for name, grid in stitched_layers.items():
+            # sub_grid - это не копия, а "вид" на часть большого массива.
+            # Это очень быстро и эффективно.
             sub_grid = grid[
                 start_y: start_y + chunk_size, start_x: start_x + chunk_size
             ]
 
-            # --- ИЗМЕНЕНИЕ: Упрощаем и делаем более надежным ---
+            # --- ГЛАВНОЕ ИЗМЕНЕНИЕ ---
             if name == 'height':
+                # Высоту пока оставляем списком для совместимости
                 chunk.layers["height_q"]["grid"] = sub_grid.tolist()
             elif name in chunk.layers:
-                # Конвертируем numpy-срез обратно в список списков
-                chunk.layers[name] = sub_grid.tolist()
+                # Напрямую присваиваем NumPy-срез. .tolist() убран!
+                chunk.layers[name] = sub_grid
 
 
 def region_key(cx: int, cz: int, region_size: int) -> Tuple[int, int]:

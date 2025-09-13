@@ -1,63 +1,67 @@
-# game_engine_restructured/core/constants.py
+# ==============================================================================
+# Файл: game_engine_restructured/core/constants.py
+# Назначение: Глобальные константы проекта (ID текстур, типы навигации).
+# ВЕРСИЯ 2.0: С жестко заданными ID для интеграции с движком.
+# ==============================================================================
 from __future__ import annotations
 from typing import Dict, Tuple
 
+import numpy as np
+
 # =======================================================================
-# СЛОЙ 1: ПОВЕРХНОСТИ (ЕДИНЫЙ СЕТ ДЛЯ TERRAIN3D)
-# Все текстуры ландшафта, которые будут использоваться в одном сете.
-# Сначала идут базовые слои, затем — слои для смешивания (детальные).
+# СЛОЙ 1: ПОВЕРХНОСТИ (SURFACES)
 # =======================================================================
 
-# --- Группа 1: Базовые поверхности ---
-KIND_BASE_DIRT = "base_dirt"  # ID 0
-KIND_BASE_GRASS = "base_grass"  # ID 1
-KIND_BASE_SAND = "base_sand"  # ID 2
-KIND_BASE_ROCK = "base_rock"  # ID 3
-KIND_BASE_ROAD = "base_road"  # ID 4
-KIND_BASE_CRACKED = "base_cracked"  # ID 5
-KIND_BASE_WATERBED = "base_waterbed"  # ID 6
+# --- Шаг 1: Определяем строковые константы для удобства в коде Python ---
+# (Эти строки - просто для читаемости, реальные ID задаются ниже)
+KIND_BASE_DIRT = "base_dirt"
+KIND_BASE_GRASS = "base_grass"
+KIND_BASE_SAND = "base_sand"
+KIND_BASE_ROCK = "base_rock"
+KIND_BASE_ROAD = "base_road"
+KIND_BASE_CRACKED = "base_cracked"
+KIND_BASE_WATERBED = "base_waterbed"
+KIND_OVERLAY_SNOW = "overlay_snow"
+KIND_OVERLAY_LEAFS_GREEN = "overlay_leafs_green"
+KIND_OVERLAY_LEAFS_AUTUMN = "overlay_leafs_autumn"
+KIND_OVERLAY_FLOWERS = "overlay_flowers"
+KIND_OVERLAY_DIRT_GRASS = "overlay_dirt_grass"
+KIND_OVERLAY_DESERT_STONES = "overlay_desert_stones"
 
-# --- Группа 2: Детальные (накладываемые) поверхности ---
-KIND_OVERLAY_SNOW = "overlay_snow"  # ID 7
-KIND_OVERLAY_LEAFS_GREEN = "overlay_leafs_green"  # ID 8
-KIND_OVERLAY_LEAFS_AUTUMN = "overlay_leafs_autumn"  # ID 9
-KIND_OVERLAY_FLOWERS = "overlay_flowers"  # ID 10
-KIND_OVERLAY_DIRT_GRASS = "overlay_dirt_grass"  # ID 11
-KIND_OVERLAY_DESERT_STONES = "overlay_desert_stones"  # ID 12
-
-
-# --- Автоматическая генерация единого словаря ID ---
-# Порядок здесь определяет финальные ID!
-_SURFACE_KIND_NAMES: Tuple[str, ...] = (
-    # Базовые
-    KIND_BASE_DIRT,
-    KIND_BASE_GRASS,
-    KIND_BASE_SAND,
-    KIND_BASE_ROCK,
-    KIND_BASE_ROAD,
-    KIND_BASE_CRACKED,
-    KIND_BASE_WATERBED,
-    # Детальные
-    KIND_OVERLAY_SNOW,
-    KIND_OVERLAY_LEAFS_GREEN,
-    KIND_OVERLAY_LEAFS_AUTUMN,
-    KIND_OVERLAY_FLOWERS,
-    KIND_OVERLAY_DIRT_GRASS,
-    KIND_OVERLAY_DESERT_STONES,
-)
-
+# --- Шаг 2: Создаем ЕДИНЫЙ СЛОВАРЬ ID. Это "центр правды". ---
+# Ты можешь менять эти цифры, чтобы они соответствовали настройкам в Godot.
+# Главное, чтобы они были в диапазоне от 0 до 31.
 SURFACE_KIND_TO_ID: Dict[str, int] = {
-    name: i for i, name in enumerate(_SURFACE_KIND_NAMES)
-}
-SURFACE_ID_TO_KIND: Dict[int, str] = {
-    i: name for i, name in enumerate(_SURFACE_KIND_NAMES)
-}
-SURFACE_KINDS: Tuple[str, ...] = _SURFACE_KIND_NAMES
+    # --- Базовые слои ---
+    KIND_BASE_DIRT: 0,
+    KIND_BASE_GRASS: 1,
+    KIND_BASE_SAND: 2,
+    KIND_BASE_ROCK: 3,
+    KIND_BASE_ROAD: 4,
+    KIND_BASE_CRACKED: 5,
+    KIND_BASE_WATERBED: 6,
 
-KIND_NAME_TO_ID = {v: k for k, v in SURFACE_ID_TO_KIND.items()}
+    # --- Детальные (накладываемые) слои ---
+    KIND_OVERLAY_SNOW: 7,
+    KIND_OVERLAY_LEAFS_GREEN: 8,
+    KIND_OVERLAY_LEAFS_AUTUMN: 9,
+    KIND_OVERLAY_FLOWERS: 10,
+    KIND_OVERLAY_DIRT_GRASS: 11,
+    KIND_OVERLAY_DESERT_STONES: 12,
+
+    # ... здесь можно добавлять новые текстуры с ID до 31 ...
+}
+
+# --- Шаг 3: Автоматически создаем обратный словарь для удобства ---
+SURFACE_ID_TO_KIND: Dict[int, str] = {
+    v: k for k, v in SURFACE_KIND_TO_ID.items()
+}
+
+# --- Шаг 4: Создаем кортеж всех известных названий (для проверок) ---
+SURFACE_KINDS: Tuple[str, ...] = tuple(SURFACE_KIND_TO_ID.keys())
 
 # =======================================================================
-# СЛОЙ НАВИГАЦИИ (остается без изменений)
+# СЛОЙ 2: НАВИГАЦИЯ (NAVIGATION) - остается без изменений
 # =======================================================================
 NAV_PASSABLE = "passable"
 NAV_OBSTACLE = "obstacle_prop"
@@ -72,45 +76,41 @@ NAV_KIND_TO_ID: Dict[str, int] = {
 }
 NAV_ID_TO_KIND: Dict[int, str] = {v: k for k, v in NAV_KIND_TO_ID.items()}
 
-# ===== NumPy dtypes для слоёв (если NumPy доступен) =====
-try:
-    import numpy as _np
-except Exception:
-    _np = None
+# =======================================================================
+# УТИЛИТЫ ДЛЯ РАБОТЫ С МАССИВАМИ
+# =======================================================================
+SURFACE_DTYPE = np.uint8
+NAV_DTYPE = np.uint8
 
-SURFACE_DTYPE = _np.uint16 if _np else int
-NAV_DTYPE     = _np.uint8  if _np else int
 
-# ===== Обратные словари KIND -> ID (если не заданы где-то выше) =====
-if "SURFACE_KIND_TO_ID" not in globals():
-    SURFACE_KIND_TO_ID = {v: k for k, v in SURFACE_ID_TO_KIND.items()}
-if "NAV_KIND_TO_ID" not in globals():
-    NAV_KIND_TO_ID = {v: k for k, v in NAV_ID_TO_KIND.items()}
-
-# ===== Универсальные преобразователи =====
-def as_surface_id(kind_or_id):
+# --- Шаг 1: Создаем единую внутреннюю функцию для получения ID ---
+def _get_id(kind_or_id: any, lookup_dict: Dict[str, int], default_id: int) -> int:
+    """Внутренняя утилита: конвертирует строку в ID или возвращает ID как есть."""
     if isinstance(kind_or_id, int):
         return kind_or_id
-    if _np and isinstance(kind_or_id, _np.integer):
+    # Проверка на случай, если пришел numpy-тип
+    if isinstance(kind_or_id, np.integer):
         return int(kind_or_id)
-    return SURFACE_KIND_TO_ID.get(kind_or_id, 0)
+    return lookup_dict.get(kind_or_id, default_id)
 
-def as_nav_id(kind_or_id):
-    if isinstance(kind_or_id, int):
-        return kind_or_id
-    if _np and isinstance(kind_or_id, _np.integer):
-        return int(kind_or_id)
-    return NAV_KIND_TO_ID.get(kind_or_id, 0)
+# --- Шаг 2: Превращаем старые функции в простые и понятные обертки ---
 
-# ===== Безопасная запись в массивы (принимают и строки, и ID) =====
-def surface_fill(arr, kind_or_id):
-    arr.fill(as_surface_id(kind_or_id))
+def surface_fill(arr: np.ndarray, kind_or_id):
+    """Заполняет массив указанным ID поверхности."""
+    id_val = _get_id(kind_or_id, SURFACE_KIND_TO_ID, 0)
+    arr.fill(id_val)
 
-def surface_set(arr, mask, kind_or_id):
-    arr[mask] = as_surface_id(kind_or_id)
+def surface_set(arr: np.ndarray, mask: np.ndarray, kind_or_id):
+    """Устанавливает ID поверхности по маске."""
+    id_val = _get_id(kind_or_id, SURFACE_KIND_TO_ID, 0)
+    arr[mask] = id_val
 
-def nav_fill(arr, kind_or_id):
-    arr.fill(as_nav_id(kind_or_id))
+def nav_fill(arr: np.ndarray, kind_or_id):
+    """Заполняет массив указанным ID навигации."""
+    id_val = _get_id(kind_or_id, NAV_KIND_TO_ID, 0)
+    arr.fill(id_val)
 
-def nav_set(arr, mask, kind_or_id):
-    arr[mask] = as_nav_id(kind_or_id)
+def nav_set(arr: np.ndarray, mask: np.ndarray, kind_or_id):
+    """Устанавливает ID навигации по маске."""
+    id_val = _get_id(kind_or_id, NAV_KIND_TO_ID, 0)
+    arr[mask] = id_val

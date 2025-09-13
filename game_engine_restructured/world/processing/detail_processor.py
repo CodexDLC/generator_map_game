@@ -34,8 +34,8 @@ class DetailProcessor:
         # --- ЭТАП 1: Применяем кисти для деталей ландшафта ---
 
         # 1.1. Сглаживаем переходы между текстурами
-        blending_brush = BlendingBrush(chunk, self.preset)
-        blending_brush.apply()
+        # blending_brush = BlendingBrush(chunk, self.preset)
+        # blending_brush.apply()
 
         # 1.2. Рисуем леса (пока отключено для скорости)
         # forest_brush = ForestBrush(chunk, self.preset)
@@ -46,7 +46,7 @@ class DetailProcessor:
         # rock_brush.apply(density=0.01, near_slope_multiplier=5.0)
 
         # --- ЭТАП 2: Строим локальные дороги по плану ---
-        build_local_roads(chunk, region_context, self.preset)
+        # build_local_roads(chunk, region_context, self.preset)
 
         # --- ЭТАП 3: Генерация данных для гексагональной карты сервера (пока отключено) ---
         # if chunk.grid_spec:

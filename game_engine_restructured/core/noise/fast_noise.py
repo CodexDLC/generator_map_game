@@ -79,7 +79,8 @@ def value_noise_2d(x: float, z: float, seed: int) -> float:
 @njit(cache=True, fastmath=True, parallel=True)
 def fbm_grid(
         seed: int, x0_px: int, z0_px: int, size: int, mpp: float, freq0: float,
-        octaves: int, lacunarity: float = 2.0, gain: float = 0.5, rot_deg: float = 0.0
+        octaves: int, lacunarity: float = 2.0, gain: float = 0.5, rot_deg: float = 0.0,
+        ridge: bool = False  # <--- ДОБАВЛЕН НОВЫЙ ПАРАМЕТР
 ) -> np.ndarray:
     """
     Генерирует 2D-массив фрактального шума (fBm) с помощью Value Noise.
@@ -101,7 +102,13 @@ def fbm_grid(
 
             for o in range(octaves):
                 noise_val = value_noise_2d(rx * freq, rz * freq, seed + o)
-                total += amp * (noise_val * 2.0 - 1.0)  # Смещаем [0, 1] -> [-1, 1]
+                sample = noise_val * 2.0 - 1.0  # Смещаем [0, 1] -> [-1, 1]
+
+                # --- ДОБАВЛЕНА ЛОГИКА RIDGE ---
+                if ridge:
+                    sample = (1.0 - abs(sample)) * 2.0 - 1.0
+
+                total += amp * sample
                 freq *= lacunarity
                 amp *= gain
 

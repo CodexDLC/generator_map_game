@@ -3,37 +3,40 @@
   "version": 2,
   "size": 256,
   "cell_size": 0.5,
-  "region_size": 11,
+  "region_size": 3,
   "initial_load_radius": 0,
   "elevation": {
     "enabled": true,
-    "max_height_m": 200.0,
-    "sea_level_m": 25.0,
+    "max_height_m": 100.0,
+    "sea_level_m": 20.0,
     "base_height_m": 0.0,
-    "shaping_power": 1.0,
+    "shaping_power": 1.5,
     "smoothing_passes": 0,
     "quantization_step_m": 0.0,
     "spectral": {
       "continents": {
         "scale_tiles": 1000,
-        "amp_m": 180.0,
+        "amp_m": 90.0,
         "ridge": true,
-        "octaves": 3
+        "octaves": 3,
+        "rotation_deg": 0.0
       },
       "hills": {
         "scale_tiles": 200,
         "amp_m": 0.0,
-        "octaves": 4
+        "octaves": 4,
+        "rotation_deg": 30.0
       },
       "detail": {
         "scale_tiles": 10,
         "amp_m": 0.0,
-        "octaves": 2
+        "octaves": 2,
+        "rotation_deg": 60.0
       }
     },
     "warp": {
       "scale_tiles": 200,
-      "strength_m": 10.0
+      "strength_m": 0.0
     }
   },
   "water": {
@@ -129,6 +132,8 @@
     }
   },
   "export": {
+    "log_chunk_stats": true,
+    "log_file_saves": true,
     "palette": {
       "base_dirt": "#8B4513",
       "base_grass": "#5FAF3A",

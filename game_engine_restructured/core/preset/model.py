@@ -32,6 +32,7 @@ class Preset:
     elevation: Dict[str, Any]
     terraform: Dict[str, Any]
     climate: Dict[str, Any]
+    surfaces: Dict[str, Any]
 
     slope_obstacles: Dict[str, Any]
     scatter: Dict[str, Any]

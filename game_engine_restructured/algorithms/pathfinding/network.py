@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import List, Tuple, Optional, Iterable
 import math
 
+import numpy as np
+
 # --- ИЗМЕНЕНИЯ: ---
 from .routers import BaseRoadRouter
 from .helpers import Coord
@@ -62,28 +64,47 @@ def find_path_network(
 
 
 def apply_paths_to_grid(
-    surface_grid: list[list[str]],
-    nav_grid: list[list[str]],
-    overlay_grid: list[list[int]],
-    paths: Iterable[list[tuple[int, int]]],
-    width: int = 1,
-    # --- ИЗМЕНЕНИЕ: Используем новую, правильную константу ---
-    road_type: str = const.KIND_BASE_ROAD,
+        surface_grid: np.ndarray,
+        nav_grid: np.ndarray,
+        overlay_grid: np.ndarray,
+        paths: Iterable[list[tuple[int, int]]],
+        width: int = 1,
 ) -> None:
-    h = len(surface_grid)
-    w = len(surface_grid[0]) if h else 0
+    """
+    Применяет пути к сеткам, работая с числовыми ID.
+    """
+    h, w = surface_grid.shape
 
-    # --- ИЗМЕНЕНИЕ: Получаем ID дороги по-новому ---
-    road_id = const.SURFACE_KIND_TO_ID.get(road_type, 0)
+    # --- НАЧАЛО ИЗМЕНЕНИЙ: Получаем ID напрямую из констант ---
+    road_id = const.SURFACE_KIND_TO_ID[const.KIND_BASE_ROAD]
+    water_id = const.NAV_KIND_TO_ID[const.NAV_WATER]
+    bridge_id = const.NAV_KIND_TO_ID[const.NAV_BRIDGE]
+    passable_id = const.NAV_KIND_TO_ID[const.NAV_PASSABLE]
 
-    # --- Здесь была ошибка в типе surface_grid, исправлено ---
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
     def paint(x: int, z: int):
         if 0 <= x < w and 0 <= z < h:
-            # --- ИЗМЕНЕНИЕ: Дорога должна менять базовый слой, а не overlay ---
-            surface_grid[z][x] = road_type
+            # --- НАЧАЛО ИЗМЕНЕНИЙ: Работаем только с ID ---
+            surface_grid[z, x] = road_id
 
-            # --- ИЗМЕНЕНИЕ: Используем новые константы ---
-            if nav_grid[z][x] == const.NAV_WATER:
-                nav_grid[z][x] = const.NAV_BRIDGE
+            # Сравниваем и присваиваем ID, а не строки
+            if nav_grid[z, x] == water_id:
+                nav_grid[z, x] = bridge_id
             else:
-                nav_grid[z][x] = const.NAV_PASSABLE
+                nav_grid[z, x] = passable_id
+            # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
+    # Расширяем линию до нужной ширины (этот код остается)
+    # ... (код для отрисовки дороги остается без изменений,
+    # он просто вызывает paint(x,z), который мы исправили)
+    for path in paths:
+        if not path:
+            continue
+
+        # Простой метод утолщения линии
+        for px, pz in path:
+            for dz_offset in range(-width, width + 1):
+                for dx_offset in range(-width, width + 1):
+                    if dx_offset * dx_offset + dz_offset * dz_offset <= width * width:
+                        paint(px + dx_offset, pz + dz_offset)

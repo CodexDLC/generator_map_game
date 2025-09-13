@@ -137,13 +137,6 @@ class RegionProcessor:
 
         _apply_changes_to_chunks(analysis.layers_core, final_chunks, base_cx, base_cz, chunk_size)
 
-        for chunk in final_chunks.values():
-            if isinstance(chunk.layers.get('surface'), np.ndarray):
-                sid = chunk.layers['surface']
-                chunk.layers['surface'] = [[SURFACE_ID_TO_KIND.get(int(x), "base_dirt") for x in row] for row in sid]
-            if isinstance(chunk.layers.get('navigation'), np.ndarray):
-                nid = chunk.layers['navigation']
-                chunk.layers['navigation'] = [[NAV_ID_TO_KIND.get(int(x), "obstacle_prop") for x in row] for row in nid]
         # ======================================================================
         # --- КОНЕЦ БЛОКА 5 ---
         # ======================================================================
