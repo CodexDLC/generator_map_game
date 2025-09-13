@@ -66,7 +66,7 @@ def _flow_accumulation_from_dirs(
 
 
 @njit(cache=True, fastmath=True, parallel=True)
-def _chamfer_distance_transform(mask: np.ndarray) -> np.ndarray:
+def chamfer_distance_transform(mask: np.ndarray) -> np.ndarray:
     """
     Быстрый двухпроходный алгоритм Distance Transform (Chamfer).
     Гораздо быстрее, чем евклидовский вариант из scipy.

@@ -1,6 +1,7 @@
 # ==============================================================================
 # Файл: game_engine_restructured/core/export/json_exporters.py
 # Назначение: Функции для записи различных метаданных в формате JSON.
+# ВЕРСЯ 2.1: Исправлена работа write_navigation_rle с numpy-массивами.
 # ==============================================================================
 from __future__ import annotations
 import dataclasses
@@ -8,6 +9,8 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Dict
+
+import numpy as np  # <-- Добавляем импорт numpy
 
 from ...world.object_types import PlacedObject
 from ...world.serialization import ClientChunkContract, RegionMetaContract
@@ -28,9 +31,9 @@ def _atomic_write_json(path: str, data: Any, verbose: bool = False):
         if dataclasses.is_dataclass(o):
             return dataclasses.asdict(o)
         try:
-            import numpy as _np
-            if isinstance(o, _np.integer): return int(o)
-            if isinstance(o, _np.floating): return float(o)
+            # import numpy as _np # Numpy уже импортирован выше
+            if isinstance(o, np.integer): return int(o)
+            if isinstance(o, np.floating): return float(o)
         except ImportError:
             pass
         raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
@@ -43,7 +46,7 @@ def _atomic_write_json(path: str, data: Any, verbose: bool = False):
 
 
 def write_region_meta(
-    path: str, meta_contract: RegionMetaContract, verbose: bool = False
+        path: str, meta_contract: RegionMetaContract, verbose: bool = False
 ):
     """Записывает метаданные региона."""
     data = dataclasses.asdict(meta_contract)
@@ -55,7 +58,7 @@ def write_region_meta(
 
 
 def write_client_chunk_meta(
-    path: str, chunk_contract: ClientChunkContract, verbose: bool = False
+        path: str, chunk_contract: ClientChunkContract, verbose: bool = False
 ):
     """Записывает метаданные чанка для клиента."""
     data = {
@@ -108,17 +111,20 @@ def write_world_meta_json(path: str, **kwargs) -> None:
     _atomic_write_json(path, data)
 
 
+# --- НАЧАЛО ИЗМЕНЕНИЙ ---
 def write_navigation_rle(
-    path: str, nav_grid: list[list[str]], grid_spec: Any, verbose: bool = False
+        path: str, nav_grid_ids: np.ndarray, grid_spec: Any, verbose: bool = False
 ):
     """Записывает навигационную сетку в RLE-сжатом формате."""
-    from ..constants import NAV_KIND_TO_ID
     try:
-        h = len(nav_grid)
-        w = len(nav_grid[0]) if h > 0 else 0
-        if w == 0: return
+        if nav_grid_ids is None or nav_grid_ids.size == 0:
+            return
 
-        id_grid = [[NAV_KIND_TO_ID.get(kind, 1) for kind in row] for row in nav_grid]
+        h, w = nav_grid_ids.shape
+
+        # Конвертируем numpy array в list of lists, так как RLE-кодер работает с ними
+        id_grid = nav_grid_ids.tolist()
+
         cols, rows = grid_spec.dims_for_chunk() if grid_spec else (w, h)
         data = {
             "version": "nav_rle_v1", "size": {"cols": cols, "rows": rows},
@@ -128,6 +134,9 @@ def write_navigation_rle(
         _atomic_write_json(path, data, verbose)
     except Exception as e:
         print(f"!!! LOG: CRITICAL ERROR while creating navigation.rle.json: {e}")
+
+
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
 
 def write_server_hex_map(path: str, hex_map_data: Dict[str, Any]):

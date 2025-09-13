@@ -18,7 +18,6 @@ def _ensure_path_exists(path: str) -> None:
 
 
 def _pack_control_data(base_id=0, overlay_id=0, blend=0, nav=True) -> np.uint32:
-    """Упаковывает данные о текстурах и навигации в одно 32-битное число."""
     val = 0
     val |= (base_id & 0x1F) << 27
     val |= (overlay_id & 0x1F) << 22
@@ -59,36 +58,35 @@ def write_control_map_r32(
     surface_grid: np.ndarray,
     nav_grid: np.ndarray,
     overlay_grid: np.ndarray,
-    verbose: bool = False, # <--- Этот флаг теперь управляется из base_default.json
+    verbose: bool = False,
 ):
     """Сохраняет управляющую карту текстур (control map) в 32-битном формате."""
     try:
-        # --- НАЧАЛО ИЗМЕНЕНИЙ В ЛОГГЕРЕ ---
-        if verbose:
-            from collections import Counter
-
-            # Считаем ID напрямую из numpy-массива
-            surface_counts = Counter(surface_grid.flatten())
-            chunk_coords = Path(path).parent.name
-
-            print(f"  -> [ControlMap] Stats for chunk {chunk_coords}:")
-            # Конвертируем ID в строки ТОЛЬКО для вывода в лог
-            for tile_id, count in sorted(surface_counts.items()):
-                if count > 0:
-                    tile_name = SURFACE_ID_TO_KIND.get(tile_id, f"Unknown_ID_{tile_id}")
-                    print(f"     - {tile_name}: {count} pixels")
-
-
         h, w = surface_grid.shape
         control_map = np.zeros((h, w), dtype="<u4")
+
+        # Сбор статистики
+        base_id_counts = {}
+        overlay_id_counts = {}
+        blend_counts = {}
+        nav_counts = {True: 0, False: 0}
+
         for z in range(h):
             for x in range(w):
-                base_id = surface_grid[z, x]  # <-- Напрямую берем ID
-                is_navigable = nav_grid[z, x] in (0, 7)  # <-- Сравниваем ID (passable, bridge)
+                base_id = int(surface_grid[z, x])  # Явное приведение к int
+                is_navigable = nav_grid[z, x] in (0, 7)  # passable, bridge
                 blend = 255 if overlay_grid[z, x] != 0 else 0
+                overlay_id = int(overlay_grid[z, x])  # Явное приведение к int
+
+                # Увеличение счетчиков
+                base_id_counts[base_id] = base_id_counts.get(base_id, 0) + 1
+                overlay_id_counts[overlay_id] = overlay_id_counts.get(overlay_id, 0) + 1
+                blend_counts[blend] = blend_counts.get(blend, 0) + 1
+                nav_counts[is_navigable] = nav_counts.get(is_navigable, 0) + 1
+
                 control_map[z, x] = _pack_control_data(
                     base_id=base_id,
-                    overlay_id=overlay_grid[z, x],
+                    overlay_id=overlay_id,
                     blend=blend,
                     nav=is_navigable,
                 )
@@ -100,7 +98,19 @@ def write_control_map_r32(
         os.replace(tmp_path, path)
 
         if verbose:
-
+            from collections import Counter
+            chunk_coords = Path(path).parent.name
+            print(f"  -> [ControlMap] Stats for chunk {chunk_coords}:")
+            for tile_id, count in sorted(base_id_counts.items()):
+                tile_name = SURFACE_ID_TO_KIND.get(tile_id, f"Unknown_ID_{tile_id}")
+                print(f"     - {tile_name}: {count} pixels")
+            print(f"     - Overlay ID 0: {overlay_id_counts.get(0, 0)} pixels")
+            print(f"     - Overlay ID > 0: {sum(v for k, v in overlay_id_counts.items() if k > 0)} pixels")
+            print(f"     - Blend 0: {blend_counts.get(0, 0)} pixels")
+            print(f"     - Blend 255: {blend_counts.get(255, 0)} pixels")
+            print(f"     - Navigable: {nav_counts[True]} pixels")
+            print(f"     - Non-navigable: {nav_counts[False]} pixels")
             print(f"--- EXPORT: Binary Control map (.r32) saved: {path}")
+
     except Exception as e:
         print(f"!!! LOG: CRITICAL ERROR while creating control.r32: {e}")

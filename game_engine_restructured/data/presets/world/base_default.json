@@ -3,7 +3,7 @@
   "version": 2,
   "size": 256,
   "cell_size": 0.5,
-  "region_size": 3,
+  "region_size": 9,
   "initial_load_radius": 0,
   "elevation": {
     "enabled": true,
@@ -66,44 +66,30 @@
       "base_c": 18.0,
       "gradient_c_per_km": -0.05,
       "lapse_rate_c_per_m": -0.0065,
-      "clamp_c": [
-        -15.0,
-        40.0
-      ],
+      "clamp_c": [ -15.0, 40.0 ],
       "noise_layers": {
-        "macro": {
-          "scale_km": 10.0,
-          "amp_c": 5
-        },
-        "meso": {
-          "scale_km": 1.5,
-          "amp_c": 3.0
-        },
-        "micro": {
-          "scale_km": 0.4,
-          "amp_c": 1.5
-        }
+        "macro": { "scale_km": 10.0, "amp_c": 5 },
+        "meso": { "scale_km": 1.5, "amp_c": 3.0 },
+        "micro": { "scale_km": 0.4, "amp_c": 1.5 }
       }
     },
     "humidity": {
       "enabled": true,
       "base": 0.45,
-      "clamp": [
-        0.0,
-        1.0
-      ],
+      "clamp": [ 0.0, 1.0 ],
       "noise_layers": {
-        "macro": {
-          "scale_km": 10.0,
-          "amp": 0.3
-        },
-        "meso": {
-          "scale_km": 1.5,
-          "amp": 0.25
-        }
+        "macro": { "scale_km": 10.0, "amp": 0.3 },
+        "meso": { "scale_km": 1.5, "amp": 0.25 }
       },
       "dry_T0_c": 20.0,
       "dry_span_c": 12.0,
+      "river_proximity_threshold_px": 512.0,
+      "orographic_smoothing_sigma": 1.0,
+      "wind_dir_deg": 225.0,
+      "lift_effect_scale": 0.25,
+      "shadow_effect_scale": 0.25,
+      "coast_erosion_iterations": 3,
+      "coast_effect_falloff_m": 250.0,
       "w_temp_dry": 0.6,
       "w_coast": 0.3,
       "w_orography": 0.2,
@@ -118,18 +104,9 @@
   },
   "scatter": {
     "enabled": true,
-    "groups": {
-      "noise_scale_tiles": 384.0,
-      "threshold": 0.48
-    },
-    "details": {
-      "noise_scale_tiles": 12.0,
-      "threshold": 0.45
-    },
-    "thinning": {
-      "enabled": true,
-      "min_distance": 3
-    }
+    "groups": { "noise_scale_tiles": 384.0, "threshold": 0.48 },
+    "details": { "noise_scale_tiles": 12.0, "threshold": 0.45 },
+    "thinning": { "enabled": true, "min_distance": 3 }
   },
   "export": {
     "log_chunk_stats": true,
@@ -142,14 +119,12 @@
       "base_road": "#7A5C3A",
       "base_cracked": "#6B6B6B",
       "base_waterbed": "#3A5F9A",
-
       "overlay_snow": "#E6EEF5",
       "overlay_leafs_green": "#4CAF50",
       "overlay_leafs_autumn": "#D86F1A",
       "overlay_flowers": "#D4459C",
       "overlay_dirt_grass": "#7E8B55",
       "overlay_desert_stones": "#B89F6B",
-
       "passable": "#00000000",
       "obstacle_prop": "#444444",
       "water": "#3A6FD8",

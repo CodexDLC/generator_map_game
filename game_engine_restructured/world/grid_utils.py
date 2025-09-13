@@ -52,26 +52,24 @@ def _apply_changes_to_chunks(
 ):
     """
     Нарезает измененные слои обратно в объекты чанков.
-    ВЕРСЯ 2.0: Передает NumPy-срезы напрямую, без конвертации в списки.
+    ВЕРСИЯ 2.1: Присваивает КОПИЮ среза, чтобы избежать ошибок с памятью.
     """
     for (cx, cz), chunk in base_chunks.items():
         start_x = (cx - base_cx) * chunk_size
         start_y = (cz - base_cz) * chunk_size
 
         for name, grid in stitched_layers.items():
-            # sub_grid - это не копия, а "вид" на часть большого массива.
-            # Это очень быстро и эффективно.
             sub_grid = grid[
                 start_y: start_y + chunk_size, start_x: start_x + chunk_size
             ]
 
-            # --- ГЛАВНОЕ ИЗМЕНЕНИЕ ---
+            # --- ГЛАВНОЕ ИСПРАВЛЕНИЕ ---
             if name == 'height':
-                # Высоту пока оставляем списком для совместимости
+                # Высоту оставляем списком для совместимости
                 chunk.layers["height_q"]["grid"] = sub_grid.tolist()
             elif name in chunk.layers:
-                # Напрямую присваиваем NumPy-срез. .tolist() убран!
-                chunk.layers[name] = sub_grid
+                # Напрямую присваиваем КОПИЮ NumPy-среза.
+                chunk.layers[name] = sub_grid.copy() # <--- ДОБАВЛЕНО .copy()
 
 
 def region_key(cx: int, cz: int, region_size: int) -> Tuple[int, int]:
@@ -111,15 +109,9 @@ def _get_pixel_to_hex_map(grid_spec: HexGridSpec) -> np.ndarray:
     хранит ID гекса, которому он принадлежит.
     """
     size = grid_spec.chunk_px
-    # Создаем сетку пиксельных координат
     px_coords_x, px_coords_z = np.meshgrid(np.arange(size), np.arange(size))
-
-    # Находим центры каждого пикселя в мировых координатах
     world_x = (px_coords_x + 0.5) * grid_spec.meters_per_pixel
     world_z = (px_coords_z + 0.5) * grid_spec.meters_per_pixel
-
-    # Преобразуем мировые координаты центров в гексагональные
-    # (векторизованная версия world_to_axial)
     qf = (np.sqrt(3.0) / 3.0 * world_x - (1.0 / 3.0) * world_z) / grid_spec.edge_m
     rf = ((2.0 / 3.0) * world_z) / grid_spec.edge_m
     xf, zf = qf, rf
@@ -155,12 +147,10 @@ def generate_hex_map_from_pixels(
             q, r = pixel_to_hex_map[pz, px]
             hex_coords = (q, r)
 
-            # Собираем данные по пикселю
             nav_type = nav_grid[pz][px]
             surface_type = surface_grid[pz][px]
             height = height_grid[pz][px]
 
-            # Определяем приоритет
             pixel_type = nav_type if nav_type != "passable" else surface_type
             priority = PROCESSING_PRIORITY.get(pixel_type, 99)
 
@@ -176,13 +166,11 @@ def generate_hex_map_from_pixels(
                     hex_data[hex_coords]["min_priority"] = priority
                     hex_data[hex_coords]["dominant_type"] = pixel_type
 
-    # Финальная сборка ответа
     final_hex_map = {}
     for (q, r), data in hex_data.items():
         avg_height = sum(data["heights"]) / len(data["heights"])
         final_type = data["dominant_type"]
 
-        # Определяем итоговую проходимость
         is_passable = final_type not in ["obstacle_prop", "water"]
 
         key = f"{q},{r}"
@@ -190,8 +178,8 @@ def generate_hex_map_from_pixels(
             "type": final_type,
             "nav": "passable" if is_passable else "impassable",
             "height": round(avg_height, 2),
-            "cost": 1,  # Базовая стоимость передвижения
-            "flags": 0,  # Поле для будущих флагов (например, "is_quest_zone")
+            "cost": 1,
+            "flags": 0,
         }
 
     return final_hex_map

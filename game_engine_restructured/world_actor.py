@@ -139,6 +139,11 @@ class WorldActor:
 
                 # Вызываем функции экспорта с правильными флагами
                 write_heightmap_r16(str(client_chunk_dir / "heightmap.r16"), height_grid, max_height, verbose=log_saves)
+
+                from collections import Counter
+                surface_counts = Counter(surface_grid.flatten())
+                print(f"Surface grid stats before export: {surface_counts}")
+
                 write_control_map_r32(str(client_chunk_dir / "control.r32"), surface_grid, nav_grid, overlay_grid,
                                       verbose=log_stats)
                 write_objects_json(str(client_chunk_dir / "objects.json"), getattr(final_chunk, "placed_objects", []),
