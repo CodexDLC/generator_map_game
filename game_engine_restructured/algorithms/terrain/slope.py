@@ -1,7 +1,7 @@
 from __future__ import annotations
 import math
-from typing import Tuple
 import numpy as np
+from numba import prange, njit
 
 
 def _dilate_bool_mask(mask: np.ndarray, radius: int) -> np.ndarray:
@@ -54,3 +54,85 @@ def compute_slope_mask(
         mask = _dilate_bool_mask(mask, int(band_cells))
 
     return mask
+
+
+@njit(cache=True, fastmath=True, parallel=True)
+def _apply_slope_limiter(heights: np.ndarray, max_slope_tangent: float, cell_size: float, iterations: int):
+    """
+    Итеративно ограничивает уклон: |∇h| <= tan(theta_max).
+    Делается двумя независимыми проходами: по строкам и по столбцам.
+    Внутри прохода корректируются непересекающиеся пары (even/odd), чтобы не было конфликтов записи.
+
+    Порог между соседями по оси берём пониженный: Δh_axis = tan(theta_max) * s / sqrt(2),
+    чтобы суммарный модуль градиента (по двум осям) не превышал tan(theta_max).
+    """
+    H, W = heights.shape
+    # Осевой порог (см. комментарий выше)
+    delta_axis = (max_slope_tangent * cell_size) / math.sqrt(2.0)
+
+    for _ in range(iterations):
+        # ---------------------
+        # Горизонтальный проход: строки независимы → параллелим по строкам
+        # ---------------------
+        for z in prange(H):
+            # even пары: (0,1), (2,3), ...
+            x = 0
+            while x + 1 < W:
+                diff = heights[z, x] - heights[z, x + 1]
+                if diff >  delta_axis:
+                    corr = 0.5 * (diff - delta_axis)
+                    heights[z, x]     -= corr
+                    heights[z, x + 1] += corr
+                elif diff < -delta_axis:
+                    corr = 0.5 * (-delta_axis - diff)
+                    heights[z, x]     += corr
+                    heights[z, x + 1] -= corr
+                x += 2
+
+            # odd пары: (1,2), (3,4), ...
+            x = 1
+            while x + 1 < W:
+                diff = heights[z, x] - heights[z, x + 1]
+                if diff >  delta_axis:
+                    corr = 0.5 * (diff - delta_axis)
+                    heights[z, x]     -= corr
+                    heights[z, x + 1] += corr
+                elif diff < -delta_axis:
+                    corr = 0.5 * (-delta_axis - diff)
+                    heights[z, x]     += corr
+                    heights[z, x + 1] -= corr
+                x += 2
+
+        # ---------------------
+        # Вертикальный проход: столбцы независимы → параллелим по столбцам
+        # ---------------------
+        for x in prange(W):
+            # even пары: (0,1), (2,3), ...
+            z = 0
+            while z + 1 < H:
+                diff = heights[z, x] - heights[z + 1, x]
+                if diff >  delta_axis:
+                    corr = 0.5 * (diff - delta_axis)
+                    heights[z, x]       -= corr
+                    heights[z + 1, x]   += corr
+                elif diff < -delta_axis:
+                    corr = 0.5 * (-delta_axis - diff)
+                    heights[z, x]       += corr
+                    heights[z + 1, x]   -= corr
+                z += 2
+
+            # odd пары: (1,2), (3,4), ...
+            z = 1
+            while z + 1 < H:
+                diff = heights[z, x] - heights[z + 1, x]
+                if diff >  delta_axis:
+                    corr = 0.5 * (diff - delta_axis)
+                    heights[z, x]       -= corr
+                    heights[z + 1, x]   += corr
+                elif diff < -delta_axis:
+                    corr = 0.5 * (-delta_axis - diff)
+                    heights[z, x]       += corr
+                    heights[z + 1, x]   -= corr
+                z += 2
+
+    return heights

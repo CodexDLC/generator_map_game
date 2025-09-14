@@ -74,20 +74,41 @@ def generate_highland_lakes(
     rng = random.Random(seed)
     sea_level = getattr(preset, "elevation", {}).get("sea_level_m", 40.0)
 
-    # Используем сложный алгоритм для поиска "чаш" на ландшафте
-    land_mask = stitched_heights > sea_level
-    inverted_mask = ~land_mask
-    labeled_basins, num_basins = label(inverted_mask)
+    land_mask = stitched_heights >= sea_level
+    # Находим все впадины на суше
+    inverted_basins_mask = ~land_mask
+    labeled_basins, num_basins = label(inverted_basins_mask)
 
-    # Исключаем впадины, которые соединены с краем карты (это заливы, а не озера)
+    if num_basins == 0:
+        return
+
+    # --- НАЧАЛО ИЗМЕНЕНИЙ: Фильтрация мелких впадин ---
+    min_lake_size = int(water_cfg.get("min_lake_size_px", 20))
+
+    # Эффективно считаем размер каждого найденного бассейна
+    basin_sizes = np.bincount(labeled_basins.ravel())
+
+    # Создаем маску, которая "удаляет" (приравнивает к 0) все метки слишком маленьких бассейнов
+    remove_mask = basin_sizes < min_lake_size
+    remove_mask[0] = False  # Не трогаем фон
+
+    # Применяем маску, чтобы обнулить метки маленьких бассейнов
+    labeled_basins[remove_mask[labeled_basins]] = 0
+
+    # Получаем уникальные ID только тех бассейнов, что остались
+    unique_labels = np.unique(labeled_basins)
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
     edge_labels = np.unique(np.concatenate((
         labeled_basins[0, :], labeled_basins[-1, :],
         labeled_basins[:, 0], labeled_basins[:, -1]
     )))
 
     lakes_created = 0
-    for i in range(1, num_basins + 1):
-        if i in edge_labels:
+    # --- ИЗМЕНЕНИЕ: Итерируем только по оставшимся крупным бассейнам ---
+    for i in unique_labels:
+        # Пропускаем фон (метка 0) и бассейны, касающиеся края карты
+        if i == 0 or i in edge_labels:
             continue
 
         basin_mask = (labeled_basins == i)
@@ -95,22 +116,19 @@ def generate_highland_lakes(
         if not np.any(border_mask):
             continue
 
-        # Находим самую низкую точку на "краю" чаши - это уровень, до которого она заполнится
         pour_point_height = np.min(stitched_heights[border_mask])
         lake_mask = basin_mask & (stitched_heights < pour_point_height)
         if not np.any(lake_mask):
             continue
 
-        # Учитываем влажность: в более влажных районах озера появляются чаще
         if stitched_humidity is not None:
             avg_humidity = float(np.mean(stitched_humidity[lake_mask]))
-            base_chance = water_cfg.get("lake_chance_base", 0.10)
+            base_chance = water_cfg.get("lake_chance_base", 0.1)
             multiplier = water_cfg.get("lake_chance_humidity_multiplier", 3.0)
             final_chance = base_chance + base_chance * avg_humidity * multiplier
             if rng.random() > final_chance:
                 continue
 
-        # Заполняем озеро водой
         surface_set(stitched_surface, lake_mask, KIND_BASE_WATERBED)
         nav_set(stitched_nav, lake_mask, NAV_WATER)
         lakes_created += 1

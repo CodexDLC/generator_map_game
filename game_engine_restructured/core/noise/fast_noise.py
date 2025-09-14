@@ -117,39 +117,102 @@ def fbm_grid(
     return g
 
 
-# --- НАЧАЛО НОВОГО КОДА ---
+@njit(cache=True, fastmath=True)
+def xorshift32(state: np.uint32) -> np.uint32:
+    """Дёшевый детерминированный PRNG: uint32 → uint32."""
+    s = state
+    s ^= (s << np.uint32(13))
+    s ^= (s >> np.uint32(17))
+    s ^= (s << np.uint32(5))
+    return s & np.uint32(0x7FFFFFFF)  # [0, 2^31-1]
+
 @njit(cache=True, fastmath=True, parallel=True)
-def fbm_grid_warped(
-        seed: int, coords_x: np.ndarray, coords_z: np.ndarray, freq0: float,
-        octaves: int, lacunarity: float = 2.0, gain: float = 0.5,
-        ridge: bool = False
-) -> np.ndarray:
+def voronoi_grid(seed: int, coords_x: np.ndarray, coords_z: np.ndarray, freq0: float) -> np.ndarray:
     """
-    Генерирует 2D-массив fBm, используя пре-искаженные массивы координат.
+    Voronoi-модулятор на основе F2−F1 (чёткие «границы»).
+    - Координаты предварительно масштабируются на freq0 (размер ячеек).
+    - Для устойчивого F2 ищем ближайшие точки в окне 5×5 (радиус R=2).
+    - Джиттер генерим хешем (xorshift32) на лету — без глобальных RNG и без выделения points[].
+    - Маппинг в [0..1]: y = 1 - exp(-k * (F2-F1)), k~4.
     """
-    size = coords_x.shape[0]
-    g = np.zeros((size, size), dtype=np.float32)
+    H, W = coords_x.shape
 
-    for j in prange(size):
-        for i in range(size):
-            wx_m = coords_x[j, i]
-            wz_m = coords_z[j, i]
+    # (г) Guard: нулевая/отрицательная частота → плоское поле «1»
+    if freq0 <= 0.0:
+        out = np.empty((H, W), dtype=np.float32)
+        for i in prange(H):
+            for j in range(W):
+                out[i, j] = 1.0
+        return out
 
-            amp = 1.0
-            freq = freq0
-            total = 0.0
+    # Масштабируем координаты в "ячейки" (единицы решётки)
+    scaled_x = coords_x * freq0
+    scaled_z = coords_z * freq0
 
-            for o in range(octaves):
-                noise_val = value_noise_2d(wx_m * freq, wz_m * freq, seed + o)
-                sample = noise_val * 2.0 - 1.0
+    # Радиус соседей для F2 (5×5 окно)
+    R = 2
 
-                if ridge:
-                    sample = (1.0 - abs(sample)) * 2.0 - 1.0
+    # (1) Правильные границы решётки с отступом R (floor/ceil)
+    sx_min = math.floor(np.min(scaled_x))
+    sx_max = math.ceil(np.max(scaled_x))
+    sz_min = math.floor(np.min(scaled_z))
+    sz_max = math.ceil(np.max(scaled_z))
 
-                total += amp * sample
-                freq *= lacunarity
-                amp *= gain
+    grid_min_x = int(sx_min) - R
+    grid_max_x = int(sx_max) + 1 + R  # +1: правая полуоткрытая граница
+    grid_min_z = int(sz_min) - R
+    grid_max_z = int(sz_max) + 1 + R
 
-            g[j, i] = total
-    return g
-# --- КОНЕЦ НОВОГО КОДА ---
+    out = np.empty((H, W), dtype=np.float32)
+
+    # (2) Основной цикл: считаем F1 и F2 по dist² без sqrt
+    for i in prange(H):
+        for j in range(W):
+            x = scaled_x[i, j]
+            z = scaled_z[i, j]
+            cx = int(math.floor(x))
+            cz = int(math.floor(z))
+
+            # два минимума по dist²
+            d1 = np.inf  # F1
+            d2 = np.inf  # F2
+
+            for ox in range(-R, R + 1):
+                cell_x = cx + ox
+                if cell_x < grid_min_x or cell_x >= grid_max_x:
+                    continue
+                for oz in range(-R, R + 1):
+                    cell_z = cz + oz
+                    if cell_z < grid_min_z or cell_z >= grid_max_z:
+                        continue
+
+                    # (3) Джиттер точки в ячейке по хешу (детерминированно и быстро)
+                    h = np.uint32(seed) ^ np.uint32(cell_x * 73856093) ^ np.uint32(cell_z * 83492791)
+                    jx = float(xorshift32(h)) / 2147483647.0
+                    jz = float(xorshift32(h ^ np.uint32(0x9E3779B9))) / 2147483647.0
+
+                    px = float(cell_x) + jx
+                    pz = float(cell_z) + jz
+
+                    dx = x - px
+                    dz = z - pz
+                    d2cur = dx * dx + dz * dz
+
+                    # Обновляем F1/F2 (два минимума)
+                    if d2cur < d1:
+                        d2 = d1
+                        d1 = d2cur
+                    elif d2cur < d2:
+                        d2 = d2cur
+
+            diff = d2 - d1  # F2−F1 ≥ 0
+            # (4) Мягкий маппинг в [0..1] без sqrt: 1 - exp(-k*diff)
+            k = 4.0
+            val = 1.0 - math.exp(-k * diff)
+            if val < 0.0:
+                val = 0.0
+            elif val > 1.0:
+                val = 1.0
+            out[i, j] = val
+
+    return out

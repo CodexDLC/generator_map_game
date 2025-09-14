@@ -49,7 +49,6 @@ def main():
     # =======================================================
     # ШАГ 1: ГЕНЕРАЦИЯ МИРА (С ПРОВЕРКОЙ)
     # =======================================================
-    # --- ИЗМЕНЕНИЕ: Теперь final_world_path указывает на конкретную папку сида ---
     final_world_path = ARTIFACTS_ROOT / "world" / "world_location" / str(city_seed)
 
     if final_world_path.exists() and any(final_world_path.iterdir()):
@@ -66,12 +65,10 @@ def main():
         world_actor.prepare_starting_area(region_manager)
         print("\n--- World Generation Complete. ---")
 
-        # --- ИЗМЕНЕНИЕ: Сохраняем метаданные мира в правильное место с правильным именем ---
-        print("\n--- Saving World Metadata ---")
-        # Имя файла теперь "_world_meta.json"
-        # Путь теперь указывает внутрь папки с сидом (e.g., .../25/_world_meta.json)
-        meta_path = str(final_world_path / "_world_meta.json")
+        print("\n--- Saving World Metadata & Preset ---")
 
+        # Сохраняем метаданные мира
+        meta_path = str(final_world_path / "_world_meta.json")
         write_world_meta_json(
             path=meta_path,
             world_id="world_location",
@@ -82,6 +79,12 @@ def main():
             height_max_m=preset.elevation.get("max_height_m", 150.0)
         )
         print(f"--- EXPORT: World metadata saved to: {meta_path}")
+
+        # --- НАЧАЛО ИЗМЕНЕНИЙ: Сохраняем копию пресета ---
+        preset_copy_path = final_world_path / "_preset.json"
+        with open(preset_copy_path, "w", encoding="utf-8") as f:
+            json.dump(preset_data, f, indent=2)
+        print(f"--- EXPORT: Preset copy saved to: {preset_copy_path}")
         # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
     print("\n--- Starting Viewer ---")
