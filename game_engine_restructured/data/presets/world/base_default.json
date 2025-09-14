@@ -3,40 +3,48 @@
   "version": 2,
   "size": 256,
   "cell_size": 0.5,
-  "region_size": 9,
+  "region_size": 11,
   "initial_load_radius": 0,
   "elevation": {
     "enabled": true,
-    "max_height_m": 100.0,
-    "sea_level_m": 20.0,
+    "max_height_m": 150.0,
+    "sea_level_m": 10.0,
     "base_height_m": 0.0,
-    "shaping_power": 1.5,
     "smoothing_passes": 0,
     "quantization_step_m": 0.0,
     "spectral": {
       "continents": {
-        "scale_tiles": 1000,
-        "amp_m": 90.0,
+        "scale_tiles": 2500,
+        "amp_m": 120.0,
         "ridge": true,
-        "octaves": 3,
-        "rotation_deg": 0.0
-      },
-      "hills": {
-        "scale_tiles": 200,
-        "amp_m": 0.0,
-        "octaves": 4,
-        "rotation_deg": 30.0
-      },
-      "detail": {
-        "scale_tiles": 10,
-        "amp_m": 0.0,
         "octaves": 2,
-        "rotation_deg": 60.0
+        "shaping_power": 4.0
+      },
+      "large_features": {
+        "scale_tiles": 350,
+        "amp_m": 25.0,
+        "ridge": false,
+        "octaves": 3,
+        "shaping_power": 1.2
+      },
+      "erosion": {
+        "scale_tiles": 50,
+        "amp_m": 4.0,
+        "ridge": true,
+        "octaves": 2,
+        "shaping_power": 1.0
+      },
+      "ground_details": {
+        "scale_tiles": 8,
+        "amp_m": 0.5,
+        "ridge": false,
+        "octaves": 2,
+        "shaping_power": 1.0
       }
     },
     "warp": {
-      "scale_tiles": 200,
-      "strength_m": 0.0
+      "scale_tiles": 500,
+      "strength_m": 100.0
     }
   },
   "water": {
@@ -56,7 +64,7 @@
   "surfaces": {
     "beach": {
       "enabled": true,
-      "height_above_sea_m": 3.0
+      "height_above_sea_m": 1.0
     }
   },
   "climate": {

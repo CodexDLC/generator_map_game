@@ -2,10 +2,12 @@
 import sys
 import json
 import traceback
+from pathlib import Path
 
 from game_engine_restructured.world_actor import WorldActor
 from game_engine_restructured.core.preset import load_preset
 from game_engine_restructured.world.regions import RegionManager
+from game_engine_restructured.core.export import write_world_meta_json
 from pygame_tester.world_manager import WorldManager
 
 from pygame_tester.config import (
@@ -47,6 +49,7 @@ def main():
     # =======================================================
     # ШАГ 1: ГЕНЕРАЦИЯ МИРА (С ПРОВЕРКОЙ)
     # =======================================================
+    # --- ИЗМЕНЕНИЕ: Теперь final_world_path указывает на конкретную папку сида ---
     final_world_path = ARTIFACTS_ROOT / "world" / "world_location" / str(city_seed)
 
     if final_world_path.exists() and any(final_world_path.iterdir()):
@@ -57,17 +60,32 @@ def main():
         print("\n--- World Generation Initializing ---")
         region_manager = RegionManager(city_seed, preset, ARTIFACTS_ROOT)
         world_actor = WorldActor(
-            city_seed, preset, ARTIFACTS_ROOT, progress_callback=print, verbose=True # <--- ДОБАВЬ ЭТОТ ПАРАМЕТР
+            city_seed, preset, ARTIFACTS_ROOT, progress_callback=print, verbose=True
         )
 
         world_actor.prepare_starting_area(region_manager)
         print("\n--- World Generation Complete. ---")
 
+        # --- ИЗМЕНЕНИЕ: Сохраняем метаданные мира в правильное место с правильным именем ---
+        print("\n--- Saving World Metadata ---")
+        # Имя файла теперь "_world_meta.json"
+        # Путь теперь указывает внутрь папки с сидом (e.g., .../25/_world_meta.json)
+        meta_path = str(final_world_path / "_world_meta.json")
+
+        write_world_meta_json(
+            path=meta_path,
+            world_id="world_location",
+            hex_edge_m=0.63,
+            chunk_px=preset.size,
+            meters_per_pixel=preset.cell_size,
+            height_min_m=0.0,
+            height_max_m=preset.elevation.get("max_height_m", 150.0)
+        )
+        print(f"--- EXPORT: World metadata saved to: {meta_path}")
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
     print("\n--- Starting Viewer ---")
 
-    # =======================================================
-    # ШАГ 2: ЗАПУСК ПРОСМОТРЩИКА
-    # =======================================================
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     pygame.display.set_caption("Pygame World Viewer")
@@ -80,21 +98,14 @@ def main():
 
     radius = preset.initial_load_radius
     region_size = preset.region_size
-    min_scx = -radius
-    min_scz = -radius
+    min_scx, min_scz = -radius, -radius
     min_cx_world, min_cz_world = region_base(min_scx, min_scz, region_size)
 
-    # --- НАЧАЛО ИЗМЕНЕНИЙ: Центрируем камеру при запуске ---
     preview_size = CHUNK_SIZE * 2
-
-    # Вычисляем "мировые" координаты центральной точки карты (центра чанка 0,0)
     center_world_x = (0 - min_cx_world) * preview_size + (preview_size / 2)
     center_world_y = (0 - min_cz_world) * preview_size + (preview_size / 2)
-
-    # Устанавливаем позицию камеры так, чтобы эта точка оказалась в центре вьюпорта
     camera.x = center_world_x - (camera.viewport_width / (2 * camera.zoom))
     camera.y = center_world_y - (camera.viewport_height / (2 * camera.zoom))
-    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
     world_map = WorldMapViewer(
         ARTIFACTS_ROOT, city_seed, min_cx=min_cx_world, min_cz=min_cz_world

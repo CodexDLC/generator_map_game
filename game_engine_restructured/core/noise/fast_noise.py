@@ -115,3 +115,41 @@ def fbm_grid(
             g[j, i] = total
 
     return g
+
+
+# --- НАЧАЛО НОВОГО КОДА ---
+@njit(cache=True, fastmath=True, parallel=True)
+def fbm_grid_warped(
+        seed: int, coords_x: np.ndarray, coords_z: np.ndarray, freq0: float,
+        octaves: int, lacunarity: float = 2.0, gain: float = 0.5,
+        ridge: bool = False
+) -> np.ndarray:
+    """
+    Генерирует 2D-массив fBm, используя пре-искаженные массивы координат.
+    """
+    size = coords_x.shape[0]
+    g = np.zeros((size, size), dtype=np.float32)
+
+    for j in prange(size):
+        for i in range(size):
+            wx_m = coords_x[j, i]
+            wz_m = coords_z[j, i]
+
+            amp = 1.0
+            freq = freq0
+            total = 0.0
+
+            for o in range(octaves):
+                noise_val = value_noise_2d(wx_m * freq, wz_m * freq, seed + o)
+                sample = noise_val * 2.0 - 1.0
+
+                if ridge:
+                    sample = (1.0 - abs(sample)) * 2.0 - 1.0
+
+                total += amp * sample
+                freq *= lacunarity
+                amp *= gain
+
+            g[j, i] = total
+    return g
+# --- КОНЕЦ НОВОГО КОДА ---
