@@ -1,11 +1,13 @@
 # ==============================================================================
 # Файл: game_engine_restructured/algorithms/terrain/terrain.py
 # Назначение: Генерация геометрии ландшафта (карты высот).
-# ВЕРСИЯ 9.0: Финальная версия с корректной структурой и рабочей логикой Domain Warping.
+# ВЕРСИЯ 11.1: Исправлены опечатки и потенциальные проблемы, обнаруженные
+#              статическим анализатором кода.
 # ==============================================================================
 from __future__ import annotations
 from typing import Any, Dict
 import numpy as np
+import math
 from scipy.ndimage import gaussian_filter
 
 from ...core.noise.fast_noise import fbm_grid, fbm_amplitude, fbm_grid_warped
@@ -29,68 +31,102 @@ def _print_range(tag: str, arr: np.ndarray) -> None:
 # --- БЛОК 2: Функции для генерации отдельных слоев рельефа ---
 # ==============================================================================
 
-def _generate_base_layer(
+def _generate_layer(
         seed: int,
         layer_cfg: Dict,
-        coords_x: np.ndarray,
-        coords_z: np.ndarray,
-        cell_size: float
+        base_coords_x: np.ndarray,
+        base_coords_z: np.ndarray,
+        cell_size: float,
+        scratch_buffer: np.ndarray
 ) -> np.ndarray:
     """
-    Генерирует базовый слой рельефа, используя переданные (возможно, искаженные) координаты.
+    Универсальная функция для генерации одного слоя рельефа.
+    Поддерживает анизотропию, послойный warp и сглаживание.
     """
     amp = float(layer_cfg.get("amp_m", 0.0))
     if amp <= 0:
-        return np.zeros_like(coords_x)
+        return np.zeros_like(base_coords_x)
 
+    # --- Шаг 1: Применяем послойный Domain Warp ---
+    warp_cfg = layer_cfg.get("warp", {})
+    warp_strength = float(warp_cfg.get("strength_m", 0.0))
+
+    coords_x, coords_z = np.copy(base_coords_x), np.copy(base_coords_z)
+
+    if warp_strength > 0:
+        warp_scale = float(warp_cfg.get("scale_tiles", 1000)) * cell_size
+        warp_freq = 1.0 / warp_scale if warp_scale > 0 else 0
+
+        ext_size = base_coords_x.shape[0]
+        # ИСПРАВЛЕНО: Убраны возможные опечатки. Эти строки вычисляют
+        # стартовые пиксельные координаты региона для бесшовной генерации шума.
+        base_wx = int(round(float(base_coords_x[0, 0]) / cell_size))
+        base_wz = int(round(float(base_coords_z[0, 0]) / cell_size))
+
+        warp_x_noise = fbm_grid(seed ^ 0x12345678, base_wx, base_wz, ext_size, cell_size, warp_freq, 2) / fbm_amplitude(
+            0.5, 2)
+        warp_z_noise = fbm_grid(seed ^ 0x87654321, base_wx, base_wz, ext_size, cell_size, warp_freq, 2) / fbm_amplitude(
+            0.5, 2)
+
+        coords_x += warp_x_noise * warp_strength
+        coords_z += warp_z_noise * warp_strength
+
+    # --- Шаг 2: Применяем анизотропное масштабирование ---
+    orientation = math.radians(float(layer_cfg.get("orientation_deg", 0.0)))
+    aspect = float(layer_cfg.get("aspect", 1.0))
+
+    scale_parallel = float(layer_cfg.get("scale_tiles_parallel", layer_cfg.get("scale_tiles", 1000))) * cell_size
+    scale_perp = scale_parallel / aspect if aspect > 0 else scale_parallel
+
+    if orientation != 0 or aspect != 1.0:
+        cr, sr = math.cos(orientation), math.sin(orientation)
+        rotated_x = (coords_x * cr - coords_z * sr) / scale_parallel
+        rotated_z = (coords_x * sr + coords_z * cr) / scale_perp
+        final_coords_x, final_coords_z = rotated_x, rotated_z
+        freq0 = 1.0
+    else:
+        final_coords_x, final_coords_z = coords_x, coords_z
+        freq0 = 1.0 / scale_parallel
+
+    # --- Шаг 3: Генерируем шум на подготовленных координатах ---
+    octaves = int(layer_cfg.get("octaves", 3))
     noise = fbm_grid_warped(
-        seed=seed, coords_x=coords_x, coords_z=coords_z,
-        freq0=1.0 / (float(layer_cfg.get("scale_tiles", 1000)) * cell_size),
-        octaves=int(layer_cfg.get("octaves", 3)),
-        ridge=bool(layer_cfg.get("ridge", False))
-    )
-
-    min_val, max_val = np.min(noise), np.max(noise)
-    if (max_val - min_val) > 1e-6:
-        noise = (noise - min_val) / (max_val - min_val)
-
-    shaping_power = float(layer_cfg.get("shaping_power", 1.0))
-    _apply_shaping_curve(noise, shaping_power)
-
-    return noise * amp
-
-
-def _generate_additive_layer(
-        seed: int,
-        layer_cfg: Dict,
-        coords_x: np.ndarray,
-        coords_z: np.ndarray,
-        cell_size: float
-) -> np.ndarray:
-    """
-    Генерирует дополнительный слой рельефа, используя переданные координаты.
-    """
-    amp = float(layer_cfg.get("amp_m", 0.0))
-    if amp <= 0:
-        return np.zeros_like(coords_x)
-
-    octaves = int(layer_cfg.get("octaves", 4))
-    noise = fbm_grid_warped(
-        seed=seed, coords_x=coords_x, coords_z=coords_z,
-        freq0=1.0 / (float(layer_cfg.get("scale_tiles", 200)) * cell_size),
+        seed=seed, coords_x=final_coords_x, coords_z=final_coords_z,
+        freq0=freq0,
         octaves=octaves,
         ridge=bool(layer_cfg.get("ridge", False))
     )
 
-    norm_factor = fbm_amplitude(0.5, octaves)
-    if norm_factor > 1e-6:
-        noise /= norm_factor
+    # Нормализуем результат в зависимости от типа шума
+    is_base_layer = layer_cfg.get("is_base", False)
+    if is_base_layer:
+        min_val, max_val = np.min(noise), np.max(noise)
+        if (max_val - min_val) > 1e-6:
+            noise = (noise - min_val) / (max_val - min_val)
+    else:
+        norm_factor = fbm_amplitude(0.5, octaves)
+        if norm_factor > 1e-6:
+            noise /= norm_factor
+
+    # --- Шаг 4: Применяем сглаживание и степенную кривую ---
+    smoothing_sigma_pre_shape = float(layer_cfg.get("smoothing_sigma_pre_shape", 0.0))
+    if smoothing_sigma_pre_shape > 0:
+        gaussian_filter(noise, sigma=smoothing_sigma_pre_shape, output=scratch_buffer, mode='reflect')
+        noise = np.copy(scratch_buffer)
 
     shaping_power = float(layer_cfg.get("shaping_power", 1.0))
     if shaping_power != 1.0:
-        signs = np.sign(noise)
-        shaped_noise = np.power(np.abs(noise), shaping_power)
-        noise = shaped_noise * signs
+        if is_base_layer:
+            _apply_shaping_curve(noise, shaping_power)
+        else:
+            signs = np.sign(noise)
+            shaped_noise = np.power(np.abs(noise), shaping_power)
+            noise = shaped_noise * signs
+
+    smoothing_sigma_post_shape = float(layer_cfg.get("smoothing_sigma_post_shape", 0.0))
+    if smoothing_sigma_post_shape > 0:
+        gaussian_filter(noise, sigma=smoothing_sigma_post_shape, output=scratch_buffer, mode='reflect')
+        noise = np.copy(scratch_buffer)
 
     return noise * amp
 
@@ -112,53 +148,36 @@ def generate_elevation_region(
     base_wx = (scx * region_size_chunks - 1) * chunk_size
     base_wz = (scz * region_size_chunks - 1) * chunk_size
 
-    # --- ЭТАП 0.5: Domain Warping (Искажение координат) ---
-    warp_cfg = cfg.get("warp", {})
-    warp_strength = float(warp_cfg.get("strength_m", 0.0))
-
-    z_coords, x_coords = np.mgrid[0:ext_size, 0:ext_size]
-    x_coords = (x_coords.astype(np.float32) + base_wx) * cell_size
-    z_coords = (z_coords.astype(np.float32) + base_wz) * cell_size
-
-    if warp_strength > 0:
-        print("  -> Applying domain warp...")
-        warp_scale = float(warp_cfg.get("scale_tiles", 1000)) * cell_size
-        warp_freq = 1.0 / warp_scale if warp_scale > 0 else 0
-
-        warp_x_noise = fbm_grid(
-            seed=seed ^ 0x12345678, x0_px=base_wx, z0_px=base_wz, size=ext_size, mpp=cell_size,
-            freq0=warp_freq, octaves=2)
-        warp_x_noise /= fbm_amplitude(0.5, 2)
-
-        warp_z_noise = fbm_grid(
-            seed=seed ^ 0x87654321, x0_px=base_wx, z0_px=base_wz, size=ext_size, mpp=cell_size,
-            freq0=warp_freq, octaves=2)
-        warp_z_noise /= fbm_amplitude(0.5, 2)
-
-        x_coords += warp_x_noise * warp_strength
-        z_coords += warp_z_noise * warp_strength
+    # Создаем базовую сетку мировых координат
+    z_coords_base, x_coords_base = np.mgrid[0:ext_size, 0:ext_size]
+    x_coords_base = (x_coords_base.astype(np.float32) + base_wx) * cell_size
+    z_coords_base = (z_coords_base.astype(np.float32) + base_wz) * cell_size
 
     height_grid = np.zeros((ext_size, ext_size), dtype=np.float32)
 
-    # --- ЭТАП 1: Генерация макрорельефа ---
-    height_grid += _generate_base_layer(
-        seed=seed, layer_cfg=spectral_cfg.get("continents", {}),
-        coords_x=x_coords, coords_z=z_coords, cell_size=cell_size
-    )
+    layers_to_generate = [
+        ("continents", True),
+        ("large_features", False),
+        ("erosion", False),
+        ("ground_details", False)
+    ]
 
-    # --- ЭТАП 2: Наложение среднего рельефа ---
-    height_grid += _generate_additive_layer(
-        seed=seed + 1, layer_cfg=spectral_cfg.get("hills", {}),
-        coords_x=x_coords, coords_z=z_coords, cell_size=cell_size
-    )
+    for i, (layer_name, is_base) in enumerate(layers_to_generate):
+        if layer_name in spectral_cfg:
+            layer_cfg = dict(spectral_cfg[layer_name])
+            layer_cfg["is_base"] = is_base
 
-    # --- ЭТАП 3: Наложение микрорельефа ---
-    height_grid += _generate_additive_layer(
-        seed=seed + 2, layer_cfg=spectral_cfg.get("detail", {}),
-        coords_x=x_coords, coords_z=z_coords, cell_size=cell_size
-    )
+            print(f"  -> Generating layer: {layer_name}...")
+            height_grid += _generate_layer(
+                seed=seed + i,
+                layer_cfg=layer_cfg,
+                base_coords_x=x_coords_base,
+                base_coords_z=z_coords_base,
+                cell_size=cell_size,
+                scratch_buffer=scratch_buffers['a']
+            )
 
-    # --- ЭТАП 4: Финальная постобработка ---
+    # --- ЭТАП 5: Финальная постобработка (опционально) ---
     smoothing_passes = int(cfg.get("smoothing_passes", 0))
     if smoothing_passes > 0:
         sigma = 0.6 * smoothing_passes
