@@ -23,12 +23,12 @@ class WorldMapViewer:
     """
 
     def __init__(
-        self, artifacts_root: pathlib.Path, seed: int, min_cx: int = 0, min_cz: int = 0
+            self, artifacts_root: pathlib.Path, seed: int, min_cx: int = 0, min_cz: int = 0
     ):
         self.artifacts_root = artifacts_root
         self.seed = seed
         self.world_path = (
-            self.artifacts_root / "world" / "world_location" / str(self.seed)
+                self.artifacts_root / "world" / "world_location" / str(self.seed)
         )
         self.raw_path = self.artifacts_root / "world_raw" / str(self.seed)
 
@@ -83,14 +83,18 @@ class WorldMapViewer:
         return image
 
     def _get_raw_layer_image_now(
-        self, cx: int, cz: int, layer_name: str, world_manager
+            self, cx: int, cz: int, layer_name: str, world_manager
     ) -> pygame.Surface | None:
         key = (cx, cz, layer_name)
         cached = self._lru_get(self.raw_layer_cache, key)
         if cached is not None:
             return cached
 
-        grid_data = world_manager.load_raw_json(cx, cz, layer_name)
+        # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+        # Исправлен вызов на существующий метод load_raw_regional_layer
+        grid_data = world_manager.load_raw_regional_layer(cx, cz, layer_name)
+        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
         if grid_data is None or grid_data.size == 0:
             return None
 
@@ -136,12 +140,8 @@ class WorldMapViewer:
         return max(64, total_chunks), max(32, total_chunks // 2)
 
     def _enqueue_stream(self, world_manager, camera) -> None:
-        # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
-        # 1. Определяем РЕАЛЬНЫЙ мировой центр камеры, УЧИТЫВАЯ ЗУМ
         center_wx = camera.x + (camera.viewport_width / (2 * camera.zoom))
         center_wy = camera.y + (camera.viewport_height / (2 * camera.zoom))
-        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-
         center_cx, center_cz = self.world_pixel_to_chunk_coords(center_wx, center_wy)
 
         start_cx = center_cx - LOAD_RADIUS_CHUNKS
