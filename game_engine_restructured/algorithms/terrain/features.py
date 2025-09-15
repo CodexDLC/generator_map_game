@@ -1,102 +1,104 @@
-# Файл: game_engine/algorithms/terrain/features.py
+# ==============================================================================
+# Файл: game_engine_restructured/algorithms/terrain/terrain_features.py
+# Назначение: Архив сложных и экспериментальных функций для генерации
+#              продвинутых особенностей ландшафта (каньоны, плато).
+#              Этот код не используется в основном пайплайне, но может быть
+#              подключен для создания уникальных биомов.
+# ==============================================================================
+
 from __future__ import annotations
-from typing import List
-from opensimplex import OpenSimplex
+from typing import Any, Dict
+import numpy as np
+from scipy.ndimage import gaussian_filter
 
-from ...core.utils.rng import hash64, RNG
-
-
-def _val_at(seed: int, xi: int, zi: int) -> float:
-    h = hash64(seed, xi, zi) & 0xFFFFFFFF
-    return h / 0xFFFFFFFF
+from ...core.noise.fast_noise import fbm_grid_warped
+from .terrain import  _generate_layer
+from .slope import compute_slope_mask
 
 
-def _lerp(a: float, b: float, t: float) -> float:
-    return a + (b - a) * t
+# ==============================================================================
+# --- ФИШКА 1: Создание "Меса"-ландшафта (плато) ---
+# ==============================================================================
 
-
-def _smoothstep(t: float) -> float:
-    return t * t * (3.0 - 2.0 * t)
-
-
-# --- НАЧАЛО ИЗМЕНЕНИЙ: fbm2d теперь всегда возвращает [0, 1] ---
-def fbm2d(
-    noise: OpenSimplex,
-    x: float,
-    z: float,
-    base_freq: float,
-    octaves: int = 1,
-    lacunarity: float = 2.0,
-    gain: float = 0.5,
-    ridge: bool = False,
-) -> float:
+def apply_mesa_plateau_feature(
+        height_grid: np.ndarray,
+        seed: int,
+        cfg: Dict,
+        spectral_cfg: Dict,
+        coords: Dict[str, np.ndarray],
+        cell_size: float,
+        scratch_buffers: dict
+) -> np.ndarray:
     """
-    Генерирует фрактальный шум, нормализованный в диапазоне [0, 1].
+    Применяет "срезание" вершин для создания плато и добавляет шум на их поверхность.
     """
-    amp = 1.0
-    freq = base_freq
-    total = 0.0
-    norm = 0.0
+    # Шаг 1: Clip/normalization для плато
+    max_clip = float(cfg.get("plateau_clip_height_m", 50.0))
+    h_grid = np.clip(height_grid, 0.0, max_clip)
+    plateau_fraction = np.mean(h_grid >= max_clip - 0.1)
+    print(f"[FEATURE] Clipped to plateau {max_clip}m: fraction={plateau_fraction:.3f}")
 
-    for _ in range(max(1, octaves)):
-        sample = noise.noise2(x * freq, z * freq)  # Исходный шум в диапазоне [-1, 1]
+    # Шаг 2: Шум на вершинах плато
+    upper_noise_cfg = spectral_cfg.get("plateau_upper_noise", {})
+    if upper_noise_cfg.get("enabled", True):
+        plateau_mask = (h_grid >= max_clip - 0.1).astype(np.float32)
+        upper_noise = _generate_layer(
+            seed + 3, upper_noise_cfg,
+            coords["x"], coords["z"],
+            cell_size, scratch_buffers["a"]
+        )
+        h_grid += upper_noise * plateau_mask
 
-        if ridge:
-            # Ridge noise: 1 - |noise|. Результат уже в диапазоне [0, 1].
-            sample = 1.0 - abs(sample)
-        else:
-            # Обычный шум: смещаем и масштабируем диапазон [-1, 1] к [0, 1].
-            sample = (sample + 1.0) / 2.0
+    # Шаг 3: Финальная нормализация
+    final_max = float(cfg.get("final_max_height_m", 100.0))
+    current_max = np.max(h_grid)
+    if current_max > 0:
+        h_grid = (h_grid / current_max) * final_max
 
-        total += sample * amp
-        norm += amp
-        amp *= gain
-        freq *= lacunarity
-
-    if norm == 0:
-        return 0.0
-    # Итоговый результат также будет в диапазоне [0, 1]
-    return total / norm
-
-
-# --- КОНЕЦ ИЗМЕНЕНИЙ ---
+    return h_grid
 
 
-# ... (остальные функции в файле остаются без изменений)
-def _mask_from_noise(
-    seed: int,
-    cx: int,
-    cz: int,
-    size: int,
-    density: float,
-    base_freq: float,
-    octaves: int,
-) -> List[List[int]]:
-    grid = [[0 for _ in range(size)] for _ in range(size)]
-    d = max(0.0, min(1.0, float(density)))
-    noise_gen = OpenSimplex(seed)
-    for z in range(size):
-        wz = cz * size + z
-        row = grid[z]
-        for x in range(size):
-            wx = cx * size + x
-            n = fbm2d(noise_gen, float(wx), float(wz), base_freq, octaves=octaves)
-            row[x] = 1 if n < d else 0
-    return grid
+# ==============================================================================
+# --- ФИШКА 2: Эрозия обрывов для создания скалистых краев ---
+# ==============================================================================
 
+def apply_cliff_erosion_feature(
+        height_grid: np.ndarray,
+        seed: int,
+        cliff_cfg: Dict,
+        coords: Dict[str, np.ndarray],
+        cell_size: float,
+        scratch_buffers: dict
+) -> np.ndarray:
+    """
+    Находит крутые склоны и применяет к ним "разъедающий" шум эрозии.
+    """
+    print("  -> [FEATURE] Eroding cliffs...")
+    # 1. Находим края плато (крутые склоны)
+    slope_mask = compute_slope_mask(
+        height_grid, cell_size,
+        angle_threshold_deg=float(cliff_cfg.get("slope_angle_deg", 20.0)),
+        band_cells=int(cliff_cfg.get("band_cells", 5))
+    ).astype(np.float32)
 
-def _ensure_nonempty_mask(mask: List[List[int]], rng: RNG, min_cells: int = 1) -> None:
-    h = len(mask)
-    w = len(mask[0]) if h else 0
-    if sum(sum(r) for r in mask) >= min_cells:
-        return
-    cx = rng.randint(w // 4, max(w // 4, (3 * w) // 4))
-    cz = rng.randint(h // 4, max(h // 4, (3 * h) // 4))
-    rx = max(2, min(w // 6, 6))
-    rz = max(2, min(h // 6, 6))
-    for z in range(max(0, cz - rz), min(h, cz + rz + 1)):
-        for x in range(max(0, cx - rx), min(w, cx + rx + 1)):
-            dx = (x - cx) / float(rx)
-            dz = (z - cz) / float(rz)
-            if dx * dx + dz * dz <= 1.0:
-                mask[z][x] = 1
+    # 2. Создаем "рампы" - участки, где эрозия будет слабее
+    ramp_cfg = cliff_cfg.get("ramps", {})
+    ramp_noise = _generate_layer(
+        seed ^ 0xC0FE, ramp_cfg,
+        coords["x"], coords["z"],
+        cell_size, scratch_buffers["a"]
+    )
+    # Рампы там, где шум > 40% от его амплитуды
+    ramp_mask = (np.abs(ramp_noise) > ramp_cfg.get("amp_m", 1.0) * 0.4).astype(np.float32)
+
+    # 3. Применяем эрозию, ослабляя ее на рампах
+    erosion_noise = _generate_layer(
+        seed + 777, cliff_cfg,
+        coords["x"], coords["z"],
+        cell_size, scratch_buffers["a"]
+    )
+
+    # Умножаем маску склонов на "маску мягкости" рамп
+    erosion_strength = slope_mask * (1.0 - ramp_mask * float(ramp_cfg.get("softness", 0.8)))
+
+    return height_grid + (erosion_noise * erosion_strength)

@@ -1,68 +1,42 @@
 {
-  "id": "world/base_default",
+  "id": "world/scaled_32x32_v2_2x",
   "version": 2,
   "size": 256,
   "cell_size": 0.5,
-  "region_size": 11,
+  "region_size": 32,
   "initial_load_radius": 0,
   "elevation": {
-    "max_height_m": 90.0,
-    "sea_level_m": 5.0,
-    "base_height_m": 15.0,
-    "slope_limiter": { "enabled": true, "max_angle_deg": 50.0, "iterations": 32 },
+    "max_height_m": 520.0,
+    "base_height_m": 0.0,
+    "sea_level_m": 86.67,
     "spectral": {
       "continents": {
-        "is_base": true, "ridge": false, "octaves": 3,
-        "scale_tiles_parallel": 3000, "aspect": 1.0,
-        "amp_m": 20.0, "shaping_power": 1.0, "smoothing_sigma_post_shape": 1.0,
-        "warp": { "strength_m": 200, "scale_tiles": 3000 }
+        "is_base": true,
+        "amp_m": 360.0,
+        "scale_tiles": 9000,
+        "ridge": true,
+        "octaves": 5,
+        "shaping_power": 1.4
       },
       "large_features": {
-        "positive_only": false, "ridge": false, "octaves": 5,
-        "scale_tiles": 850, "amp_m": 60.0,
-        "shaping_power": 1.1, "smoothing_sigma_post_shape": 1.5,
-        "warp": { "strength_m": 150.0, "scale_tiles": 1500 }
-      },
-      "canyons": {
-        "enabled": true,
-        "scale_tiles": 1200,
-        "depth_m": 40.0,
-        "terracing_steps": 4,
-        "terracing_softness_factor": 2.0,
-        "soft_side_eps": 0.02,
-        "min_width_m": 1.5,
-        "width_hard_m": 3.0,
-        "width_soft_m": 12.0,
-        "hard_walls": 0,
-        "ramp_gauss_sigma": 1.8,
-        "post_limiter": { "enabled": true, "max_angle_deg": 58.0, "iterations": 32 }
-      },
-      "strata_cliffs": {
-        "enabled": true,
-        "slope_angle_deg": 40.0,
-        "amp_m": 0.7,
+        "amp_m": 120.0,
+        "scale_tiles": 4800,
         "ridge": true,
-        "octaves": 4,
-        "scale_tiles_parallel": 18.0,
-        "aspect": 3.0
+        "octaves": 6,
+        "shaping_power": 1.15
       },
-      "erosion": {
-        "scale_tiles": 80, "amp_m": 2.5, "ridge": false, "octaves": 3,
-        "warp": { "strength_m": 120.0, "scale_tiles": 200 }
+      "detail": {
+        "amp_m": 40.0,
+        "scale_tiles": 1200,
+        "ridge": false,
+        "octaves": 7
       }
     }
   },
-  "surfaces": { "beach": { "enabled": true, "height_above_sea_m": 2.0 } },
-  "water": { "enabled": true, "river": { "enabled": true } },
-  "climate": { "enabled": false },
-  "slope_obstacles": { "enabled": true },
-  "scatter": { "enabled": true },
+  "surfaces": { "beach": { "enabled": true, "height_above_sea_m": 0.3 } },
+  "slope_obstacles": { "enabled": true, "angle_threshold_deg": 35.0 },
+  "water": { "enabled": true, "river": { "enabled": false } },
   "export": {
-    "log_chunk_stats": true, "log_file_saves": true,
-    "palette": {
-      "base_dirt": "#8B4513", "base_grass": "#6A8A55", "base_sand": "#D8C27A",
-      "base_rock": "#94989B", "base_road": "#7A5C3A", "base_cracked": "#6B6B6B",
-      "base_waterbed": "#465D66", "water": "#527D9A", "bridge": "#C8A552", "obstacle_prop": "#444444"
-    }
+    "palette": { "base_grass": "#5E7552", "base_rock": "#8A8F92", "base_sand": "#A69984", "water": "#3D5A80"}
   }
 }
