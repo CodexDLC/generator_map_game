@@ -1,6 +1,8 @@
 # ==============================================================================
-# Файл: game_engine_restructured/world/planners/water_planner.py
-# Назначение: "Специалист" по созданию всех видов водных объектов.
+# Файл: game_engine_restructured/algorithms/hydrology.py
+# Назначение: "Специалист" по созданию всех видов водных объектов: морей,
+#             высокогорных озер и рек.
+# ВЕРСИЯ 2.0: Исправлены импорты и логика фильтрации озер.
 # ==============================================================================
 from __future__ import annotations
 from typing import TYPE_CHECKING
@@ -9,16 +11,17 @@ import random
 import time
 
 # --- Вспомогательные компоненты ---
-from game_engine_restructured.core import constants as const
-from game_engine_restructured.core.constants import KIND_BASE_WATERBED, NAV_WATER, surface_set, nav_set
-from game_engine_restructured.numerics.fast_hydrology import (
+from ..core import constants as const
+# Используем удобные функции-обертки для работы с ID
+from ..core.constants import KIND_BASE_WATERBED, NAV_WATER, surface_set, nav_set
+from ..numerics.fast_hydrology import (
     build_d8_flow_directions, flow_accumulation_from_dirs,
     label_connected_components
 )
 from scipy.ndimage import distance_transform_edt, label, binary_dilation
 
 if TYPE_CHECKING:
-    pass
+    from ..core.preset import Preset
 
 
 # ==============================================================================
@@ -31,7 +34,7 @@ def apply_sea_level(height: np.ndarray, surface: np.ndarray, nav: np.ndarray, pr
     - Изменяет текстуру поверхности на "дно" (waterbed).
     - Делает затопленные участки непроходимыми (water).
     """
-    print(f"  -> Applying sea level...")
+    print(f"  -> [Hydrology] Применение уровня моря...")
     sea_level = float(getattr(preset, "elevation", {}).get("sea_level_m", 40.0))
 
     # Создаем маску всех пикселей, которые находятся ниже уровня моря
@@ -43,12 +46,6 @@ def apply_sea_level(height: np.ndarray, surface: np.ndarray, nav: np.ndarray, pr
 
     # Возвращаем маску для возможного дальнейшего использования
     return is_water_mask
-
-
-# ==============================================================================
-# --- КОНЕЦ БЛОКА 1 ---
-# ==============================================================================
-
 
 # ==============================================================================
 # --- БЛОК 2: ВЫСОКОГОРНЫЕ ОЗЕРА ---
@@ -70,57 +67,49 @@ def generate_highland_lakes(
     if not water_cfg.get("enabled", False):
         return
 
-    print("  -> Searching for highland lakes...")
+    print("  -> [Hydrology] Поиск высокогорных озер...")
     rng = random.Random(seed)
     sea_level = getattr(preset, "elevation", {}).get("sea_level_m", 40.0)
 
+    # Ищем впадины только на суше (выше уровня моря)
     land_mask = stitched_heights >= sea_level
-    # Находим все впадины на суше
-    inverted_basins_mask = ~land_mask
-    labeled_basins, num_basins = label(inverted_basins_mask)
+    labeled_basins, num_basins = label(land_mask == False) # Ищем "дырки" в суше
 
     if num_basins == 0:
         return
 
-    # --- НАЧАЛО ИЗМЕНЕНИЙ: Фильтрация мелких впадин ---
+    # --- ИСПРАВЛЕНА ЛОГИКА: Корректная фильтрация мелких впадин ---
     min_lake_size = int(water_cfg.get("min_lake_size_px", 20))
+    unique_labels, basin_sizes = np.unique(labeled_basins, return_counts=True)
+    # Отбираем ID только тех "бассейнов", которые достаточно большие
+    valid_labels = unique_labels[(basin_sizes >= min_lake_size) | (unique_labels == 0)] # 0 - это фон, его оставляем
+    # Создаем маску для удаления всех "мелких" меток
+    is_valid_basin = np.isin(labeled_basins, valid_labels)
+    labeled_basins[~is_valid_basin] = 0 # Обнуляем метки, не прошедшие фильтр
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
-    # Эффективно считаем размер каждого найденного бассейна
-    basin_sizes = np.bincount(labeled_basins.ravel())
-
-    # Создаем маску, которая "удаляет" (приравнивает к 0) все метки слишком маленьких бассейнов
-    remove_mask = basin_sizes < min_lake_size
-    remove_mask[0] = False  # Не трогаем фон
-
-    # Применяем маску, чтобы обнулить метки маленьких бассейнов
-    labeled_basins[remove_mask[labeled_basins]] = 0
-
-    # Получаем уникальные ID только тех бассейнов, что остались
-    unique_labels = np.unique(labeled_basins)
-    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
-
+    # Исключаем озера, которые касаются края карты
     edge_labels = np.unique(np.concatenate((
         labeled_basins[0, :], labeled_basins[-1, :],
         labeled_basins[:, 0], labeled_basins[:, -1]
     )))
 
     lakes_created = 0
-    # --- ИЗМЕНЕНИЕ: Итерируем только по оставшимся крупным бассейнам ---
-    for i in unique_labels:
-        # Пропускаем фон (метка 0) и бассейны, касающиеся края карты
+    # Итерируем только по ID оставшихся (крупных) озер
+    for i in np.unique(labeled_basins):
         if i == 0 or i in edge_labels:
             continue
 
         basin_mask = (labeled_basins == i)
+        # Находим точку "перелива" - самую низкую точку на границе впадины
         border_mask = binary_dilation(basin_mask) & ~basin_mask
-        if not np.any(border_mask):
-            continue
+        if not np.any(border_mask): continue
 
         pour_point_height = np.min(stitched_heights[border_mask])
         lake_mask = basin_mask & (stitched_heights < pour_point_height)
-        if not np.any(lake_mask):
-            continue
+        if not np.any(lake_mask): continue
 
+        # Вероятность появления озера зависит от влажности
         if stitched_humidity is not None:
             avg_humidity = float(np.mean(stitched_humidity[lake_mask]))
             base_chance = water_cfg.get("lake_chance_base", 0.1)
@@ -134,13 +123,7 @@ def generate_highland_lakes(
         lakes_created += 1
 
     if lakes_created > 0:
-        print(f"    -> Created {lakes_created} realistic highland lakes.")
-
-
-# ==============================================================================
-# --- КОНЕЦ БЛОКА 2 ---
-# ==============================================================================
-
+        print(f"    -> Создано {lakes_created} высокогорных озер.")
 
 # ==============================================================================
 # --- БЛОК 3: РЕКИ ---
@@ -161,7 +144,7 @@ def generate_rivers(
     if not river_cfg.get("enabled", False):
         return np.zeros_like(stitched_heights_ext, dtype=bool)
 
-    print("  -> Generating rivers...")
+    print("  -> [Hydrology] Генерация речной сети...")
     t0 = time.perf_counter()
 
     # Рассчитываем, куда потечет вода из каждой точки
@@ -210,9 +193,5 @@ def generate_rivers(
         nav_set(stitched_nav_ext, best_mask, const.NAV_WATER)
 
     t1 = time.perf_counter()
-    print(f"    -> River network finalized in {(t1 - t0) * 1000:.1f} ms.")
+    print(f"    -> Речная сеть создана за {(t1 - t0) * 1000:.1f} мс.")
     return best_mask
-
-# ==============================================================================
-# --- КОНЕЦ БЛОКА 3 ---
-# ==============================================================================

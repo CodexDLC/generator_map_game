@@ -77,3 +77,12 @@ def generate_noise_layer(
     final_layer = scale_by_amplitude(shaped_noise, layer_cfg)
 
     return final_layer
+
+
+def compute_amp_sum(preset) -> float:
+    spectral = getattr(preset, "elevation", {}).get("spectral", {})
+    total = float(spectral.get("continents", {}).get("amp_m", 0.0))
+    for mask_cfg in spectral.get("masks", {}).values():
+        for layer_cfg in mask_cfg.get("layers", {}).values():
+            total += float(layer_cfg.get("amp_m", 0.0))
+    return total
