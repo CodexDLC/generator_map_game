@@ -120,39 +120,80 @@ def fbm_grid(
 # --- НАЧАЛО НОВОГО КОДА ---
 @njit(cache=True, fastmath=True, parallel=True)
 def fbm_grid_warped(
-        seed: int, coords_x: np.ndarray, coords_z: np.ndarray, freq0: float,
-        octaves: int, lacunarity: float = 2.0, gain: float = 0.5,
-        ridge: bool = False
+        seed: int,
+        coords_x: np.ndarray,
+        coords_z: np.ndarray,
+        freq0: float,
+        octaves: int,
+        ridge: bool,
+        # --- Необязательные параметры для варпинга ---
+        warp_seed: int = 0,
+        warp_amp: float = 0.0,
+        warp_freq: float = 0.0,
+        warp_octaves: int = 2,
+        # --- Стандартные параметры FBM ---
+        lacunarity: float = 2.0,
+        gain: float = 0.5
 ) -> np.ndarray:
     """
-    Генерирует 2D-массив fBm, используя пре-искаженные массивы координат.
+    Генерирует FBM шум на 2D-сетке с опциональным Domain Warping,
+    используя базовую функцию value_noise_2d.
     """
-    size = coords_x.shape[0]
-    g = np.zeros((size, size), dtype=np.float32)
+    H, W = coords_x.shape
+    output = np.empty_like(coords_x)
 
-    for j in prange(size):
-        for i in range(size):
-            wx_m = coords_x[j, i]
-            wz_m = coords_z[j, i]
+    for j in prange(H):
+        for i in range(W):
+            cx = coords_x[j, i]
+            cz = coords_z[j, i]
 
+            # --- ЭТАП 1: Domain Warping (Искажение координат) ---
+            if warp_amp > 0.0:
+                # Рассчитываем два независимых FBM-шума для смещения по X и Z
+                # используя вашу функцию value_noise_2d
+
+                # Смещение по X
+                offset_x = 0.0
+                warp_amp_iter_x = 1.0
+                warp_freq_iter_x = warp_freq
+                for _ in range(warp_octaves):
+                    noise_val = value_noise_2d(cx * warp_freq_iter_x, cz * warp_freq_iter_x, warp_seed)
+                    offset_x += (noise_val * 2.0 - 1.0) * warp_amp_iter_x
+                    warp_freq_iter_x *= lacunarity
+                    warp_amp_iter_x *= gain
+
+                # Смещение по Z (с другим сидом для независимости)
+                offset_z = 0.0
+                warp_amp_iter_z = 1.0
+                warp_freq_iter_z = warp_freq
+                for _ in range(warp_octaves):
+                    noise_val = value_noise_2d(cx * warp_freq_iter_z, cz * warp_freq_iter_z, warp_seed + 1)
+                    offset_z += (noise_val * 2.0 - 1.0) * warp_amp_iter_z
+                    warp_freq_iter_z *= lacunarity
+                    warp_amp_iter_z *= gain
+
+                # Применяем итоговое смещение
+                cx += offset_x * warp_amp
+                cz += offset_z * warp_amp
+
+            # --- ЭТАП 2: Расчет основного FBM шума по (возможно) искаженным координатам ---
             amp = 1.0
             freq = freq0
             total = 0.0
-
             for o in range(octaves):
-                noise_val = value_noise_2d(wx_m * freq, wz_m * freq, seed + o)
-                sample = noise_val * 2.0 - 1.0
+                noise_val = value_noise_2d(cx * freq, cz * freq, seed + o)
+                sample = noise_val * 2.0 - 1.0  # Смещаем [0, 1] -> [-1, 1]
 
                 if ridge:
-                    sample = (1.0 - abs(sample)) * 2.0 - 1.0
+                    sample = 1.0 - abs(sample)
 
                 total += amp * sample
                 freq *= lacunarity
                 amp *= gain
 
-            g[j, i] = total
-    return g
-# --- КОНЕЦ НОВОГО КОДА ---
+            output[j, i] = total
+
+    return output
 
 
 @njit(cache=True, fastmath=True)
