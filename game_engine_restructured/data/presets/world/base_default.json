@@ -6,7 +6,7 @@
   "region_size": 7,
   "initial_load_radius": 0,
   "elevation": {
-    "max_height_m": 1500.0,
+    "max_height_m": 600.0,
     "base_height_m": 0.0,
     "sea_level_m": 100.0,
     "use_slope_limiter": false,
@@ -17,9 +17,10 @@
 
       "continents": {
         "is_base": true,
-        "amp_m": 1200.0,
-        "scale_tiles": 15000,
-        "shaping_power": 1.8
+        "amp_m": 600.0,
+        "scale_tiles": 7500,
+        "shaping_power": 1.8,
+        "octaves": 6
       },
 
       "masks": {

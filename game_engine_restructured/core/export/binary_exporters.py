@@ -10,7 +10,9 @@ from typing import List
 
 import numpy as np
 
+from .. import preset
 from ..constants import SURFACE_ID_TO_KIND
+from ...algorithms.terrain.terrain_helpers import compute_amp_sum
 
 
 def _ensure_path_exists(path: str) -> None:
@@ -41,17 +43,22 @@ def _pack_control_data(base_id=0, overlay_id=0, blend=0, nav=True) -> np.uint32:
 
 
 def write_heightmap_r16(
-        path: str, height_grid: List[List[float]], max_height: float, verbose: bool = False
+        path: str,
+        height_grid: List[List[float]],
+        *,
+        h_norm: float | None = None,   # <— НОВОЕ
+        verbose: bool = False
 ):
     """Сохраняет карту высот в 16-битном беззнаковом формате."""
     try:
         if not height_grid or not height_grid[0]:
             return
-        if max_height <= 0:
-            max_height = 1.0
+
+        if h_norm is None or h_norm <= 0:
+            raise ValueError("write_heightmap_r16: h_norm must be a positive float")
 
         height_array = np.array(height_grid, dtype=np.float32)
-        normalized = np.clip(height_array / max_height, 0.0, 1.0)
+        normalized = np.clip(height_array / float(h_norm), 0.0, 1.0)
         final_array = (normalized * 65535.0).astype("<u2")
 
         _ensure_path_exists(path)
@@ -61,7 +68,9 @@ def write_heightmap_r16(
         os.replace(tmp_path, path)
 
         if verbose:
-            print(f"--- EXPORT: 16-bit UINT heightmap saved: {path}")
+            hmin, hmax = float(height_array.min()), float(height_array.max())
+            print(f"--- EXPORT height.r16 → {path}")
+            print(f"    H_NORM={h_norm:.3f} | input range: [{hmin:.3f}, {hmax:.3f}] m")
     except Exception as e:
         print(f"!!! LOG: CRITICAL ERROR while creating heightmap.r16: {e}")
 

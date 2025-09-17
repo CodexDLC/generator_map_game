@@ -79,10 +79,18 @@ def generate_noise_layer(
     return final_layer
 
 
+def _get(obj, key, default):
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
 def compute_amp_sum(preset) -> float:
-    spectral = getattr(preset, "elevation", {}).get("spectral", {})
-    total = float(spectral.get("continents", {}).get("amp_m", 0.0))
-    for mask_cfg in spectral.get("masks", {}).values():
-        for layer_cfg in mask_cfg.get("layers", {}).values():
+    elev = _get(preset, "elevation", {}) or {}
+    spectral = elev.get("spectral", {}) if isinstance(elev, dict) else _get(elev, "spectral", {})
+    total = float((spectral.get("continents", {}) if isinstance(spectral, dict) else _get(spectral, "continents", {})).get("amp_m", 0.0))
+    masks = spectral.get("masks", {}) if isinstance(spectral, dict) else _get(spectral, "masks", {})
+    for mask_cfg in (masks or {}).values():
+        layers = mask_cfg.get("layers", {}) if isinstance(mask_cfg, dict) else _get(mask_cfg, "layers", {})
+        for layer_cfg in (layers or {}).values():
             total += float(layer_cfg.get("amp_m", 0.0))
     return total

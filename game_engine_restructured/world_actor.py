@@ -21,7 +21,7 @@ from .world.context import Region
 from .world.road_types import RoadWaypoint, ChunkRoadPlan
 from .world.prefab_manager import PrefabManager
 from .world.serialization import ClientChunkContract
-
+from .algorithms.terrain.terrain_helpers import compute_amp_sum
 
 class WorldActor:
     """
@@ -52,6 +52,9 @@ class WorldActor:
         prefabs_path = Path(__file__).parent / "data" / "prefabs.json"
         self.prefab_manager = PrefabManager(prefabs_path)
         self.detail_processor = DetailProcessor(preset, self.prefab_manager)
+        self.h_norm = compute_amp_sum(self.preset)
+        if self.verbose:
+            print(f"[WorldActor] H_NORM (sum of amp_m) = {self.h_norm:.3f}")
 
     def _log(self, message: str):
         """Вспомогательная функция для логирования."""
@@ -131,14 +134,17 @@ class WorldActor:
                         f"!!! [WorldActor] ERROR: Chunk ({chunk_cx},{chunk_cz}) missing essential layers. Skipping export.")
                     continue
 
-                max_height = float(self.preset.elevation.get("max_height_m", 1.0))
+
 
                 # Читаем настройки логирования из пресета
                 log_stats = self.preset.export.get("log_chunk_stats", False)
                 log_saves = self.preset.export.get("log_file_saves", False)
 
                 # Вызываем функции экспорта с правильными флагами
-                write_heightmap_r16(str(client_chunk_dir / "heightmap.r16"), height_grid, max_height, verbose=log_saves)
+                write_heightmap_r16(str(client_chunk_dir / "heightmap.r16"),
+                                    height_grid,
+                                    h_norm=self.h_norm,
+                                    verbose=log_saves)
 
                 from collections import Counter
                 surface_counts = Counter(surface_grid.flatten())
