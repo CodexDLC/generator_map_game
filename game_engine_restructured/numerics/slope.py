@@ -58,7 +58,7 @@ def compute_slope_mask(
 
 
 @njit(cache=True, fastmath=True, parallel=True)
-def _apply_slope_limiter(heights: np.ndarray, max_slope_tangent: float, cell_size: float, iterations: int):
+def apply_slope_limiter(heights: np.ndarray, max_slope_tangent: float, cell_size: float, iterations: int):
     """
     Итеративно ограничивает уклон: |∇h| <= tan(theta_max).
     Делается двумя независимыми проходами: по строкам и по столбцам.

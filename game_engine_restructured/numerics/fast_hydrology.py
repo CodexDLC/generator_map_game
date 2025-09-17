@@ -14,7 +14,7 @@ D8_NEIGHBORS = np.array([
 
 
 @njit(cache=True, fastmath=True)
-def _build_d8_flow_directions(heights: np.ndarray) -> np.ndarray:
+def build_d8_flow_directions(heights: np.ndarray) -> np.ndarray:
     """
     Для каждой клетки находит направление наискорейшего спуска (D8).
     Возвращает индекс направления (0-7) или -1, если клетка - локальный минимум.
@@ -40,7 +40,7 @@ def _build_d8_flow_directions(heights: np.ndarray) -> np.ndarray:
 
 
 @njit(cache=True, fastmath=True)
-def _flow_accumulation_from_dirs(
+def flow_accumulation_from_dirs(
         heights: np.ndarray, flow_dirs: np.ndarray
 ) -> np.ndarray:
     """
@@ -96,7 +96,7 @@ def chamfer_distance_transform(mask: np.ndarray) -> np.ndarray:
 
 
 @njit(cache=True)
-def _label_connected_components(mask: np.ndarray) -> Tuple[np.ndarray, int]:
+def label_connected_components(mask: np.ndarray) -> Tuple[np.ndarray, int]:
     """
     Простой Numba-совместимый аналог scipy.ndimage.label для подсчета
     связных компонентов (истоков рек).

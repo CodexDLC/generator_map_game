@@ -9,16 +9,16 @@ import random
 import time
 
 # --- Вспомогательные компоненты ---
-from ...core import constants as const
-from ...core.constants import KIND_BASE_WATERBED, NAV_WATER, surface_set, nav_set
-from ...algorithms.hydrology.fast_hydrology import (
-    _build_d8_flow_directions, _flow_accumulation_from_dirs,
-    _label_connected_components
+from game_engine_restructured.core import constants as const
+from game_engine_restructured.core.constants import KIND_BASE_WATERBED, NAV_WATER, surface_set, nav_set
+from game_engine_restructured.numerics.fast_hydrology import (
+    build_d8_flow_directions, flow_accumulation_from_dirs,
+    label_connected_components
 )
 from scipy.ndimage import distance_transform_edt, label, binary_dilation
 
 if TYPE_CHECKING:
-    from ...core.preset.model import Preset
+    pass
 
 
 # ==============================================================================
@@ -165,9 +165,9 @@ def generate_rivers(
     t0 = time.perf_counter()
 
     # Рассчитываем, куда потечет вода из каждой точки
-    flow_dirs = _build_d8_flow_directions(stitched_heights_ext)
+    flow_dirs = build_d8_flow_directions(stitched_heights_ext)
     # Рассчитываем, сколько "единиц" воды протекает через каждую точку
-    flow_map = _flow_accumulation_from_dirs(stitched_heights_ext, flow_dirs)
+    flow_map = flow_accumulation_from_dirs(stitched_heights_ext, flow_dirs)
 
     target_sources = int(river_cfg.get("target_sources_core", 3))
 
@@ -180,14 +180,14 @@ def generate_rivers(
         if mid_thr <= low_thr or high_thr - low_thr < 1.0: break
         candidate_mask = flow_map > mid_thr
         core_mask = candidate_mask[chunk_size:-chunk_size, chunk_size:-chunk_size]
-        num_sources = 0 if not np.any(core_mask) else _label_connected_components(core_mask)[1]
+        num_sources = 0 if not np.any(core_mask) else label_connected_components(core_mask)[1]
         if num_sources < target_sources:
             high_thr = mid_thr
         else:
             low_thr, best_mask = mid_thr, candidate_mask
 
     # Отфильтровываем слишком короткие ручейки
-    labels, n = _label_connected_components(best_mask)
+    labels, n = label_connected_components(best_mask)
     min_len = int(river_cfg.get("min_length_px", 128))
     for i in range(1, n + 1):
         segment_mask = (labels == i)

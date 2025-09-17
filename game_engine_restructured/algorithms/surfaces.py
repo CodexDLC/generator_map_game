@@ -7,9 +7,9 @@ from __future__ import annotations
 from typing import Any
 import numpy as np
 
-from ...core import constants as const
-from ...core.constants import surface_fill, surface_set, nav_fill
-from ...algorithms.terrain.slope import compute_slope_mask
+from game_engine_restructured.core import constants as const
+from game_engine_restructured.core.constants import surface_fill, surface_set, nav_fill
+from game_engine_restructured.numerics.slope import compute_slope_mask
 
 
 def classify_initial_terrain(surface_grid: np.ndarray, nav_grid: np.ndarray):

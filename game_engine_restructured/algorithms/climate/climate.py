@@ -16,11 +16,11 @@ from ...core import constants as const
 from .climate_helpers import (
     _derive_seed, _vectorized_smoothstep
 )
-from ...core.noise.fast_noise import fbm_grid, fbm_amplitude
-from ..hydrology.fast_hydrology import chamfer_distance_transform
+from game_engine_restructured.numerics.fast_noise import fbm_grid, fbm_amplitude
+from game_engine_restructured.numerics.fast_hydrology import chamfer_distance_transform
 
 if TYPE_CHECKING:
-    from ...core.types import GenResult
+    pass
 
 # ИЗМЕНЕНИЕ: Настраиваем базовый логгер для модуля
 logger = logging.getLogger(__name__)
