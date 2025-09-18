@@ -1,68 +1,80 @@
 {
-  "id": "world/scaled_32x32_v2_2x_refactored",
+  "id": "world/alpine_ridge",
   "version": 3,
-  "size": 1024,
+  "size": 512,
   "cell_size": 1.0,
-  "region_size": 7,
+  "region_size": 9,
   "initial_load_radius": 0,
   "elevation": {
-    "max_height_m": 600.0,
+    "max_height_m": 2500.0,
     "base_height_m": 0.0,
-    "sea_level_m": 100.0,
+    "sea_level_m": 150.0,
     "use_slope_limiter": false,
     "slope_limiter_angle_deg": 75.0,
     "slope_limiter_iterations": 4,
+    "non_slope_smoothing": {
+      "mountains": {
+        "enabled": true,
+        "angle_threshold_deg": 35.0,
+        "margin_cells": 3,
+        "detail_keep": 0.35,
+        "blur_iters": 1
+      },
+      "plains": {
+        "enabled": false
+      }
+    },
     "spectral": {
       "use_advanced_modulation": true,
-
       "continents": {
         "is_base": true,
-        "amp_m": 600.0,
-        "scale_tiles": 7500,
-        "shaping_power": 1.8,
-        "octaves": 6
+        "amp_m": 2500.0,
+        "scale_tiles": 10000,
+        "shaping_power": 3.0,
+        "octaves": 5
       },
-
       "masks": {
         "mountains": {
-          "threshold": 0.5,
+          "threshold": 0.55,
           "invert": false,
           "fade_range": 0.1,
+          "modulate": { "mode": "high", "gamma": 1.2 },
           "layers": {
             "mountain_features": {
-              "amp_m": 0.0,
+              "amp_m": 800.0,
               "scale_tiles": 3000,
-              "ridge": true,
-              "octaves": 10,
-              "additive_only": true,
-              "shaping_power": 1.5
-            },
-            "mountain_detail": {
-              "amp_m": 0.0,
-              "scale_tiles": 300,
               "ridge": true,
               "octaves": 8,
               "additive_only": true,
-              "shaping_power": 1.5
+              "shaping_power": 0.5
+            },
+            "mountain_detail": {
+              "amp_m": 150.0,
+              "scale_tiles": 500,
+              "ridge": true,
+              "octaves": 8,
+              "additive_only": true,
+              "shaping_power": 1.0
             }
           }
         },
         "plains": {
-          "threshold": 0.5,
+          "threshold": 0.7,
           "invert": true,
           "fade_range": 0.1,
+          "modulate": { "mode": "low", "gamma": 1.0 },
           "layers": {
             "plains_hills": {
-              "amp_m": 0.0,
-              "scale_tiles": 4000,
-              "octaves": 6,
+              "amp_m": 50.0,
+              "scale_tiles": 2000,
+              "octaves": 7,
               "additive_only": true,
               "shaping_power": 1.0
             },
             "plains_detail": {
-              "amp_m": 0.0,
-              "scale_tiles": 300,
-              "octaves": 4,
+              "amp_m": 50.0,
+              "scale_tiles": 500,
+              "octaves": 8,
               "additive_only": true,
               "shaping_power": 1.0
             }
@@ -74,7 +86,7 @@
   "surfaces": {
     "beach": {
       "enabled": true,
-      "height_above_sea_m": 2.0
+      "height_above_sea_m": 2.5
     }
   },
   "slope_obstacles": {
@@ -89,8 +101,8 @@
   },
   "export": {
     "palette": {
-      "base_grass": "#5E7552",
-      "base_rock": "#8A8F92",
+      "base_grass": "#6A7B63",
+      "base_rock": "#7A7D81",
       "base_sand": "#A69984",
       "water": "#3D5A80"
     }

@@ -1,5 +1,7 @@
 # Файл: game_engine_restructured/algorithms/terrain/terrain_helpers.py
 from __future__ import annotations
+
+import math
 from typing import Any, Dict
 import numpy as np
 
@@ -34,20 +36,35 @@ def generate_base_noise(
 
 
 def normalize_and_shape(noise: np.ndarray, layer_cfg: Dict) -> np.ndarray:
-    """Шаг 2: Нормализует, применяет shaping_power и устанавливает диапазон [0,1] или [-1,1]."""
     octaves = int(layer_cfg.get("octaves", 4))
     norm_factor = max(fbm_amplitude(0.5, octaves), 1e-6)
     noise_normalized = noise / norm_factor
 
-    if layer_cfg.get("is_base", False) and not layer_cfg.get("ridge", False):
+    is_base  = bool(layer_cfg.get("is_base", False))
+    is_ridge = bool(layer_cfg.get("ridge", False))
+    is_add   = bool(layer_cfg.get("additive_only", False))
+    power    = float(layer_cfg.get("shaping_power", 1.0))
+
+    # База → [0,1]
+    if is_base and not is_ridge:
         noise_normalized = (noise_normalized + 1.0) * 0.5
 
-    power = float(layer_cfg.get("shaping_power", 1.0))
-    if power != 1.0:
-        np.power(np.maximum(0.0, noise_normalized), power, out=noise_normalized)
+    if is_ridge or is_add:
+        # ВЕТКА «только добавлять»: диапазон [0,1]
+        np.maximum(0.0, noise_normalized, out=noise_normalized)
+        if power != 1.0:
+            np.power(noise_normalized, power, out=noise_normalized)
 
-    is_additive_only = bool(layer_cfg.get("additive_only", False))
-    if not layer_cfg.get("is_base", False) and not layer_cfg.get("ridge", False) and not is_additive_only:
+        # МЯГКИЙ ПОЛ: поднимем минимум до positive_floor (если задан)
+        floor = float(layer_cfg.get("positive_floor", 0.0))
+        if floor > 0.0:
+            # маппинг [0..1] → [floor..1]
+            noise_normalized = floor + (1.0 - floor) * noise_normalized
+
+    else:
+        # ВЕТКА двуполярная: [-1,1]
+        if power != 1.0:
+            np.power(np.maximum(0.0, noise_normalized), power, out=noise_normalized)
         noise_normalized = (noise_normalized * 2.0) - 1.0
 
     return noise_normalized
@@ -94,3 +111,51 @@ def compute_amp_sum(preset) -> float:
         for layer_cfg in (layers or {}).values():
             total += float(layer_cfg.get("amp_m", 0.0))
     return total
+
+
+def selective_smooth_non_slopes(
+    height: np.ndarray,
+    *,
+    cell_size: float,
+    angle_deg: float = 35.0,   # что считаем «скалой»
+    margin_cells: int = 3,     # отступ от скал (расширяем «запрет»)
+    detail_keep: float = 0.35, # сколько мелкой ряби оставить на траве
+    blur_iters: int = 1,       # сколько раз применить 3x3 фильтр
+    region_weight: np.ndarray | None = None,  # [0..1], где применять (мультипликативно)
+) -> np.ndarray:
+    """Приглушает мелкие детали только на НЕ-склонах, опционально внутри заданного региона."""
+    H = height
+
+    # 1) Маска крутых склонов по углу (в метрах)
+    gx = (np.roll(H, -1, axis=1) - np.roll(H, 1, axis=1)) / (2.0 * cell_size)
+    gz = (np.roll(H, -1, axis=0) - np.roll(H, 1, axis=0)) / (2.0 * cell_size)
+    tan_th = math.tan(math.radians(angle_deg))
+    rock = (np.hypot(gx, gz) >= tan_th)
+
+    # 2) Дилатация скал (расширяем «запретную» область)
+    m = rock.copy()
+    for _ in range(max(0, margin_cells)):
+        n = m | np.roll(m,1,0) | np.roll(m,-1,0) | np.roll(m,1,1) | np.roll(m,-1,1) \
+              | np.roll(np.roll(m,1,0),1,1) | np.roll(np.roll(m,1,0),-1,1) \
+              | np.roll(np.roll(m,-1,0),1,1) | np.roll(np.roll(m,-1,0),-1,1)
+        m = n
+    grass_w = (~m).astype(np.float32)  # 1 — где можно сглаживать, 0 — где нельзя
+
+    if region_weight is not None:
+        # сузить действие в пределах региона (например, только «горы»)
+        grass_w *= region_weight.astype(np.float32)
+
+    # 3) База/деталь через лёгкое сглаживание 3×3 (аппрокс. гаусс)
+    A = H
+    for _ in range(max(1, blur_iters)):
+        c = (np.roll(A,(1,1),(0,1)) + np.roll(A,(1,-1),(0,1))
+           +  np.roll(A,(-1,1),(0,1)) + np.roll(A,(-1,-1),(0,1)))
+        e = (np.roll(A,(1,0),(0,1)) + np.roll(A,(-1,0),(0,1))
+           +  np.roll(A,(0,1),(0,1)) + np.roll(A,(0,-1),(0,1)))
+        A = (4*A + 2*e + c) / 16.0
+    H_base = A
+    H_detail = H - H_base
+
+    # 4) На траве оставляем detail_keep, на скалах — 100%
+    detail_scale = 1.0 - grass_w * (1.0 - float(detail_keep))
+    return H_base + H_detail * detail_scale
