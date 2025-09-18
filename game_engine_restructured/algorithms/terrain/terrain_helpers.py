@@ -102,14 +102,35 @@ def _get(obj, key, default):
     return getattr(obj, key, default)
 
 def compute_amp_sum(preset) -> float:
+    """
+    "Умный" расчет H_NORM. Суммирует только те амплитуды, которые могут
+    сложиться в самой высокой точке мира. Игнорирует маски с "invert": true.
+    """
     elev = _get(preset, "elevation", {}) or {}
     spectral = elev.get("spectral", {}) if isinstance(elev, dict) else _get(elev, "spectral", {})
+
+    # 1. Начинаем с базовой высоты континента
     total = float((spectral.get("continents", {}) if isinstance(spectral, dict) else _get(spectral, "continents", {})).get("amp_m", 0.0))
+
+    # 2. Перебираем все маски
     masks = spectral.get("masks", {}) if isinstance(spectral, dict) else _get(spectral, "masks", {})
-    for mask_cfg in (masks or {}).values():
+    for mask_name, mask_cfg in (masks or {}).items():
+        # 3. КЛЮЧЕВАЯ ПРОВЕРКА: Если маска инвертирована ("invert": true),
+        #    она активна в низинах и не может влиять на максимальную высоту. Пропускаем ее.
+        if mask_cfg.get("invert", False):
+            print(f"[H_NORM] -> Пропускаем маску '{mask_name}', так как она инвертирована.")
+            continue
+
+        # 4. Если маска не инвертирована, значит она активна на вершинах.
+        #    Суммируем амплитуды всех ее слоев.
+        print(f"[H_NORM] -> Учитываем маску '{mask_name}' для расчета максимальной высоты.")
         layers = mask_cfg.get("layers", {}) if isinstance(mask_cfg, dict) else _get(mask_cfg, "layers", {})
         for layer_cfg in (layers or {}).values():
             total += float(layer_cfg.get("amp_m", 0.0))
+
+    # 5. Добавляем базовую высоту, если она есть
+    total += float(elev.get("base_height_m", 0.0))
+
     return total
 
 

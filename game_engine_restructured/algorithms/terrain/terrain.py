@@ -8,6 +8,7 @@ import math
 from typing import Any, Dict
 import numpy as np
 
+from .terracing import apply_terracing_effect
 from .terrain_helpers import generate_noise_layer
 from ...numerics.masking import create_mask
 from ...numerics.slope import apply_slope_limiter
@@ -97,7 +98,6 @@ def apply_modulated_layers(
     return total_added_height
 
 
-
 def generate_elevation_region(
         seed: int, scx: int, scz: int, region_size_chunks: int, chunk_size: int, preset: Any, scratch_buffers: dict,
 ) -> np.ndarray:
@@ -110,8 +110,8 @@ def generate_elevation_region(
     gx0_px = base_cx * chunk_size
     gz0_px = base_cz * chunk_size
 
-    px_coords_x = np.arange(ext_size, dtype=np.float64) + gx0_px
-    px_coords_z = np.arange(ext_size, dtype=np.float64) + gz0_px
+    px_coords_x = np.arange(ext_size, dtype=np.float32) + gx0_px
+    px_coords_z = np.arange(ext_size, dtype=np.float32) + gz0_px
     x_coords_base, z_coords_base = np.meshgrid(px_coords_x, px_coords_z)
 
     print("  -> [Terrain] Генерация базового слоя 'continents'...")
@@ -119,6 +119,11 @@ def generate_elevation_region(
         seed, spectral_cfg["continents"], x_coords_base, z_coords_base, cell_size
     )
     _print_range("Continents Layer", continents_layer)
+
+    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+    # Блок с terracing теперь должен быть здесь, до финальных шагов
+    base_layer_norm = np.clip(continents_layer / (float(spectral_cfg.get("continents", {}).get("amp_m", 1.0)) or 1.0),
+                              0.0, 1.0)
 
     added_layers = apply_modulated_layers(
         continents_layer, preset, seed, x_coords_base, z_coords_base, cell_size
@@ -130,72 +135,46 @@ def generate_elevation_region(
     height_grid += float(cfg.get("base_height_m", 0.0))
     _print_range("Before Clip (no clip)", height_grid)
 
-    ns_cfg = getattr(preset, "elevation", {}).get("non_slope_smoothing", {})
-    if ns_cfg:
-        # Маска «гор» из тех же настроек, что и при модуляции слоёв
-        spectral_cfg = getattr(preset, "elevation", {}).get("spectral", {})
-        continents_cfg = spectral_cfg.get("continents", {})
-        continents_amp = float(continents_cfg.get("amp_m", 1.0)) or 1.0
-        base_layer_norm = np.clip((continents_layer / continents_amp), 0.0, 1.0)
+    # --- БЛОК selective_smooth_non_slopes ПОЛНОСТЬЮ УДАЛЕН ---
 
-        masks_cfg = spectral_cfg.get("masks", {})
-        m_cfg = masks_cfg.get("mountains", {})
-        p_cfg = masks_cfg.get("plains", {})
+    # --- БЛОК terracing (если он есть) должен быть здесь, ПЕРЕД slope_limiter ---
+    terracing_cfg = cfg.get("terracing", {})
+    if terracing_cfg.get("enabled", False):
+        print("  -> [Terrain] Применение 'сломанного' террасирования...")
 
-        # маска гор/равнин — ровно как раньше (порог/инверт/фейд)
-        from ...numerics.masking import create_mask
-        mountain_mask = create_mask(
-            base_layer_norm,
-            threshold=float(m_cfg.get("threshold", 0.5)),
-            invert=bool(m_cfg.get("invert", False)),
-            fade_range=float(m_cfg.get("fade_range", 0.1)),
-        )
-        plains_mask = create_mask(
-            base_layer_norm,
-            threshold=float(p_cfg.get("threshold", 0.5)),
-            invert=bool(p_cfg.get("invert", True)),
-            fade_range=float(p_cfg.get("fade_range", 0.1)),
+        # --- ГЛАВНОЕ ИСПРАВЛЕНИЕ: Маска создается из ФИНАЛЬНОЙ высоты ---
+        # Сначала нормализуем ТЕКУЩУЮ карту высот в диапазон [0, 1]
+        current_min = np.min(height_grid)
+        current_max = np.max(height_grid)
+        final_height_norm = (height_grid - current_min) / (current_max - current_min + 1e-6)
+
+        # Теперь создаем маску на основе этой финальной, реальной высоты
+        terracing_mask = create_mask(
+            final_height_norm,
+            threshold=terracing_cfg.get("mask_threshold", 0.6),
+            invert=False,
+            fade_range=terracing_cfg.get("mask_fade_range", 0.2)
         )
 
-        from .terrain_helpers import selective_smooth_non_slopes
+        height_grid = apply_terracing_effect(
+            height_grid,
+            terracing_mask,  # <--- Используем новую, правильную маску
+            terracing_cfg,
+            seed=seed,
+            x_coords=x_coords_base,
+            z_coords=z_coords_base,
+            cell_size=cell_size
+        )
+        _print_range("After Terracing", height_grid)
 
-        # конфиг «горы»
-        ns_m = ns_cfg.get("mountains", {})
-        if ns_m.get("enabled", False):
-            height_grid = selective_smooth_non_slopes(
-                height_grid,
-                cell_size=cell_size,
-                angle_deg=float(ns_m.get("angle_threshold_deg", 35.0)),
-                margin_cells=int(ns_m.get("margin_cells", 3)),
-                detail_keep=float(ns_m.get("detail_keep", 0.35)),
-                blur_iters=int(ns_m.get("blur_iters", 1)),
-                region_weight=mountain_mask,  # <— ТОЛЬКО на горной зоне (и только вне склонов)
-            )
-            _print_range("After Non-slope Smoothing (mountains)", height_grid)
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
-        # конфиг «равнины» (если понадобится отдельно)
-        ns_p = ns_cfg.get("plains", {})
-        if ns_p.get("enabled", False):
-            height_grid = selective_smooth_non_slopes(
-                height_grid,
-                cell_size=cell_size,
-                angle_deg=float(ns_p.get("angle_threshold_deg", 30.0)),
-                margin_cells=int(ns_p.get("margin_cells", 2)),
-                detail_keep=float(ns_p.get("detail_keep", 0.5)),
-                blur_iters=int(ns_p.get("blur_iters", 1)),
-                region_weight=plains_mask,
-            )
-            _print_range("After Non-slope Smoothing (plains)", height_grid)
-
-
-    # --- ВОССТАНОВЛЕННЫЙ И ПОЛНЫЙ КОД ---
     if cfg.get("use_slope_limiter", False):
         print("  -> [Terrain] Применение ограничителя крутизны склонов...")
         slope_angle = float(cfg.get("slope_limiter_angle_deg", 75.0))
         max_slope_tangent = math.tan(math.radians(slope_angle))
         iters = int(cfg.get("slope_limiter_iterations", 4))
         apply_slope_limiter(height_grid, max_slope_tangent, cell_size, iters)
-    # --- КОНЕЦ ---
 
     _print_range("Final Height Grid", height_grid)
     return height_grid.copy()

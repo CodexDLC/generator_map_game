@@ -46,28 +46,20 @@ def main():
     preset_data = json.loads(PRESET_PATH.read_text(encoding="utf-8"))
     preset = load_preset(preset_data)
 
-    # =======================================================
-    # ШАГ 1: ГЕНЕРАЦИЯ МИРА (С ПРОВЕРКОЙ)
-    # =======================================================
     final_world_path = ARTIFACTS_ROOT / "world" / "world_location" / str(city_seed)
 
     if final_world_path.exists() and any(final_world_path.iterdir()):
-        print(
-            f"\n--- World for seed '{city_seed}' already exists. Skipping generation. ---"
-        )
+        print(f"\n--- World for seed '{city_seed}' already exists. Skipping generation. ---")
     else:
         print("\n--- World Generation Initializing ---")
         region_manager = RegionManager(city_seed, preset, ARTIFACTS_ROOT)
         world_actor = WorldActor(
             city_seed, preset, ARTIFACTS_ROOT, progress_callback=print, verbose=True
         )
-
         world_actor.prepare_starting_area(region_manager)
         print("\n--- World Generation Complete. ---")
 
         print("\n--- Saving World Metadata & Preset ---")
-
-        # Сохраняем метаданные мира
         meta_path = str(final_world_path / "_world_meta.json")
         write_world_meta_json(
             path=meta_path,
@@ -76,23 +68,18 @@ def main():
             chunk_px=preset.size,
             meters_per_pixel=preset.cell_size,
             height_min_m=0.0,
-            height_max_m=preset.elevation.get("max_height_m", 150.0)
+            height_max_m=world_actor.h_norm
         )
-        print(f"--- EXPORT: World metadata saved to: {meta_path}")
-
-        # --- НАЧАЛО ИЗМЕНЕНИЙ: Сохраняем копию пресета ---
         preset_copy_path = final_world_path / "_preset.json"
         with open(preset_copy_path, "w", encoding="utf-8") as f:
             json.dump(preset_data, f, indent=2)
-        print(f"--- EXPORT: Preset copy saved to: {preset_copy_path}")
-        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
     print("\n--- Starting Viewer ---")
 
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     pygame.display.set_caption("Pygame World Viewer")
-    clock = pygame.time.Clock()
+    clock = pygame.time.Clock()  # <--- ВОТ ИСПРАВЛЕНИЕ
 
     game_surface = pygame.Surface((VIEWPORT_WIDTH, VIEWPORT_HEIGHT))
 
@@ -103,12 +90,6 @@ def main():
     region_size = preset.region_size
     min_scx, min_scz = -radius, -radius
     min_cx_world, min_cz_world = region_base(min_scx, min_scz, region_size)
-
-    preview_size = CHUNK_SIZE * 2
-    center_world_x = (0 - min_cx_world) * preview_size + (preview_size / 2)
-    center_world_y = (0 - min_cz_world) * preview_size + (preview_size / 2)
-    camera.x = center_world_x - (camera.viewport_width / (2 * camera.zoom))
-    camera.y = center_world_y - (camera.viewport_height / (2 * camera.zoom))
 
     world_map = WorldMapViewer(
         ARTIFACTS_ROOT, city_seed, min_cx=min_cx_world, min_cz=min_cz_world
