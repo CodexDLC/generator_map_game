@@ -133,6 +133,10 @@ def generate_elevation_region(
     height_grid = continents_layer + added_layers
 
     height_grid += float(cfg.get("base_height_m", 0.0))
+    try:
+        print(f"[Mask] terracing>0.4: {float((terracing_mask_strength > 0.4).mean() * 100.0):.1f}%")
+    except NameError:
+        pass
     _print_range("Before Clip (no clip)", height_grid)
 
     # --- БЛОК selective_smooth_non_slopes ПОЛНОСТЬЮ УДАЛЕН ---

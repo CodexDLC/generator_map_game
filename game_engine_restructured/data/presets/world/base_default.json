@@ -3,25 +3,29 @@
   "version": 8,
   "size": 512,
   "cell_size": 1.0,
-  "region_size": 9,
-  "initial_load_radius": 0,
+  "region_size": 11,
+  "initial_load_radius": 1,
   "elevation": {
     "max_height_m": 1100.0,
     "base_height_m": 0.0,
     "sea_level_m": 300.0,
     "terracing": {
       "enabled": true,
-      "step_height_m": 60.0,
-      "ledge_ratio": 0.7,
-      "strength_m": 15.0,
-      "mask_threshold": 0.5,
-      "mask_fade_range": 0.25,
-      "noise": {
-        "amp_m": 1.5,
-        "scale_tiles": 300.0,
-        "octaves": 5,
-        "additive_only": true,
-        "shaping_power": 1.0
+      "step_height_m": 70.0,
+      "ledge_ratio": 0.8,
+      "strength_m": 10.0,
+      "randomization": {
+        "phase_jitter_m": 20.0,
+        "phase_scale_tiles": 1500,
+        "step_jitter_ratio": 0.28,
+        "step_scale_tiles": 2200,
+        "ledge_jitter": 0.12,
+        "ledge_scale_tiles": 2600,
+        "break_threshold": 0.62,
+        "break_scale_tiles": 1400,
+        "break_octaves": 2,
+        "height_step_gain": 0.28,
+        "curvature_fade": 0.5
       }
     },
     "spectral": {
@@ -43,7 +47,7 @@
           "layers": {
             "plains_shelf": {
               "amp_m": 180.0,
-              "scale_tiles": 9000,
+              "scale_tiles": 8000,
               "octaves": 2,
               "additive_only": true,
               "ridge": true,
@@ -75,7 +79,7 @@
           "layers": {
             "foothill_base": {
               "amp_m": 150.0,
-              "scale_tiles": 3000,
+              "scale_tiles": 2000,
               "octaves": 4,
               "additive_only": true,
               "ridge": true,
@@ -83,7 +87,7 @@
             },
             "foothill_detail": {
               "amp_m": 60.0,
-              "scale_tiles": 1000,
+              "scale_tiles": 1100,
               "octaves": 5,
               "additive_only": true,
               "ridge": true,
@@ -99,7 +103,7 @@
           "layers": {
             "mountain_shoulders": {
               "amp_m": 100.0,
-              "scale_tiles": 1500,
+              "scale_tiles": 1100,
               "octaves": 6,
               "additive_only": true,
               "ridge": true,
@@ -115,7 +119,7 @@
             },
             "mountain_details": {
               "amp_m": 50.0,
-              "scale_tiles": 300,
+              "scale_tiles": 200,
               "octaves": 6,
               "additive_only": true,
               "ridge": true,
