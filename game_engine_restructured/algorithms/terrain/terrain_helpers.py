@@ -235,3 +235,26 @@ def selective_smooth_non_slopes(
     # 4) На траве оставляем detail_keep, на скалах — 100%
     detail_scale = 1.0 - grass_w * (1.0 - float(detail_keep))
     return H_base + H_detail * detail_scale
+
+
+def _morph_wave_ridge(n, k, sharpness_enhance=0.0):
+    """
+    Морф одной октавы n∈[-1,1] между billow/base/ridge по карте k∈[-1,1].
+    k>0 → ridge, k<0 → billow, k≈0 → base. sharpness_enhance ≥ 0 усиливает «остроту».
+    """
+    import numpy as np
+
+    n = np.clip(n, -1.0, 1.0).astype(np.float32)
+    k = np.clip(k, -1.0, 1.0).astype(np.float32)
+
+    t_r = np.maximum(0.0, k)       # доля ridge
+    t_b = np.maximum(0.0, -k)      # доля billow
+    b = 2.0 * np.abs(n) - 1.0      # billow ∈ [-1,1]
+    r = 1.0 - 2.0 * np.abs(n)      # ridge  ∈ [-1,1]
+
+    out = n * (1.0 - t_r - t_b) + r * t_r + b * t_b
+    if sharpness_enhance > 0.0:
+        s = 1.0 + float(sharpness_enhance)
+        out = np.sign(out) * (np.abs(out) ** s)
+
+    return np.clip(out, -1.0, 1.0).astype(np.float32)

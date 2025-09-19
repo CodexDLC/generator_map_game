@@ -11,6 +11,7 @@ import numpy as np
 from .terracing import apply_terracing_effect
 from .terrain_helpers import generate_noise_layer, generate_base_noise, normalize_and_shape, scale_by_amplitude
 from ...numerics.masking import create_mask
+from ...numerics.new_test import anti_ripple
 from ...numerics.slope import apply_slope_limiter
 
 
@@ -89,74 +90,170 @@ def _generate_composite_continents(
 
 
 def apply_modulated_layers(
-        base_layer_for_masks: np.ndarray,  # <--- ИЗМЕНЕНИЕ: Теперь принимаем основу для масок
+        base_layer_for_masks: np.ndarray,
         preset: Any,
         seed: int,
         x_coords: np.ndarray,
         z_coords: np.ndarray,
         cell_size: float
 ) -> np.ndarray:
+    import numpy as np
+
+    def _morph_wave_ridge(n: np.ndarray, k: np.ndarray, sharpness_enhance: float = 0.0) -> np.ndarray:
+        n = np.clip(n, -1.0, 1.0).astype(np.float32)
+        k = np.clip(k, -1.0, 1.0).astype(np.float32)
+        t_r = np.maximum(0.0, k)      # ridge доля
+        t_b = np.maximum(0.0, -k)     # billow доля
+        b = 2.0 * np.abs(n) - 1.0     # billow ∈ [-1,1]
+        r = 1.0 - 2.0 * np.abs(n)     # ridge  ∈ [-1,1]
+        out = n * (1.0 - t_r - t_b) + r * t_r + b * t_b
+        if sharpness_enhance > 0.0:
+            s = 1.0 + float(sharpness_enhance)
+            out = np.sign(out) * (np.abs(out) ** s)
+        return np.clip(out, -1.0, 1.0).astype(np.float32)
+
     spectral_cfg = getattr(preset, "elevation", {}).get("spectral", {})
     masks_cfg = spectral_cfg.get("masks", {})
 
-    # --- ИЗМЕНЕНИЕ: Используем переданный "чистый" шум для создания масок ---
-    base_layer_norm = base_layer_for_masks
-
-    total_added_height = np.zeros_like(base_layer_for_masks)
+    total_added_height = np.zeros_like(base_layer_for_masks, dtype=np.float32)
     layer_seed = seed + 1
 
+    # вес считаем только от "сырой" основы
+    base_norm_raw_global = np.clip(
+        np.nan_to_num(base_layer_for_masks, nan=0.0, posinf=1.0, neginf=0.0),
+        0.0, 1.0
+    ).astype(np.float32)
+
     for mask_name, mask_config in masks_cfg.items():
-        # 1) базовая (пороговая) маска с fade
+        # A) локальная норма для формы этой маски
+        norm_for_mask = base_norm_raw_global.copy()
+
+        # B) MORPH формы (опционально)
+        morph_cfg = mask_config.get("morph", {})
+        if morph_cfg.get("enabled", False):
+            n_signed = 2.0 * norm_for_mask - 1.0
+            k_scale_tiles = float(morph_cfg.get("scale_tiles", 10000.0))
+            k_amp         = float(morph_cfg.get("amp", 0.8))
+            k_seed_off    = int(morph_cfg.get("seed_offset", 777))
+            sharp_enh     = float(morph_cfg.get("sharpness_enhance", 0.5))
+            slope_er      = float(morph_cfg.get("slope_erosion", 0.4))
+            alt_er        = float(morph_cfg.get("altitude_erosion", 0.4))
+            ridge_er      = float(morph_cfg.get("ridge_erosion", 0.2))
+
+            period_m = max(1e-6, k_scale_tiles)     # координаты уже в метрах
+            k_freq = 1.0 / period_m
+            try:
+                import fast_noise
+                k = k_amp * fast_noise.simplex2d_grid(x_coords, z_coords, seed + k_seed_off, k_freq)
+            except Exception:
+                k = n_signed.copy()
+                for _ in range(3):
+                    k = (np.roll(k, 1, 0) + k + np.roll(k, -1, 0) +
+                         np.roll(k, 1, 1) + np.roll(k, -1, 1)) / 5.0
+                k *= k_amp
+            k = np.clip(k, -1.0, 1.0).astype(np.float32)
+
+            n_m = _morph_wave_ridge(n_signed, k, sharpness_enhance=sharp_enh)
+
+            if slope_er > 0.0:
+                dx = (np.roll(n_m, -1, 1) - np.roll(n_m, 1, 1)) / (2.0 * float(cell_size))
+                dz = (np.roll(n_m, -1, 0) - np.roll(n_m, 1, 0)) / (2.0 * float(cell_size))
+                slope = np.sqrt(dx * dx + dz * dz)
+                n_m *= 1.0 / (1.0 + (slope_er * slope) ** 2)
+
+            if alt_er > 0.0:
+                h_loc = 0.5 * (n_m + 1.0)
+                n_m *= (1.0 - alt_er * h_loc)
+
+            if ridge_er > 0.0:
+                ridge_mask = np.clip(1.0 - np.abs(n_m), 0.0, 1.0)
+                n_m *= (1.0 - ridge_er * ridge_mask)
+
+            norm_for_mask = np.clip(0.5 * (n_m + 1.0), 0.0, 1.0)
+
+        # C) базовая (пороговая) маска — для mountains дополнительно спасаем вершины
         mask_creation_params = {
             "threshold": mask_config.get("threshold", 0.5),
             "invert": mask_config.get("invert", False),
             "fade_range": mask_config.get("fade_range", 0.1)
         }
-        base_mask = create_mask(base_layer_norm, **mask_creation_params)
 
-        # 2) НЕПРЕРЫВНАЯ модуляция по высоте (high/low) с гаммой
+        if mask_name == "mountains":
+            # параметры смешивания можно задавать в morph, иначе дефолты
+            t_raw    = float(morph_cfg.get("raw_blend", 0.5))   # 50% RAW + 50% MORPH
+            max_drop = float(morph_cfg.get("max_drop", 0.08))   # максимум, на сколько морф может уронить RAW
+
+            # 1) смесь RAW+MORPH и защита верха
+            mixed = (1.0 - t_raw) * norm_for_mask + t_raw * base_norm_raw_global
+            norm_for_mask = np.maximum(mixed, base_norm_raw_global - max_drop)
+
+            # 2) маска через двойной smoothstep-гейт: включение по RAW, форма по MORPH
+            th   = float(mask_creation_params["threshold"])
+            fade = float(mask_creation_params["fade_range"])
+            eps  = max(1e-6, 0.5 * fade)
+
+            raw_gate = np.clip((base_norm_raw_global - th) / eps, 0.0, 1.0)
+            mrf_gate = np.clip((norm_for_mask        - th) / eps, 0.0, 1.0)
+            raw_gate = raw_gate * raw_gate * (3.0 - 2.0 * raw_gate)
+            mrf_gate = mrf_gate * mrf_gate * (3.0 - 2.0 * mrf_gate)
+
+            base_mask = raw_gate * mrf_gate
+
+            # диагностика до весов
+            p_raw = float(np.mean(base_norm_raw_global > th) * 100.0)
+            p_mrf = float(np.mean(norm_for_mask        > th) * 100.0)
+            print(f"[MASKDBG] mountains: >{th:.2f} raw={p_raw:.1f}% morph_mix={p_mrf:.1f}% | "
+                  f"raw_range=({base_norm_raw_global.min():.2f},{base_norm_raw_global.max():.2f}) | "
+                  f"morph_range=({norm_for_mask.min():.2f},{norm_for_mask.max():.2f}) | "
+                  f"base_mask=({base_mask.min():.2f},{base_mask.max():.2f})")
+        else:
+            base_mask = create_mask(norm_for_mask, **mask_creation_params)
+
+        # D) непрерывная модуляция по высоте (вес) — ОТ RAW (не от морфа)
         mod_cfg = mask_config.get("modulate", None)
         if mod_cfg:
             mode = mod_cfg.get("mode", "none")
             gamma = float(mod_cfg.get("gamma", 1.0))
-            if gamma <= 0.0: gamma = 1.0
+            if gamma <= 0.0:
+                gamma = 1.0
 
             if mode == "high":
-                base_layer_norm = np.clip(np.nan_to_num(base_layer_for_masks, nan=0.0, posinf=1.0, neginf=0.0), 0.0,
-                                          1.0)
-                weight = np.power(base_layer_norm, gamma)
-                mask = base_mask * weight
-                mask = np.clip(mask, 0.0, 1.0)
+                weight = np.power(base_norm_raw_global, gamma)
+                mask = np.clip(base_mask * weight, 0.0, 1.0)
             elif mode == "low":
-                base_layer_norm = np.clip(np.nan_to_num(base_layer_for_masks, nan=0.0, posinf=1.0, neginf=0.0), 0.0,
-                                          1.0)
-                weight = np.power(1.0 - base_layer_norm, gamma)
-                mask = base_mask * weight
-                mask = np.clip(mask, 0.0, 1.0)
+                weight = np.power(1.0 - base_norm_raw_global, gamma)
+                mask = np.clip(base_mask * weight, 0.0, 1.0)
             else:
                 mask = base_mask
         else:
             mask = base_mask
 
-        # 3) суммируем слои маски, потом применяем итоговый вес
+        if mask_name == "mountains":
+            print(f"[MASKDBG] mountains: final mask=({mask.min():.2f},{mask.max():.2f})")
+
+        # E) суммируем слои
         if "layers" in mask_config:
-            mask_contribution = np.zeros_like(total_added_height)
+            mask_contribution = np.zeros_like(total_added_height, dtype=np.float32)
             for layer_name, layer_cfg in mask_config["layers"].items():
                 sub_layer = generate_noise_layer(
                     layer_seed, layer_cfg, x_coords, z_coords, cell_size
-                )
-                print(
-                    f"[DIAG] {mask_name}.{layer_name}: amp={layer_cfg.get('amp_m', 0)} range=({float(np.min(sub_layer)):.2f},{float(np.max(sub_layer)):.2f})")
+                ).astype(np.float32)
+                print(f"[DIAG] {mask_name}.{layer_name}: amp={layer_cfg.get('amp_m', 0)} "
+                      f"range=({float(np.min(sub_layer)):.2f},{float(np.max(sub_layer)):.2f})")
                 mask_contribution += sub_layer
                 layer_seed += 1
 
-            masked = mask_contribution * mask
+            masked = (mask_contribution * mask).astype(np.float32)
             total_added_height += masked
 
-            print(
-                f"[DIAG] {mask_name}: pre=({float(np.min(mask_contribution)):.2f},{float(np.max(mask_contribution)):.2f}) weight=({float(np.min(mask)):.2f},{float(np.max(mask)):.2f}) post=({float(np.min(masked)):.2f},{float(np.max(masked)):.2f})")
+            print(f"[DIAG] {mask_name}: pre=({float(np.min(mask_contribution)):.2f},"
+                  f"{float(np.max(mask_contribution)):.2f}) "
+                  f"weight=({float(np.min(mask)):.2f},{float(np.max(mask)):.2f}) "
+                  f"post=({float(np.min(masked)):.2f},{float(np.max(masked)):.2f})")
 
-    return total_added_height
+    return total_added_height.astype(np.float32)
+
+
 
 
 def generate_elevation_region(
@@ -200,6 +297,11 @@ def generate_elevation_region(
     height_grid = continents_layer + added_layers
     height_grid += float(cfg.get("base_height_m", 0.0))
     _print_range("After Details & Base Height", height_grid)
+
+    height_grid = anti_ripple(height_grid, cell_size,
+                              sigma_low=9.0, sigma_high=3.5,
+                              alpha=0.55, slope_deg_mid=22.0, slope_deg_hard=38.0)
+    _print_range("After Anti-Ripple", height_grid)
 
     # --- ПРИМЕНЕНИЕ ТЕРРАСИРОВАНИЯ И ДРУГИХ ЭФФЕКТОВ ---
     terracing_cfg = cfg.get("terracing", {})
