@@ -122,11 +122,17 @@ def apply_modulated_layers(
             if gamma <= 0.0: gamma = 1.0
 
             if mode == "high":
+                base_layer_norm = np.clip(np.nan_to_num(base_layer_for_masks, nan=0.0, posinf=1.0, neginf=0.0), 0.0,
+                                          1.0)
                 weight = np.power(base_layer_norm, gamma)
                 mask = base_mask * weight
+                mask = np.clip(mask, 0.0, 1.0)
             elif mode == "low":
+                base_layer_norm = np.clip(np.nan_to_num(base_layer_for_masks, nan=0.0, posinf=1.0, neginf=0.0), 0.0,
+                                          1.0)
                 weight = np.power(1.0 - base_layer_norm, gamma)
                 mask = base_mask * weight
+                mask = np.clip(mask, 0.0, 1.0)
             else:
                 mask = base_mask
         else:
