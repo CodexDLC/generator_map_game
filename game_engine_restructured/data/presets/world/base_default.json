@@ -3,8 +3,8 @@
   "version": 8,
   "size": 512,
   "cell_size": 1.0,
-  "region_size": 11,
-  "initial_load_radius": 1,
+  "region_size": 21,
+  "initial_load_radius": 0,
   "elevation": {
     "max_height_m": 1100.0,
     "base_height_m": 0.0,
@@ -36,7 +36,15 @@
         "scale_tiles": 9000,
         "shaping_power": 1.5,
         "octaves": 5,
-        "ridge": true
+        "ridge": true,
+        "warp": {
+          "amp": 350.0,
+          "scale_tiles": 3000,
+          "octaves": 4
+        },
+        "plains_shaping": {
+          "shaping_power": 1.0
+        }
       },
       "masks": {
         "plains": {
