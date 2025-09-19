@@ -3,29 +3,22 @@
   "version": 8,
   "size": 512,
   "cell_size": 1.0,
-  "region_size": 11,
-  "initial_load_radius": 1,
+  "region_size": 15,
+  "initial_load_radius": 0,
   "elevation": {
-    "max_height_m": 1100.0,
+    "max_height_m": 1200.0,
     "base_height_m": 0.0,
     "sea_level_m": 300.0,
     "terracing": {
       "enabled": true,
-      "step_height_m": 70.0,
+      "step_height_m": 45.0,
       "ledge_ratio": 0.8,
-      "strength_m": 10.0,
+      "strength_m": 1.0,
       "randomization": {
-        "phase_jitter_m": 20.0,
-        "phase_scale_tiles": 1500,
-        "step_jitter_ratio": 0.28,
-        "step_scale_tiles": 2200,
-        "ledge_jitter": 0.12,
-        "ledge_scale_tiles": 2600,
-        "break_threshold": 0.62,
-        "break_scale_tiles": 1400,
-        "break_octaves": 2,
-        "height_step_gain": 0.28,
-        "curvature_fade": 0.5
+        "ledge_jitter": 0.15,
+        "ledge_scale_tiles": 3000,
+        "curvature_fade": 0.6,
+        "warp_strength": 18.0
       }
     },
     "spectral": {
@@ -33,10 +26,14 @@
       "continents": {
         "is_base": true,
         "amp_m": 500.0,
-        "scale_tiles": 9000,
-        "shaping_power": 1.5,
+        "scale_tiles": 10000,
+        "shaping_power": 1.2,
         "octaves": 5,
-        "ridge": true
+        "ridge": true,
+        "warp": { "amp": 320.0, "scale_tiles": 8000, "octaves": 4 },
+        "plains_shaping": {
+          "shaping_power": 1.0
+        }
       },
       "masks": {
         "plains": {
@@ -45,85 +42,90 @@
           "fade_range": 0.22,
           "modulate": { "mode": "low", "gamma": 1.25 },
           "layers": {
-            "plains_shelf": {
-              "amp_m": 180.0,
-              "scale_tiles": 8000,
-              "octaves": 2,
-              "additive_only": true,
-              "ridge": true,
-              "shaping_power": 1.1
-            },
-            "plains_foundation": {
-              "amp_m": 260.0,
-              "scale_tiles": 4500,
-              "octaves": 5,
-              "additive_only": true,
-              "ridge": false,
-              "shaping_power": 1.25
-            },
-            "plains_hills": {
-              "amp_m": 45.0,
-              "scale_tiles": 2200,
-              "octaves": 5,
-              "additive_only": true,
-              "ridge": false,
-              "shaping_power": 1.1
-            }
+            "plains_shelf":      { "amp_m": 140.0, "scale_tiles": 3800, "octaves": 2, "additive_only": true },
+            "plains_foundation": { "amp_m": 260.0, "scale_tiles": 1100, "octaves": 3, "additive_only": true, "shaping_power": 1.25 },
+            "plains_hills":      { "amp_m":  65.0, "scale_tiles":  220, "octaves": 3, "additive_only": true, "shaping_power": 1.6 }
           }
         },
         "foothills": {
-          "threshold": 0.42,
+          "threshold": 0.4,
           "invert": false,
-          "fade_range": 0.32,
-          "modulate": { "mode": "high", "gamma": 0.85 },
+          "fade_range": 0.4,
+          "modulate": { "mode": "high", "gamma": 1.05 },
+          "morph": {
+            "enabled": false,
+            "scale_tiles": 7000,
+            "amp": 0.9,
+            "sharpness_enhance": 0.5,
+            "slope_erosion": 0.15,
+            "altitude_erosion": 0.1,
+            "ridge_erosion": 0.05
+          },
           "layers": {
             "foothill_base": {
-              "amp_m": 150.0,
-              "scale_tiles": 2000,
+              "amp_m": 100.0,
+              "scale_tiles": 1000,
               "octaves": 4,
               "additive_only": true,
               "ridge": true,
-              "shaping_power": 0.8
+              "shaping_power": 0.8,
+              "warp": { "amp": 40.0, "scale_tiles": 2200, "octaves": 2 }
             },
             "foothill_detail": {
-              "amp_m": 60.0,
-              "scale_tiles": 1100,
-              "octaves": 5,
+              "amp_m": 50.0,
+              "scale_tiles": 1500,
+              "octaves": 3,
               "additive_only": true,
-              "ridge": true,
-              "shaping_power": 1.15
+              "ridge": false,
+              "shaping_power": 1.05,
+              "warp": { "amp": 12.0, "scale_tiles": 1200, "octaves": 2 }
             }
           }
         },
         "mountains": {
-          "threshold": 0.74,
+          "morph": {
+            "enabled": false,
+            "scale_tiles": 9000,
+            "amp": 1.1,
+            "seed_offset": 777,
+            "sharpness_enhance": 0.8,
+            "slope_erosion": 0.12,
+            "altitude_erosion": 0.18,
+            "ridge_erosion": 0.06,
+            "raw_blend": 0.75,
+            "max_drop": 0.03
+          },
+          "threshold": 0.70,
+          "fade_range": 0.40,
           "invert": false,
-          "fade_range": 0.34,
-          "modulate": { "mode": "high", "gamma": 0.85 },
+          "modulate": { "mode": "high", "gamma": 1.4 },
           "layers": {
             "mountain_shoulders": {
-              "amp_m": 100.0,
-              "scale_tiles": 1100,
-              "octaves": 6,
+              "amp_m": 200.0,
+              "scale_tiles": 1500,
+              "octaves": 5,
               "additive_only": true,
               "ridge": true,
-              "shaping_power": 0.8
+              "shaping_power": 0.8,
+              "warp": { "amp": 25.0, "scale_tiles": 2000, "octaves": 2 }
             },
             "mountain_peaks": {
-              "amp_m": 250.0,
+              "amp_m": 300.0,
               "scale_tiles": 1000,
-              "octaves": 6,
+              "octaves": 5,
               "additive_only": true,
               "ridge": true,
-              "shaping_power": 1.0
+              "shaping_power": 1.0,
+              "warp": { "amp": 60.0, "scale_tiles": 1350, "octaves": 2 }
             },
             "mountain_details": {
               "amp_m": 50.0,
-              "scale_tiles": 200,
-              "octaves": 6,
+              "scale_tiles": 500,
+              "octaves": 7,
               "additive_only": true,
               "ridge": true,
-              "shaping_power": 1.0
+              "shaping_power": 1.0,
+              "warp": { "amp": 10.0, "scale_tiles": 600, "octaves": 2 }
             }
           }
         }
