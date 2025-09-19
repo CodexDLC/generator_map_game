@@ -112,53 +112,62 @@ def apply_terracing_effect(
     print(f"[Terrace] deform raw:  min={d.min():.2f} max={d.max():.2f} mean={d.mean():.2f} "
           f"|d|>0.5m={float((np.abs(d)>0.5).mean()*100.0):.1f}%")
 
-    # ---------- 5) Break-mask (рвём кольца на сегменты) и «амплитудный» breaking ----------
-    break_thr = rnd.get("break_threshold", None)
-    breaking = None
-    break_mask = None
-    if break_thr is not None:
-        break_scale = float(rnd.get("break_scale_tiles", 1200.0))
-        break_oct = int(rnd.get("break_octaves", 1))
-        n_break = _noise(seed + 31, break_scale, break_oct, x_coords, z_coords, cell_size)  # [-1..1]
-        breaking = 0.5 + 0.5 * n_break                                   # 0..1
-        breaking = np.clip(breaking, 0.35, 1.0)                           # не гасим в ноль
-        break_mask = (breaking > float(break_thr)).astype(np.float32)     # 0/1
+    # ---- BREAK SEGMENTS (адаптивный порог + soft gate + утолщение) ----
+    rnd = cfg.get("randomization", {}) or {}
+    break_scale = float(rnd.get("break_scale_tiles", 1400.0))
+    break_oct = int(rnd.get("break_octaves", 1))
+    # генерим breaking в [0..1], с минимумом 0.35 чтобы не глушить в ноль
+    n_break = _noise(seed + 31, break_scale, break_oct, x_coords, z_coords, cell_size)  # [-1..1]
+    breaking = np.clip(0.5 + 0.5 * n_break, 0.35, 1.0)
 
-        cov = float((break_mask[mount_area] > 0.5).mean()*100.0) if mount_area.any() else float((break_mask>0.5).mean()*100.0)
-        print(f"[Terrace] break coverage: {cov:.1f}% thr={break_thr} "
-              f"| breaking[min={breaking.min():.2f} max={breaking.max():.2f}]")
+    # целевая доля «включённых» сегментов на горных участках (0.0..1.0)
+    target_cov = float(rnd.get("break_target_coverage", 0.40))  # 40% по умолч.
+    mount_area = (mask_strength > 0.4)
+    if mount_area.any():
+        thr = float(np.quantile(breaking[mount_area], 1.0 - target_cov))
     else:
-        # Если порога нет — используем только мягкий «breaking» как амплитудный множитель 0.5..1.0
-        breaking = None
-        print("[Terrace] break: OFF")
+        thr = float(np.quantile(breaking, 1.0 - target_cov))
 
-    # ---------- 6) Кривизна (ослабить ступени на выпуклых гребнях) ----------
-    curvature_fade = float(rnd.get("curvature_fade", 0.0))
-    if curvature_fade > 0.0:
-        gy, gx = np.gradient(height_grid, cell_size)
-        gyy, _ = np.gradient(gy, cell_size)
-        _, gxx = np.gradient(gx, cell_size)
-        curvature = gxx + gyy                   # >0 на гребнях, <0 в лощинах
-        concave_mask = _smoothstep(0.0, curvature_fade, -curvature)  # 1 в лощинах → держим ступени
+    hard = (breaking > thr).astype(np.float32)
+
+    # утолщение сегментов на r пикселей (дешёвая дилатация через np.roll)
+    r = int(rnd.get("break_thicken_radius", 2))  # 0 = без утолщения
+    if r > 0:
+        base = hard.copy()
+        for dz in range(-r, r + 1):
+            for dx in range(-r, r + 1):
+                if dx == 0 and dz == 0:
+                    continue
+                hard = np.maximum(hard, np.roll(np.roll(base, dz, axis=0), dx, axis=1))
+
+    # soft-ворота: вне сегментов не 0, а небольшой коэффициент
+    keep_off = float(rnd.get("break_keep_off", 0.25))  # 25% амплитуды снаружи
+    gate = np.where(hard > 0.5, 1.0, keep_off)
+
+    # применяем к деформации (если у тебя ещё есть curvature_mask — умножай её ДО gate)
+    d_fin = deformation * np.clip(mask_strength, 0.0, 1.0) * gate
+
+    # диагностика
+    if mount_area.any():
+        cov = float((hard[mount_area] > 0.5).mean() * 100.0)
     else:
-        concave_mask = 1.0
+        cov = float((hard > 0.5).mean() * 100.0)
+    print(f"[Terrace] break target={target_cov * 100:.0f}% → actual={cov:.1f}% thr={thr:.2f} "
+          f"| breaking[min={breaking.min():.2f} max={breaking.max():.2f}]")
 
-    # ---------- 7) Собираем финальную деформацию ----------
-    d_fin = deformation * concave_mask * np.clip(mask_strength, 0.0, 1.0)
-    if breaking is not None:
-        d_fin = d_fin * breaking
-    if break_mask is not None:
-        d_fin = d_fin * break_mask
+    # === FINALIZE APPLY (всегда формируем out) ===
+    if 'gate' not in locals():
+        gate = 1.0
 
-    df = d_fin[mount_area] if mount_area.any() else d_fin
-    print(f"[Terrace] deform final: min={df.min():.2f} max={df.max():.2f} mean={df.mean():.2f} "
-          f"|d|>0.5m={float((np.abs(df)>0.5).mean()*100.0):.1f}%")
+    # если ранее d_fin не собрали — соберём базовый вариант
+    if 'd_fin' not in locals():
+        d_fin = deformation * np.clip(mask_strength, 0.0, 1.0) * gate
 
-    # ---------- 8) Применяем ----------
     out = height_grid + d_fin
+
+    # короткая диагностика перед возвратом
     dh = out - height_grid
-    print(f"[Terrace] heights: before[min={height_grid.min():.2f} max={height_grid.max():.2f}] "
-          f"after[min={out.min():.2f} max={out.max():.2f}] "
-          f"Δmax={dh.max():.2f} Δmean={dh.mean():.2f} |Δ|>0.5m={float((np.abs(dh)>0.5).mean()*100.0):.1f}%")
+    print(
+        f"[Terrace][OK] Δmax={dh.max():.2f} Δmean={dh.mean():.2f} |Δ|>0.5m={float((np.abs(dh) > 0.5).mean() * 100.0):.1f}%")
 
     return out
