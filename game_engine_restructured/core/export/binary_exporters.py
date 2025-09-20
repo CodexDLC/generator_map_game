@@ -12,7 +12,6 @@ import numpy as np
 
 from .. import preset
 from ..constants import SURFACE_ID_TO_KIND
-from ...algorithms.terrain.terrain_helpers import compute_amp_sum
 
 
 def _ensure_path_exists(path: str) -> None:

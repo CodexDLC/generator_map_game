@@ -20,7 +20,7 @@ from .world.context import Region
 from .world.road_types import RoadWaypoint, ChunkRoadPlan
 from .world.prefab_manager import PrefabManager
 from .world.serialization import ClientChunkContract
-from .algorithms.terrain.terrain_helpers import compute_amp_sum
+
 
 # --- НАЧАЛО ИСПРАВЛЕНИЯ: Отсутствующий импорт ---
 from .core.export import write_chunk_preview
@@ -47,9 +47,10 @@ class WorldActor:
         prefabs_path = Path(__file__).parent / "data" / "prefabs.json"
         self.prefab_manager = PrefabManager(prefabs_path)
         self.detail_processor = DetailProcessor(preset, self.prefab_manager, verbose=self.verbose)
-        self.h_norm = compute_amp_sum(self.preset)
+        self.h_norm = float(self.preset.elevation.get("max_height_m", 1.0))
         if self.verbose:
-            print(f"[WorldActor] H_NORM (sum of amp_m) = {self.h_norm:.3f}")
+            # Обновляем сообщение для ясности
+            print(f"[WorldActor] H_NORM (from preset max_height_m) = {self.h_norm:.3f}")
 
     def _log(self, message: str):
         if self.progress_callback:

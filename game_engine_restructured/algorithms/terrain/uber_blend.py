@@ -266,21 +266,3 @@ def uber_fbm(
     h /= max(1e-6, norm)
     return np.clip(h, -1.0, 1.0).astype(np.float32)
 
-
-# --------------------
-# ПРИМЕР ИСПОЛЬЗОВАНИЯ
-# --------------------
-if __name__ == "__main__":
-    # Демонстрация без реального шума: подменим noise2d синусом.
-    H, W = 256, 256
-    xs = np.linspace(0, 2000, W, dtype=np.float32)
-    zs = np.linspace(0, 2000, H, dtype=np.float32)
-    X, Z = np.meshgrid(xs, zs)
-
-    def fake_noise(U, V, seed, freq):
-        return np.sin((U + seed*0.01) * 2*np.pi*freq) * np.cos((V - seed*0.02) * 2*np.pi*freq).astype(np.float32)
-
-    base = uber_fbm(X, Z, base_period_m=600.0, octaves=4, noise2d=fake_noise, seed=42)
-    style = uber_fbm(X, Z, base_period_m=600.0, octaves=4, noise2d=fake_noise, seed=99)
-
-    M = donut_mask(X, Z, (0, 2000, 0, 2000), blend_width_m=200.0, inner_pad_m=100.0)
