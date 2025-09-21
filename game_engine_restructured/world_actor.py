@@ -1,43 +1,59 @@
 # ==============================================================================
 # Файл: game_engine_restructured/world_actor.py
-# ВЕРСИЯ 2.0: Исправлен критический импорт DetailProcessor.
+# ВЕРСИЯ 3.0: Адаптирован для работы с графовыми пресетами.
 # ==============================================================================
 from __future__ import annotations
 import json
 from pathlib import Path
+from typing import Dict, Any  # <-- ИЗМЕНЕНИЕ: Добавляем типы
 
 # --- Компоненты движка ---
-from .core.preset import Preset
+# --- ИЗМЕНЕНИЕ: Убираем Preset, добавляем SimpleNamespace ---
+from .core.preset import load_preset  # Оставляем для совместимости
+from types import SimpleNamespace
+
 from .core.export import (
     write_client_chunk_meta, write_heightmap_r16,
     write_control_map_r32, write_world_meta_json, write_objects_json,
     read_raw_chunk
 )
-# --- НАЧАЛО ИСПРАВЛЕНИЯ: Неправильный импорт ---
 from .world.processing.detail_processor import DetailProcessor
-# --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 from .world.context import Region
 from .world.road_types import RoadWaypoint, ChunkRoadPlan
 from .world.prefab_manager import PrefabManager
 from .world.serialization import ClientChunkContract
-
-
-# --- НАЧАЛО ИСПРАВЛЕНИЯ: Отсутствующий импорт ---
 from .core.export import write_chunk_preview
-# --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
 
 class WorldActor:
+    # --- ИЗМЕНЕНИЕ: Меняем сигнатуру конструктора ---
     def __init__(
             self,
             seed: int,
-            preset: Preset,
+            # Вместо объекта Preset теперь принимаем словарь с графом
+            graph_data: Dict[str, Any],
             artifacts_root: Path,
-            progress_callback=None,
+            # progress_callback=None,
             verbose: bool = False,
     ):
         self.seed = seed
-        self.preset = preset
+        # --- НОВАЯ ЛОГИКА: Создаем "легкий" пресет на лету ---
+        # Это позволяет нам не переписывать весь код ниже,
+        # который ожидает объект `preset` с нужными полями.
+        self.preset = SimpleNamespace(
+            initial_load_radius=graph_data.get("initial_load_radius", 1),
+            region_size=graph_data.get("region_size", 3),
+            size=graph_data.get("size", 512),
+            cell_size=graph_data.get("cell_size", 1.0),
+            export=graph_data.get("export", {}),
+            # h_norm теперь берется из elevation, если он есть в графе
+            h_norm=float(graph_data.get("elevation", {}).get("max_height_m", 800.0)),
+            # Сохраняем сам граф для будущей передачи в генератор
+            node_graph=graph_data.get("node_graph", {})
+        )
+        self.graph_data = graph_data # Сохраняем на всякий случай
+        # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
+
         self.artifacts_root = artifacts_root
         self.raw_data_path = self.artifacts_root / "world_raw" / str(self.seed)
         self.final_data_path = self.artifacts_root / "world" / "world_location" / str(self.seed)
@@ -46,11 +62,11 @@ class WorldActor:
 
         prefabs_path = Path(__file__).parent / "data" / "prefabs.json"
         self.prefab_manager = PrefabManager(prefabs_path)
-        self.detail_processor = DetailProcessor(preset, self.prefab_manager, verbose=self.verbose)
-        self.h_norm = float(self.preset.elevation.get("max_height_m", 1.0))
+        # Передаем "легкий" пресет дальше
+        self.detail_processor = DetailProcessor(self.preset, self.prefab_manager, verbose=self.verbose)
+        self.h_norm = self.preset.h_norm # Используем значение из нашего объекта
         if self.verbose:
-            # Обновляем сообщение для ясности
-            print(f"[WorldActor] H_NORM (from preset max_height_m) = {self.h_norm:.3f}")
+            print(f"[WorldActor] H_NORM (from graph_data) = {self.h_norm:.3f}")
 
     def _log(self, message: str):
         if self.progress_callback:
@@ -58,7 +74,7 @@ class WorldActor:
 
     def prepare_starting_area(self, region_manager):
         radius = self.preset.initial_load_radius
-        self._log(f"\n[WorldActor] Preparing start area with REGION radius {radius}...")
+        self._log_progress(0, f"Подготовка области с радиусом {radius}...")
 
         regions_to_generate = [
             (scx, scz)
@@ -66,13 +82,21 @@ class WorldActor:
             for scx in range(-radius, radius + 1)
         ]
         total_regions = len(regions_to_generate)
+        if total_regions == 0:
+            self._log_progress(100, "Нет регионов для генерации.")
+            return
 
         for i, (scx, scz) in enumerate(regions_to_generate):
-            self._log(f"\n--- [{i + 1}/{total_regions}] Processing Region ({scx}, {scz}) ---")
-            region_manager.generate_raw_region(scx, scz)
+            percent = int((i / total_regions) * 100)
+            self._log_progress(percent, f"[{i + 1}/{total_regions}] Обработка региона ({scx}, {scz})...")
+
+            region_manager.generate_raw_region(scx, scz, self.graph_data)
             self._detail_region(scx, scz)
 
+        self._log_progress(100, "Область сгенерирована.")
+
     def _detail_region(self, scx: int, scz: int):
+        # И здесь тоже ничего не меняется
         self._log(f"[WorldActor] Detailing required for region ({scx},{scz})...")
 
         region_meta_path = self.raw_data_path / "regions" / f"{scx}_{scz}" / "region_meta.json"
@@ -116,3 +140,10 @@ class WorldActor:
                 write_objects_json(str(client_chunk_dir / "objects.json"), getattr(final_chunk, "placed_objects", []), verbose=log_saves)
                 write_chunk_preview(str(client_chunk_dir / "preview.png"), surface_grid, nav_grid, self.preset.export.get("palette", {}), verbose=log_saves)
                 write_client_chunk_meta(str(client_chunk_dir / "chunk.json"), ClientChunkContract(cx=chunk_cx, cz=chunk_cz), verbose=log_saves)
+
+    def _log_progress(self, percent: int, message: str):
+        if self.progress_callback:
+            self.progress_callback(percent, message)
+        if self.verbose:
+            print(message)
+

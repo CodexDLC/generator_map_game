@@ -1,24 +1,34 @@
 # ==============================================================================
 # Файл: editor/main_window.py
-# ВЕРСИЯ 3.0: Реализована архитектура с пайплайнами. Добавлено сохранение/загрузка.
+# ВЕРСИЯ 5.0 (Рефакторинг завершен): Вся логика вынесена в 'actions'.
 # ==============================================================================
 import json
-import numpy as np
+from pathlib import Path
+
 from PySide6 import QtWidgets, QtCore, QtGui
 from NodeGraphQt import NodeGraph, PropertiesBinWidget, NodesTreeWidget
 
-from .nodes.noise_node import NoiseNode
-from .nodes.output_node import OutputNode
-from .graph_runner import compute_graph
+from .actions.generation_actions import on_generate_world
+# --- НАЧАЛО ИЗМЕНЕНИЙ: Импортируем всю логику извне ---
+from .actions.project_actions import on_new_project, on_open_project
+from .actions.pipeline_actions import on_save_pipeline, on_load_pipeline
+from .actions.compute_actions import on_apply_clicked
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
+from .nodes.node_registry import register_all_nodes
 from .preview_widget import Preview3DWidget
 
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Редактор Пайплайнов Генерации")
+        self.setWindowTitle("Редактор Миров")
         self.resize(1600, 900)
         self.graph = NodeGraph()
+        self.current_project_path = None
+
+        self.thread = None
+        self.worker = None
 
         graph_widget = self.graph.widget
         graph_widget.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
@@ -62,25 +72,45 @@ class MainWindow(QtWidgets.QMainWindow):
         nodes_dock.setWidget(nodes_tree)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.LeftDockWidgetArea, nodes_dock)
 
-        # ИЗМЕНЕНИЕ: Переименовываем панель
         settings_container = QtWidgets.QWidget()
         settings_layout = QtWidgets.QFormLayout(settings_container)
-        self.size_input = QtWidgets.QSpinBox()
-        self.size_input.setRange(64, 4096);
-        self.size_input.setValue(512)
-        self.cell_size_input = QtWidgets.QDoubleSpinBox()
-        self.cell_size_input.setRange(0.1, 10.0);
-        self.cell_size_input.setValue(1.0)
-        self.cell_size_input.setDecimals(2);
-        self.cell_size_input.setSingleStep(0.1)
         self.seed_input = QtWidgets.QSpinBox()
-        self.seed_input.setRange(0, 99999);
+        self.seed_input.setRange(0, 999999)
         self.seed_input.setValue(12345)
-        settings_layout.addRow("Preview Size (px):", self.size_input)
+        settings_layout.addRow("World Seed:", self.seed_input)
+        self.global_x_offset_input = QtWidgets.QSpinBox()
+        self.global_x_offset_input.setRange(-999999, 999999)
+        self.global_x_offset_input.setValue(0)
+        self.global_x_offset_input.setSingleStep(512)
+        settings_layout.addRow("Global X Offset:", self.global_x_offset_input)
+        self.global_z_offset_input = QtWidgets.QSpinBox()
+        self.global_z_offset_input.setRange(-999999, 999999)
+        self.global_z_offset_input.setValue(0)
+        self.global_z_offset_input.setSingleStep(512)
+        settings_layout.addRow("Global Z Offset:", self.global_z_offset_input)
+
+        # Новое поле для размера чанка
+        self.chunk_size_input = QtWidgets.QSpinBox()
+        self.chunk_size_input.setRange(64, 1024)
+        self.chunk_size_input.setValue(512)
+        settings_layout.addRow("Chunk Size (px):", self.chunk_size_input)
+
+        # Новое поле для размера региона в чанках
+        self.region_size_input = QtWidgets.QSpinBox()
+        self.region_size_input.setRange(1, 32)
+        self.region_size_input.setValue(1)
+        settings_layout.addRow("Region Size (chunks):", self.region_size_input)
+
+        self.cell_size_input = QtWidgets.QDoubleSpinBox()
+        self.cell_size_input.setRange(0.1, 10.0)
+        self.cell_size_input.setValue(1.0)
+        self.cell_size_input.setDecimals(2)
+        self.cell_size_input.setSingleStep(0.1)
         settings_layout.addRow("Cell Size (m):", self.cell_size_input)
-        settings_layout.addRow("Preview Seed:", self.seed_input)
-        # ИЗМЕНЕНИЕ: Новый заголовок
-        settings_dock = QtWidgets.QDockWidget("Настройки Предпросмотра", self)
+
+        # --- СТРОКА С ОШИБКОЙ БЫЛА ЗДЕСЬ И ТЕПЕРЬ УДАЛЕНА ---
+
+        settings_dock = QtWidgets.QDockWidget("Настройки Визора", self)
         settings_dock.setWidget(settings_container)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, settings_dock)
 
@@ -90,7 +120,7 @@ class MainWindow(QtWidgets.QMainWindow):
         props_layout.setContentsMargins(0, 0, 0, 0)
         self.apply_button = QtWidgets.QPushButton("APPLY")
         self.apply_button.setFixedHeight(40)
-        self.apply_button.clicked.connect(self._on_apply_clicked)
+        self.apply_button.clicked.connect(lambda: on_apply_clicked(self))
         props_layout.addWidget(props_bin)
         props_layout.addWidget(self.apply_button)
         props_dock = QtWidgets.QDockWidget("Свойства Нода", self)
@@ -102,17 +132,22 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _setup_menu(self):
         menu_bar = self.menuBar()
-        file_menu = menu_bar.addMenu("Файл")
 
-        # ИЗМЕНЕНИЕ: Переименовываем и подключаем действия
+        project_menu = menu_bar.addMenu("Проект")
+        new_project_action = project_menu.addAction("Новый Проект...")
+        new_project_action.triggered.connect(lambda: on_new_project(self))
+        open_project_action = project_menu.addAction("Открыть Проект...")
+        open_project_action.triggered.connect(lambda: on_open_project(self))
+
+        file_menu = menu_bar.addMenu("Файл Пайплайна")
         load_action = file_menu.addAction("Загрузить Пайплайн...")
-        load_action.triggered.connect(self._on_load_pipeline)
-
+        load_action.triggered.connect(lambda: on_load_pipeline(self))
         save_action = file_menu.addAction("Сохранить Пайплайн...")
-        save_action.triggered.connect(self._on_save_pipeline)
+        save_action.triggered.connect(lambda: on_save_pipeline(self))
 
         file_menu.addSeparator()
-        file_menu.addAction("Сгенерировать Мир...")
+        generate_action = file_menu.addAction("Сгенерировать Мир...")
+        generate_action.triggered.connect(lambda: on_generate_world(self))
         file_menu.addSeparator()
 
         exit_action = file_menu.addAction("Выход")
@@ -121,70 +156,16 @@ class MainWindow(QtWidgets.QMainWindow):
         menu_bar.addMenu("Окна")
 
     def _register_nodes(self):
-        self.graph.register_node(NoiseNode)
-        self.graph.register_node(OutputNode)
+        register_all_nodes(self.graph)
 
-    # --- НОВЫЙ МЕТОД: Логика сохранения ---
-    def _on_save_pipeline(self):
-        file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Сохранить файл пайплайна", "", "JSON Files (*.json)"
-        )
-        if not file_path:
-            return
 
+    def get_project_data(self):
+        """Читает и возвращает данные из текущего project.json"""
+        if not self.current_project_path:
+            return None
         try:
-            # Встроенная функция библиотеки для сериализации графа
-            graph_data = self.graph.serialize_session()
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(graph_data, f, indent=2, ensure_ascii=False)
-            self.statusBar.showMessage(f"Пайплайн успешно сохранен: {file_path}", 5000)
-            print(f"Pipeline saved to: {file_path}")
+            with open(Path(self.current_project_path) / "project.json", 'r', encoding='utf-8') as f:
+                return json.load(f)
         except Exception as e:
-            self.statusBar.showMessage(f"Ошибка сохранения: {e}", 5000)
-            print(f"ERROR saving pipeline: {e}")
-
-    # --- НОВЫЙ МЕТОД: Логика загрузки ---
-    def _on_load_pipeline(self):
-        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "Загрузить файл пайплайна", "", "JSON Files (*.json)"
-        )
-        if not file_path:
-            return
-
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                graph_data = json.load(f)
-
-            # Очищаем текущую сцену
-            self.graph.clear_session()
-            # Загружаем граф из данных
-            self.graph.deserialize_session(graph_data)
-
-            self.statusBar.showMessage(f"Пайплайн успешно загружен: {file_path}", 5000)
-            print(f"Pipeline loaded from: {file_path}")
-        except Exception as e:
-            self.statusBar.showMessage(f"Ошибка загрузки: {e}", 5000)
-            print(f"ERROR loading pipeline: {e}")
-
-    def _on_apply_clicked(self):
-        print("\n[MainWindow] === APPLY CLICKED ===")
-        self.statusBar.showMessage("Вычисление графа...")
-        size = self.size_input.value()
-        cell_size = self.cell_size_input.value()
-        px_coords_x = np.arange(size, dtype=np.float32)
-        px_coords_z = np.arange(size, dtype=np.float32)
-        x_coords, z_coords = np.meshgrid(px_coords_x, px_coords_z)
-        context = {
-            "main_heightmap": np.zeros((size, size), dtype=np.float32),
-            "x_coords": x_coords,
-            "z_coords": z_coords,
-            "cell_size": cell_size,
-            "seed": self.seed_input.value()
-        }
-        result_map, message = compute_graph(self.graph, context)
-        self.statusBar.showMessage(message)
-        if result_map is not None:
-            print(f"Результат получен! Средняя высота: {result_map.mean():.2f}")
-            self.preview_widget.update_mesh(result_map, cell_size)
-        else:
-            print(f"Вычисление не удалось.")
+            self.statusBar.showMessage(f"Ошибка чтения файла проекта: {e}", 5000)
+            return None
