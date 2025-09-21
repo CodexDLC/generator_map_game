@@ -1,54 +1,35 @@
-# ========================
-# file: game_engine/core/preset/model.py
-# ========================
-from __future__ import annotations
 from dataclasses import dataclass
-from typing import Any, Dict
-
+from typing import Any, Dict, Optional
 
 @dataclass(frozen=True)
 class Preset:
-    """Immutable in-memory representation of a world generation preset (v2).
-
-
-    Note: values are already merged with defaults and migrated to v2 schema
-    by the loader before constructing this dataclass.
-    """
-
-    # identity & versioning
     id: str
     version: int
-
-    # world grid
     size: int
     cell_size: float
     initial_load_radius: int
     region_size: int
-
-    # optional legacy slot
     city_wall: Dict[str, Any]
-
-    # core systems (dicts by design for forward-compat)
     elevation: Dict[str, Any]
     terraform: Dict[str, Any]
     climate: Dict[str, Any]
     surfaces: Dict[str, Any]
-
     slope_obstacles: Dict[str, Any]
     scatter: Dict[str, Any]
-
-    # legacy blocks kept for compatibility
     obstacles: Dict[str, Any]
     water: Dict[str, Any]
     height_q: Dict[str, Any]
     ports: Dict[str, Any]
     fields: Dict[str, Any]
-
     export: Dict[str, Any]
     pre_rules: Dict[str, Any]
 
+    # новые
+    raw: Dict[str, Any]
+    use_node_graph: bool = False
+    node_graph: Optional[Dict[str, Any]] = None
+
     def to_dict(self) -> Dict[str, Any]:
-        # Lightweight manual conversion to avoid importing asdict here
         return {
             "id": self.id,
             "version": self.version,
@@ -60,6 +41,7 @@ class Preset:
             "elevation": dict(self.elevation),
             "terraform": dict(self.terraform),
             "climate": dict(self.climate),
+            "surfaces": dict(self.surfaces),
             "slope_obstacles": dict(self.slope_obstacles),
             "scatter": dict(self.scatter),
             "obstacles": dict(self.obstacles),
@@ -69,4 +51,6 @@ class Preset:
             "fields": dict(self.fields),
             "export": dict(self.export),
             "pre_rules": dict(self.pre_rules),
+            "use_node_graph": bool(self.use_node_graph),
+            "node_graph": dict(self.node_graph) if isinstance(self.node_graph, dict) else None,
         }

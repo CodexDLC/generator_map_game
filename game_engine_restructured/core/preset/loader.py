@@ -94,6 +94,9 @@ def load_preset(
         fields=dict(merged.get("fields", {})),
         export=dict(merged.get("export", {})),
         pre_rules=dict(merged.get("pre_rules", {})),
+        raw=dict(merged),  # целиком сохраняем JSON
+        use_node_graph=bool(merged.get("use_node_graph", False)),
+        node_graph=merged.get("node_graph"),
     )
 
     # Publish DEFAULT_BASE_PRESET on first successful load of defaults to avoid import cycles
@@ -122,6 +125,9 @@ def load_preset(
             fields=dict(DEFAULT_BASE_PRESET_V2.get("fields", {})),
             export=dict(DEFAULT_BASE_PRESET_V2.get("export", {})),
             pre_rules=dict(DEFAULT_BASE_PRESET_V2.get("pre_rules", {})),
+            raw=dict(DEFAULT_BASE_PRESET_V2),
+            use_node_graph=bool(DEFAULT_BASE_PRESET_V2.get("use_node_graph", False)),
+            node_graph=DEFAULT_BASE_PRESET_V2.get("node_graph"),
         )
 
     return preset

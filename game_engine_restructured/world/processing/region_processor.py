@@ -17,7 +17,8 @@ from ...core.types import GenResult
 from ...core.export import write_raw_regional_layers
 
 # --- Утилиты и Аналитика ---
-from ..grid_utils import _apply_changes_to_chunks, region_base
+from ..grid_utils import _apply_changes_to_chunks
+from ..grid_utils import region_base as _region_base
 from ..analytics.region_analysis import RegionAnalysis
 
 # --- "Специалисты" по генерации (каждый отвечает за свою задачу) ---
@@ -61,9 +62,50 @@ class RegionProcessor:
         # ======================================================================
         # --- БЛОК 1: ГЕНЕРАЦИЯ РЕЛЬЕФА (ELEVATION) ---
         # ======================================================================
-        stitched_height_ext = generate_elevation_region(
-            self.world_seed, scx, scz, preset_region_size, chunk_size, self.preset, scratch_buffers
-        )
+
+        def _preset_lookup(preset, key, default=None):
+            # пробуем варианты хранения: атрибуты, .data, .raw (dict)
+            if hasattr(preset, key):
+                return getattr(preset, key)
+            if hasattr(preset, "data") and isinstance(preset.data, dict):
+                return preset.data.get(key, default)
+            raw = getattr(preset, "raw", None)
+            if isinstance(raw, dict):
+                return raw.get(key, default)
+            # иногда пресет лежит целиком в __dict__ как mapping
+            if isinstance(getattr(preset, "__dict__", None), dict):
+                return preset.__dict__.get(key, default)
+            return default
+
+        use_node_graph = self.preset.use_node_graph
+        preset_graph = self.preset.node_graph
+
+        if use_node_graph and isinstance(preset_graph, dict):
+            from ...nodegraph.base import Context
+            from ...nodegraph.runner import run_graph
+            preset_region_size = self.preset.region_size
+            chunk_size = self.preset.size
+            ext_size = (preset_region_size + 2) * chunk_size
+
+            from ..grid_utils import region_base
+            base_cx, base_cz = _region_base(scx, scz, preset_region_size)
+            x0_px = (base_cx - 1) * chunk_size
+            z0_px = (base_cz - 1) * chunk_size
+
+            ctx = Context(
+                world_seed=self.world_seed,
+                region_id=(scx, scz),
+                region_rect=(x0_px, z0_px, ext_size),
+                meters_per_pixel=float(self.preset.cell_size),
+            )
+            print("[RegionProcessor] Graph=ON")
+            stitched_height_ext = run_graph(preset_graph, ctx)["height"].astype(np.float32, copy=False)
+        else:
+            print("[RegionProcessor] Graph=OFF")
+            stitched_height_ext = generate_elevation_region(
+                self.world_seed, scx, scz, preset_region_size, chunk_size, self.preset, scratch_buffers
+            )
+
         # ======================================================================
         # --- КОНЕЦ БЛОКА 1 ---
         # ======================================================================
@@ -138,7 +180,7 @@ class RegionProcessor:
         if layers_to_save:
             write_raw_regional_layers(str(region_raw_path / "climate_layers.npz"), layers_to_save, verbose=True)
 
-        base_cx, base_cz = region_base(scx, scz, preset_region_size)
+        base_cx, base_cz = _region_base(scx, scz, preset_region_size)
         final_chunks = {
             k: v for k, v in chunks_with_border.items()
             if base_cx <= k[0] < base_cx + preset_region_size and base_cz <= k[1] < base_cz + preset_region_size

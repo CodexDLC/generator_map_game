@@ -1,5 +1,7 @@
 # Файл: game_engine_restructured/algorithms/terrain/nodes/effects.py
 from __future__ import annotations
+
+import math
 from typing import Any, Dict
 import numpy as np
 from scipy.ndimage import gaussian_filter
