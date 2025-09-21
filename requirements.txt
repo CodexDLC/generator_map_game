@@ -7,3 +7,8 @@ numpy==2.2.2
 
 numba
 scipy==1.14.1
+
+PySide6
+NodeGraphQt
+vispy
+setuptools
