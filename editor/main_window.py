@@ -1,13 +1,12 @@
 # ==============================================================================
 # Файл: editor/main_window.py
-# ВЕРСИЯ 2.4: Добавлено удаление нодов по клавише Delete и через контекстное меню.
+# ВЕРСИЯ 3.0: Реализована архитектура с пайплайнами. Добавлено сохранение/загрузка.
 # ==============================================================================
+import json
 import numpy as np
-# ИЗМЕНЕНИЕ: Добавляем QtGui для QAction
 from PySide6 import QtWidgets, QtCore, QtGui
 from NodeGraphQt import NodeGraph, PropertiesBinWidget, NodesTreeWidget
 
-# ... (остальные импорты без изменений) ...
 from .nodes.noise_node import NoiseNode
 from .nodes.output_node import OutputNode
 from .graph_runner import compute_graph
@@ -17,41 +16,27 @@ from .preview_widget import Preview3DWidget
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Редактор пресетов")
+        self.setWindowTitle("Редактор Пайплайнов Генерации")
         self.resize(1600, 900)
         self.graph = NodeGraph()
 
-        # --- ИЗМЕНЕНИЕ: Интегрируем ваш код для удаления нодов ---
-
-        # Получаем виджет графа для удобства
         graph_widget = self.graph.widget
-
-        # 1. Устанавливаем политику фокуса, чтобы виджет мог "ловить" нажатия клавиш
         graph_widget.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
 
-        # 2. Создаем функцию для удаления выделенных элементов
         def _delete_selected_items():
-            """Удаляет выделенные ноды или, если их нет, выделенные соединения."""
             selected_nodes = self.graph.selected_nodes()
             if selected_nodes:
                 self.graph.delete_nodes(selected_nodes)
             else:
                 self.graph.delete_pipes(self.graph.selected_pipes())
 
-        # 3. Создаем "действие" (Action) и привязываем к нему хоткеи
         delete_action = QtGui.QAction("Удалить", self)
-        # Привязываем клавиши Delete и Backspace
         delete_action.setShortcuts([QtGui.QKeySequence.StandardKey.Delete, QtCore.Qt.Key.Key_Backspace])
         delete_action.triggered.connect(_delete_selected_items)
         self.addAction(delete_action)
-
-        # 4. Добавляем это же действие в контекстное меню (вызывается по правому клику)
         graph_widget.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.ActionsContextMenu)
         graph_widget.addAction(delete_action)
 
-        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
-
-        # ... (остальной код __init__ без изменений) ...
         central_container = QtWidgets.QWidget()
         central_layout = QtWidgets.QVBoxLayout(central_container)
         central_layout.setContentsMargins(0, 0, 0, 0)
@@ -60,7 +45,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.preview_widget = Preview3DWidget()
         self.preview_widget.setMinimumHeight(200)
         splitter.addWidget(self.preview_widget)
-        splitter.addWidget(graph_widget)  # Используем нашу переменную
+        splitter.addWidget(graph_widget)
         splitter.setSizes([400, 600])
         central_layout.addWidget(splitter)
         self.setCentralWidget(central_container)
@@ -69,17 +54,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._setup_docks()
         self._setup_menu()
 
-    # ... (остальные методы без изменений) ...
     def _setup_docks(self):
         self.setDockNestingEnabled(True)
 
-        # Палитра нодов (слева)
         nodes_tree = NodesTreeWidget(node_graph=self.graph)
         nodes_dock = QtWidgets.QDockWidget("Палитра Нодов", self)
         nodes_dock.setWidget(nodes_tree)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.LeftDockWidgetArea, nodes_dock)
 
-        # Контейнер для настроек
+        # ИЗМЕНЕНИЕ: Переименовываем панель
         settings_container = QtWidgets.QWidget()
         settings_layout = QtWidgets.QFormLayout(settings_container)
         self.size_input = QtWidgets.QSpinBox()
@@ -93,14 +76,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.seed_input = QtWidgets.QSpinBox()
         self.seed_input.setRange(0, 99999);
         self.seed_input.setValue(12345)
-        settings_layout.addRow("Map Size (px):", self.size_input)
+        settings_layout.addRow("Preview Size (px):", self.size_input)
         settings_layout.addRow("Cell Size (m):", self.cell_size_input)
-        settings_layout.addRow("World Seed:", self.seed_input)
-        settings_dock = QtWidgets.QDockWidget("Настройки Генерации", self)
+        settings_layout.addRow("Preview Seed:", self.seed_input)
+        # ИЗМЕНЕНИЕ: Новый заголовок
+        settings_dock = QtWidgets.QDockWidget("Настройки Предпросмотра", self)
         settings_dock.setWidget(settings_container)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, settings_dock)
 
-        # Инспектор свойств (справа, под настройками)
         props_bin = PropertiesBinWidget(node_graph=self.graph)
         props_container = QtWidgets.QWidget()
         props_layout = QtWidgets.QVBoxLayout(props_container)
@@ -118,21 +101,70 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setStatusBar(self.statusBar)
 
     def _setup_menu(self):
-        """Создает верхнее меню."""
         menu_bar = self.menuBar()
         file_menu = menu_bar.addMenu("Файл")
-        file_menu.addAction("Загрузить пресет...")
-        file_menu.addAction("Сохранить пресет...")
+
+        # ИЗМЕНЕНИЕ: Переименовываем и подключаем действия
+        load_action = file_menu.addAction("Загрузить Пайплайн...")
+        load_action.triggered.connect(self._on_load_pipeline)
+
+        save_action = file_menu.addAction("Сохранить Пайплайн...")
+        save_action.triggered.connect(self._on_save_pipeline)
+
         file_menu.addSeparator()
         file_menu.addAction("Сгенерировать Мир...")
         file_menu.addSeparator()
-        file_menu.addAction("Выход")
+
+        exit_action = file_menu.addAction("Выход")
+        exit_action.triggered.connect(self.close)
+
         menu_bar.addMenu("Окна")
 
     def _register_nodes(self):
-        """Регистрирует все наши кастомные ноды в графе."""
         self.graph.register_node(NoiseNode)
         self.graph.register_node(OutputNode)
+
+    # --- НОВЫЙ МЕТОД: Логика сохранения ---
+    def _on_save_pipeline(self):
+        file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Сохранить файл пайплайна", "", "JSON Files (*.json)"
+        )
+        if not file_path:
+            return
+
+        try:
+            # Встроенная функция библиотеки для сериализации графа
+            graph_data = self.graph.serialize_session()
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(graph_data, f, indent=2, ensure_ascii=False)
+            self.statusBar.showMessage(f"Пайплайн успешно сохранен: {file_path}", 5000)
+            print(f"Pipeline saved to: {file_path}")
+        except Exception as e:
+            self.statusBar.showMessage(f"Ошибка сохранения: {e}", 5000)
+            print(f"ERROR saving pipeline: {e}")
+
+    # --- НОВЫЙ МЕТОД: Логика загрузки ---
+    def _on_load_pipeline(self):
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Загрузить файл пайплайна", "", "JSON Files (*.json)"
+        )
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                graph_data = json.load(f)
+
+            # Очищаем текущую сцену
+            self.graph.clear_session()
+            # Загружаем граф из данных
+            self.graph.deserialize_session(graph_data)
+
+            self.statusBar.showMessage(f"Пайплайн успешно загружен: {file_path}", 5000)
+            print(f"Pipeline loaded from: {file_path}")
+        except Exception as e:
+            self.statusBar.showMessage(f"Ошибка загрузки: {e}", 5000)
+            print(f"ERROR loading pipeline: {e}")
 
     def _on_apply_clicked(self):
         print("\n[MainWindow] === APPLY CLICKED ===")
