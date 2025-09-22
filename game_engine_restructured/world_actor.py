@@ -30,10 +30,9 @@ class WorldActor:
     def __init__(
             self,
             seed: int,
-            # Вместо объекта Preset теперь принимаем словарь с графом
             graph_data: Dict[str, Any],
             artifacts_root: Path,
-            # progress_callback=None,
+            progress_callback=None,
             verbose: bool = False,
     ):
         self.seed = seed
@@ -58,6 +57,7 @@ class WorldActor:
         self.raw_data_path = self.artifacts_root / "world_raw" / str(self.seed)
         self.final_data_path = self.artifacts_root / "world" / "world_location" / str(self.seed)
         self.progress_callback = progress_callback
+        self._last_percent = 0  # для сообщений без явного процента
         self.verbose = verbose
 
         prefabs_path = Path(__file__).parent / "data" / "prefabs.json"
@@ -69,8 +69,8 @@ class WorldActor:
             print(f"[WorldActor] H_NORM (from graph_data) = {self.h_norm:.3f}")
 
     def _log(self, message: str):
-        if self.progress_callback:
-            self.progress_callback(message)
+        # Сообщение без явного процента — шлём с последним известным
+        self._log_progress(self._last_percent, message)
 
     def prepare_starting_area(self, region_manager):
         radius = self.preset.initial_load_radius
@@ -142,8 +142,13 @@ class WorldActor:
                 write_client_chunk_meta(str(client_chunk_dir / "chunk.json"), ClientChunkContract(cx=chunk_cx, cz=chunk_cz), verbose=log_saves)
 
     def _log_progress(self, percent: int, message: str):
-        if self.progress_callback:
-            self.progress_callback(percent, message)
+        self._last_percent = int(percent)
+        if callable(self.progress_callback):
+            try:
+                # Нормальный случай: (percent, message)
+                self.progress_callback(self._last_percent, message)
+            except TypeError:
+                # На случай старого одноаргументного колбэка — не валимся.
+                self.progress_callback(message)
         if self.verbose:
             print(message)
-

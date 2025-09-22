@@ -1,4 +1,4 @@
-# Файл: game_engine_restructured/algorithms/terrain/nodes/effects.py
+# Файл: game_engine_restructured/algorithms/terrain/steps/effects.py
 from __future__ import annotations
 
 import math

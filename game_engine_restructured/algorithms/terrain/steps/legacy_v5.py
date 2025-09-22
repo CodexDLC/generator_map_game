@@ -1,4 +1,4 @@
-# Файл: game_engine_restructured/algorithms/terrain/nodes/legacy_v5.py
+# Файл: game_engine_restructured/algorithms/terrain/steps/legacy_v5.py
 # ЭТОТ ФАЙЛ СОДЕРЖИТ СТАРУЮ ЛОГИКУ ИЗ V5 И НЕ ИСПОЛЬЗУЕТСЯ
 # В НОВОМ ДИНАМИЧЕСКОМ КОНВЕЙЕРЕ. ОН СОХРАНЕН ДЛЯ АРХИВА.
 from __future__ import annotations

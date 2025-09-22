@@ -1,14 +1,14 @@
 # ==============================================================================
-# Файл: editor/nodes/output_node.py
+# Файл: editor/steps/output_node.py
 # ВЕРСИЯ 2.1: Исправлен идентификатор для группировки.
 # ==============================================================================
 
-from .base_node import GeneratorNode
+from editor.nodes.base_node import GeneratorNode
 
 
 class OutputNode(GeneratorNode):
     # ИСПРАВЛЕНИЕ (п.8): Используем общий идентификатор.
-    __identifier__ = 'generator.nodes'
+    __identifier__ = 'generator.pipeline'
     NODE_NAME = 'Output'
 
     def __init__(self):

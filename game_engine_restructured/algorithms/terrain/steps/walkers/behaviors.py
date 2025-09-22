@@ -1,4 +1,4 @@
-# Файл: .../nodes/walkers/behaviors.py
+# Файл: .../steps/walkers/behaviors.py
 from __future__ import annotations
 import math
 import random

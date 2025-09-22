@@ -1,12 +1,12 @@
 # ==============================================================================
 # Файл: editor/actions/generation_actions.py
-# ВЕРСИЯ 2.0: Добавлена поддержка фоновой генерации с прогресс-баром.
+# ВЕРСИЯ 2.1: Исправлена логика асинхронной генерации и прогресс-бара.
 # ==============================================================================
 from pathlib import Path
 from PySide6 import QtCore, QtWidgets
 
 # Импортируем наши новые классы
-from .worker import GenerationWorker
+
 from .progress_dialog import ProgressDialog
 from .generation_dialog import GenerationDialog
 
@@ -43,23 +43,22 @@ def on_generate_world(main_window):
             "node_graph": main_window.graph.serialize_session()
         }
 
-        # --- НАЧАЛО НОВОЙ ЛОГИКИ С ПОТОКАМИ ---
+        # --- НАЧАЛО ИСПРАВЛЕННОЙ ЛОГИКИ С ПОТОКАМИ ---
 
         # 1. Создаем прогресс-диалог
         progress_dialog = ProgressDialog(main_window)
 
         # 2. Создаем Worker и QThread
         main_window.thread = QtCore.QThread()
-        main_window.worker = GenerationWorker(
-            world_seed=world_seed,
-            graph_data=graph_data,
-            artifacts_root=artifacts_root,
-            radius=radius
-        )
+
         main_window.worker.moveToThread(main_window.thread)
 
         # 3. Настраиваем сигналы и слоты
+
+        # Соединяем сигнал начала потока с запуском задачи
         main_window.thread.started.connect(main_window.worker.run)
+
+        # Сигналы для безопасного завершения потока
         main_window.worker.finished.connect(main_window.thread.quit)
         main_window.worker.error.connect(main_window.thread.quit)
         main_window.worker.finished.connect(main_window.worker.deleteLater)
@@ -68,26 +67,36 @@ def on_generate_world(main_window):
         # Обновление прогресс-бара
         main_window.worker.progress.connect(progress_dialog.update_progress)
 
-        # Обработка завершения/ошибки
+        # Обработка успешного завершения
         def on_finished(message):
-            progress_dialog.close()
+            progress_dialog.close() # Закрываем диалог
             main_window.statusBar.showMessage(message, 10000)
+            # Сбрасываем ссылки, чтобы избежать повторного использования
+            main_window.thread = None
+            main_window.worker = None
 
+        # Обработка ошибки
         def on_error(message):
-            progress_dialog.close()
+            progress_dialog.close() # Закрываем диалог
             QtWidgets.QMessageBox.critical(main_window, "Ошибка Генерации", message)
+            # Сбрасываем ссылки
+            main_window.thread = None
+            main_window.worker = None
 
         main_window.worker.finished.connect(on_finished)
         main_window.worker.error.connect(on_error)
 
-        # Кнопка отмены
+        # Кнопка отмены в диалоге
         def cancel_generation():
             if main_window.worker:
                 main_window.worker.stop()
+                # Текст в диалоге можно поменять на "Отмена..."
+                progress_dialog.status_label.setText("Отмена...")
 
         progress_dialog.cancel_button.clicked.connect(cancel_generation)
 
-        # 4. Запускаем поток и показываем диалог
+        # 4. Запускаем поток и показываем НЕМОДАЛЬНЫЙ диалог
         main_window.thread.start()
-        progress_dialog.exec()
-        # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
+        progress_dialog.open() # <-- ИСПОЛЬЗУЕМ open() ВМЕСТО exec()
+
+        # --- КОНЕЦ ИСПРАВЛЕННОЙ ЛОГИКИ ---

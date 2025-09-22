@@ -1,4 +1,4 @@
-# Файл: game_engine_restructured/algorithms/terrain/nodes/blending.py
+# Файл: game_engine_restructured/algorithms/terrain/steps/blending.py
 from __future__ import annotations
 
 import random
@@ -241,3 +241,13 @@ def apply_masked_noise(params: Dict[str, Any], context: Dict[str, Any]) -> Dict[
 
     context["main_heightmap"] = height_grid
     return context
+
+
+def blend_layers(layer_a: np.ndarray, layer_b: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """
+    Линейно смешивает два слоя (A и B) используя маску.
+    Формула: A * (1 - mask) + B * mask
+    """
+    # Убедимся, что маска находится в диапазоне [0, 1] для корректной интерполяции
+    clipped_mask = np.clip(mask, 0.0, 1.0)
+    return layer_a * (1.0 - clipped_mask) + layer_b * clipped_mask

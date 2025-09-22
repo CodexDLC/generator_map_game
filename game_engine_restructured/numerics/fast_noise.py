@@ -1,24 +1,20 @@
 # ==============================================================================
-# Файл: game_engine_restructured/core/noise/fast_noise.py
-# Назначение: Высокопроизводительные функции для генерации шума с Numba.
+# Файл: game_engine_restructured/numerics/fast_noise.py (ВЕРСИЯ 2.0 - Модульная)
 # ==============================================================================
 from __future__ import annotations
 import numpy as np
 import math
 from numba import njit, prange
 
+# ... (вспомогательные функции _hash2, _rand01, _fade, _lerp, value_noise_2d остаются без изменений)
 @njit(cache=True)
 def fbm_amplitude(gain: float, octaves: int) -> float:
     """
     Вычисляет теоретическую максимальную амплитуду fBm для нормализации.
-    Это нужно, чтобы результат шума всегда был в диапазоне [-1, 1].
     """
     if gain == 1.0:
         return float(octaves)
     return (1.0 - gain ** octaves) / (1.0 - gain)
-
-
-# --- Вспомогательные Numba-функции (внутренняя "магия") ---
 
 @njit(inline='always', cache=True)
 def _u32(x: int) -> int: return x & 0xFFFFFFFF
@@ -72,20 +68,61 @@ def value_noise_2d(x: float, z: float, seed: int) -> float:
     nx0 = _lerp(n00, n10, u);
     nx1 = _lerp(n01, n11, u)
     return _lerp(nx0, nx1, v)
+# --- НАЧАЛО ИЗМЕНЕНИЙ ---
 
+@njit(cache=True, fastmath=True, parallel=True)
+def fbm_grid_bipolar(
+        seed: int,
+        coords_x: np.ndarray, # Принимает готовые координаты
+        coords_z: np.ndarray, # Может быть, уже искаженные
+        freq0: float,
+        octaves: int,
+        ridge: bool,
+        lacunarity: float = 2.0,
+        gain: float = 0.5
+) -> np.ndarray:
+    """
+    Генерирует FBM шум на 2D-сетке. Возвращает биполярный шум [-amp, amp].
+    Эта функция больше НЕ занимается варпингом.
+    """
+    H, W = coords_x.shape
+    output = np.empty_like(coords_x)
 
-# --- Основная публичная функция ---
+    for j in prange(H):
+        for i in range(W):
+            cx = coords_x[j, i]
+            cz = coords_z[j, i]
 
+            # --- ЭТАП 2: Расчет основного FBM шума по переданным координатам ---
+            amp = 1.0
+            freq = freq0
+            total = 0.0
+            for o in range(octaves):
+                noise_val = value_noise_2d(cx * freq, cz * freq, seed + o)
+                sample = noise_val * 2.0 - 1.0 # Смещаем [0, 1] -> [-1, 1]
+
+                if ridge:
+                    sample = (1.0 - abs(sample)) * 2.0 - 1.0
+
+                total += amp * sample
+                freq *= lacunarity
+                amp *= gain
+
+            output[j, i] = total
+
+    return output
+
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
+# ... (остальные функции, если они есть, например fbm_grid_warped, fbm_grid, voronoi_grid, можно пока удалить или оставить, если они нужны где-то еще)
+# Я оставлю fbm_grid и fbm_grid_warped на случай, если они используются старым кодом, но fbm_grid_warped_bipolar мы заменили
+# ...
 @njit(cache=True, fastmath=True, parallel=True)
 def fbm_grid(
         seed: int, x0_px: int, z0_px: int, size: int, mpp: float, freq0: float,
         octaves: int, lacunarity: float = 2.0, gain: float = 0.5, rot_deg: float = 0.0,
-        ridge: bool = False  # <--- ДОБАВЛЕН НОВЫЙ ПАРАМЕТР
+        ridge: bool = False
 ) -> np.ndarray:
-    """
-    Генерирует 2D-массив фрактального шума (fBm) с помощью Value Noise.
-    Возвращает массив со значениями в диапазоне [-amp, amp].
-    """
+    # эта функция остается без изменений
     g = np.zeros((size, size), dtype=np.float32)
     cr, sr = math.cos(math.radians(rot_deg)), math.sin(math.radians(rot_deg))
 
@@ -102,9 +139,8 @@ def fbm_grid(
 
             for o in range(octaves):
                 noise_val = value_noise_2d(rx * freq, rz * freq, seed + o)
-                sample = noise_val * 2.0 - 1.0  # Смещаем [0, 1] -> [-1, 1]
+                sample = noise_val * 2.0 - 1.0
 
-                # --- ДОБАВЛЕНА ЛОГИКА RIDGE ---
                 if ridge:
                     sample = (1.0 - abs(sample)) * 2.0 - 1.0
 
@@ -116,8 +152,6 @@ def fbm_grid(
 
     return g
 
-
-# --- НАЧАЛО НОВОГО КОДА ---
 @njit(cache=True, fastmath=True, parallel=True)
 def fbm_grid_warped(
         seed: int,
@@ -126,202 +160,14 @@ def fbm_grid_warped(
         freq0: float,
         octaves: int,
         ridge: bool,
-        # --- Необязательные параметры для варпинга ---
         warp_seed: int = 0,
         warp_amp: float = 0.0,
         warp_freq: float = 0.0,
         warp_octaves: int = 2,
-        # --- Стандартные параметры FBM ---
         lacunarity: float = 2.0,
         gain: float = 0.5
 ) -> np.ndarray:
-    """
-    Генерирует FBM шум на 2D-сетке с опциональным Domain Warping,
-    используя базовую функцию value_noise_2d.
-    """
-    H, W = coords_x.shape
-    output = np.empty_like(coords_x)
-
-    for j in prange(H):
-        for i in range(W):
-            cx = coords_x[j, i]
-            cz = coords_z[j, i]
-
-            # --- ЭТАП 1: Domain Warping (Искажение координат) ---
-            if warp_amp > 0.0:
-                # Рассчитываем два независимых FBM-шума для смещения по X и Z
-                # используя вашу функцию value_noise_2d
-
-                # Смещение по X
-                offset_x = 0.0
-                warp_amp_iter_x = 1.0
-                warp_freq_iter_x = warp_freq
-                for _ in range(warp_octaves):
-                    noise_val = value_noise_2d(cx * warp_freq_iter_x, cz * warp_freq_iter_x, warp_seed)
-                    offset_x += (noise_val * 2.0 - 1.0) * warp_amp_iter_x
-                    warp_freq_iter_x *= lacunarity
-                    warp_amp_iter_x *= gain
-
-                # Смещение по Z (с другим сидом для независимости)
-                offset_z = 0.0
-                warp_amp_iter_z = 1.0
-                warp_freq_iter_z = warp_freq
-                for _ in range(warp_octaves):
-                    noise_val = value_noise_2d(cx * warp_freq_iter_z, cz * warp_freq_iter_z, warp_seed + 1)
-                    offset_z += (noise_val * 2.0 - 1.0) * warp_amp_iter_z
-                    warp_freq_iter_z *= lacunarity
-                    warp_amp_iter_z *= gain
-
-                # Применяем итоговое смещение
-                cx += offset_x * warp_amp
-                cz += offset_z * warp_amp
-
-            # --- ЭТАП 2: Расчет основного FBM шума по (возможно) искаженным координатам ---
-            amp = 1.0
-            freq = freq0
-            total = 0.0
-            for o in range(octaves):
-                noise_val = value_noise_2d(cx * freq, cz * freq, seed + o)
-                sample = noise_val * 2.0 - 1.0  # Смещаем [0, 1] -> [-1, 1]
-
-                if ridge:
-                    sample = 1.0 - abs(sample)
-
-                total += amp * sample
-                freq *= lacunarity
-                amp *= gain
-
-            # Присваиваем уже нормализованное значение
-            output[j, i] = total
-
-
-
-    return output
-
-
-@njit(cache=True, fastmath=True)
-def xorshift32(state: np.uint32) -> np.uint32:
-    """Дёшевый детерминированный PRNG: uint32 → uint32."""
-    s = state
-    s ^= (s << np.uint32(13))
-    s ^= (s >> np.uint32(17))
-    s ^= (s << np.uint32(5))
-    return s & np.uint32(0x7FFFFFFF)  # [0, 2^31-1]
-
-@njit(cache=True, fastmath=True, parallel=True)
-def voronoi_grid(seed: int, coords_x: np.ndarray, coords_z: np.ndarray, freq0: float) -> np.ndarray:
-    """
-    Voronoi-модулятор на основе F2−F1 (чёткие «границы»).
-    - Координаты предварительно масштабируются на freq0 (размер ячеек).
-    - Для устойчивого F2 ищем ближайшие точки в окне 5×5 (радиус R=2).
-    - Джиттер генерим хешем (xorshift32) на лету — без глобальных RNG и без выделения points[].
-    - Маппинг в [0..1]: y = 1 - exp(-k * (F2-F1)), k~4.
-    """
-    H, W = coords_x.shape
-
-    # (г) Guard: нулевая/отрицательная частота → плоское поле «1»
-    if freq0 <= 0.0:
-        out = np.empty((H, W), dtype=np.float32)
-        for i in prange(H):
-            for j in range(W):
-                out[i, j] = 1.0
-        return out
-
-    # Масштабируем координаты в "ячейки" (единицы решётки)
-    scaled_x = coords_x * freq0
-    scaled_z = coords_z * freq0
-
-    # Радиус соседей для F2 (5×5 окно)
-    R = 2
-
-    # (1) Правильные границы решётки с отступом R (floor/ceil)
-    sx_min = math.floor(np.min(scaled_x))
-    sx_max = math.ceil(np.max(scaled_x))
-    sz_min = math.floor(np.min(scaled_z))
-    sz_max = math.ceil(np.max(scaled_z))
-
-    grid_min_x = int(sx_min) - R
-    grid_max_x = int(sx_max) + 1 + R  # +1: правая полуоткрытая граница
-    grid_min_z = int(sz_min) - R
-    grid_max_z = int(sz_max) + 1 + R
-
-    out = np.empty((H, W), dtype=np.float32)
-
-    # (2) Основной цикл: считаем F1 и F2 по dist² без sqrt
-    for i in prange(H):
-        for j in range(W):
-            x = scaled_x[i, j]
-            z = scaled_z[i, j]
-            cx = int(math.floor(x))
-            cz = int(math.floor(z))
-
-            # два минимума по dist²
-            d1 = np.inf  # F1
-            d2 = np.inf  # F2
-
-            for ox in range(-R, R + 1):
-                cell_x = cx + ox
-                if cell_x < grid_min_x or cell_x >= grid_max_x:
-                    continue
-                for oz in range(-R, R + 1):
-                    cell_z = cz + oz
-                    if cell_z < grid_min_z or cell_z >= grid_max_z:
-                        continue
-
-                    # (3) Джиттер точки в ячейке по хешу (детерминированно и быстро)
-                    h = np.uint32(seed) ^ np.uint32(cell_x * 73856093) ^ np.uint32(cell_z * 83492791)
-                    jx = float(xorshift32(h)) / 2147483647.0
-                    jz = float(xorshift32(h ^ np.uint32(0x9E3779B9))) / 2147483647.0
-
-                    px = float(cell_x) + jx
-                    pz = float(cell_z) + jz
-
-                    dx = x - px
-                    dz = z - pz
-                    d2cur = dx * dx + dz * dz
-
-                    # Обновляем F1/F2 (два минимума)
-                    if d2cur < d1:
-                        d2 = d1
-                        d1 = d2cur
-                    elif d2cur < d2:
-                        d2 = d2cur
-
-            diff = d2 - d1  # F2−F1 ≥ 0
-            # (4) Мягкий маппинг в [0..1] без sqrt: 1 - exp(-k*diff)
-            k = 4.0
-            val = 1.0 - math.exp(-k * diff)
-            if val < 0.0:
-                val = 0.0
-            elif val > 1.0:
-                val = 1.0
-            out[i, j] = val
-
-    return out
-
-
-# --- НОВАЯ ФУНКЦИЯ, ТОЛЬКО ДЛЯ ТЕРРАС ---
-@njit(cache=True, fastmath=True, parallel=True)
-def fbm_grid_warped_bipolar(
-        seed: int,
-        coords_x: np.ndarray,
-        coords_z: np.ndarray,
-        freq0: float,
-        octaves: int,
-        ridge: bool,
-        # --- Необязательные параметры для варпинга ---
-        warp_seed: int = 0,
-        warp_amp: float = 0.0,
-        warp_freq: float = 0.0,
-        warp_octaves: int = 2,
-        # --- Стандартные параметры FBM ---
-        lacunarity: float = 2.0,
-        gain: float = 0.5
-) -> np.ndarray:
-    """
-    Биполярная версия fbm_grid_warped. Возвращает шум в диапазоне [-amp, amp].
-    Используется для эффектов, которым нужны и положительные, и отрицательные значения (напр. террасы).
-    """
+    # эта функция остается без изменений
     H, W = coords_x.shape
     output = np.empty_like(coords_x)
 
@@ -360,17 +206,146 @@ def fbm_grid_warped_bipolar(
                 sample = noise_val * 2.0 - 1.0
 
                 if ridge:
-                    # Логика для диапазона [-1, 1]
+                    sample = 1.0 - abs(sample)
+
+                total += amp * sample
+                freq *= lacunarity
+                amp *= gain
+
+            output[j, i] = total
+    return output
+
+@njit(cache=True, fastmath=True)
+def xorshift32(state: np.uint32) -> np.uint32:
+    s = state
+    s ^= (s << np.uint32(13))
+    s ^= (s >> np.uint32(17))
+    s ^= (s << np.uint32(5))
+    return s & np.uint32(0x7FFFFFFF)
+
+@njit(cache=True, fastmath=True, parallel=True)
+def voronoi_grid(seed: int, coords_x: np.ndarray, coords_z: np.ndarray, freq0: float) -> np.ndarray:
+    # эта функция остается без изменений
+    H, W = coords_x.shape
+    if freq0 <= 0.0:
+        out = np.empty((H, W), dtype=np.float32)
+        for i in prange(H):
+            for j in range(W):
+                out[i, j] = 1.0
+        return out
+
+    scaled_x = coords_x * freq0
+    scaled_z = coords_z * freq0
+    R = 2
+    sx_min = math.floor(np.min(scaled_x))
+    sx_max = math.ceil(np.max(scaled_x))
+    sz_min = math.floor(np.min(scaled_z))
+    sz_max = math.ceil(np.max(scaled_z))
+    grid_min_x = int(sx_min) - R
+    grid_max_x = int(sx_max) + 1 + R
+    grid_min_z = int(sz_min) - R
+    grid_max_z = int(sz_max) + 1 + R
+    out = np.empty((H, W), dtype=np.float32)
+
+    for i in prange(H):
+        for j in range(W):
+            x = scaled_x[i, j]
+            z = scaled_z[i, j]
+            cx = int(math.floor(x))
+            cz = int(math.floor(z))
+            d1 = np.inf
+            d2 = np.inf
+            for ox in range(-R, R + 1):
+                cell_x = cx + ox
+                if cell_x < grid_min_x or cell_x >= grid_max_x:
+                    continue
+                for oz in range(-R, R + 1):
+                    cell_z = cz + oz
+                    if cell_z < grid_min_z or cell_z >= grid_max_z:
+                        continue
+                    h = np.uint32(seed) ^ np.uint32(cell_x * 73856093) ^ np.uint32(cell_z * 83492791)
+                    jx = float(xorshift32(h)) / 2147483647.0
+                    jz = float(xorshift32(h ^ np.uint32(0x9E3779B9))) / 2147483647.0
+                    px = float(cell_x) + jx
+                    pz = float(cell_z) + jz
+                    dx = x - px
+                    dz = z - pz
+                    d2cur = dx * dx + dz * dz
+                    if d2cur < d1:
+                        d2 = d1
+                        d1 = d2cur
+                    elif d2cur < d2:
+                        d2 = d2cur
+            diff = d2 - d1
+            k = 4.0
+            val = 1.0 - math.exp(-k * diff)
+            if val < 0.0:
+                val = 0.0
+            elif val > 1.0:
+                val = 1.0
+            out[i, j] = val
+
+    return out
+
+@njit(cache=True, fastmath=True, parallel=True)
+def fbm_grid_warped_bipolar(
+        seed: int,
+        coords_x: np.ndarray,
+        coords_z: np.ndarray,
+        freq0: float,
+        octaves: int,
+        ridge: bool,
+        warp_seed: int = 0,
+        warp_amp: float = 0.0,
+        warp_freq: float = 0.0,
+        warp_octaves: int = 2,
+        lacunarity: float = 2.0,
+        gain: float = 0.5
+) -> np.ndarray:
+    H, W = coords_x.shape
+    output = np.empty_like(coords_x)
+
+    for j in prange(H):
+        for i in range(W):
+            cx = coords_x[j, i]
+            cz = coords_z[j, i]
+
+            if warp_amp > 0.0:
+                offset_x = 0.0
+                warp_amp_iter_x = 1.0
+                warp_freq_iter_x = warp_freq
+                for _ in range(warp_octaves):
+                    noise_val = value_noise_2d(cx * warp_freq_iter_x, cz * warp_freq_iter_x, warp_seed)
+                    offset_x += (noise_val * 2.0 - 1.0) * warp_amp_iter_x
+                    warp_freq_iter_x *= lacunarity
+                    warp_amp_iter_x *= gain
+
+                offset_z = 0.0
+                warp_amp_iter_z = 1.0
+                warp_freq_iter_z = warp_freq
+                for _ in range(warp_octaves):
+                    noise_val = value_noise_2d(cx * warp_freq_iter_z, cz * warp_freq_iter_z, warp_seed + 1)
+                    offset_z += (noise_val * 2.0 - 1.0) * warp_amp_iter_z
+                    warp_freq_iter_z *= lacunarity
+                    warp_amp_iter_z *= gain
+
+                cx += offset_x * warp_amp
+                cz += offset_z * warp_amp
+
+            amp = 1.0
+            freq = freq0
+            total = 0.0
+            for o in range(octaves):
+                noise_val = value_noise_2d(cx * freq, cz * freq, seed + o)
+                sample = noise_val * 2.0 - 1.0
+
+                if ridge:
                     sample = (1.0 - abs(sample)) * 2.0 - 1.0
 
                 total += amp * sample
                 freq *= lacunarity
                 amp *= gain
 
-
-
-            # Присваиваем уже нормализованное значение
             output[j, i] = total
-
 
     return output

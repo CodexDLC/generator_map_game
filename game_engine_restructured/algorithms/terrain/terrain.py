@@ -5,7 +5,7 @@ import numpy as np
 
 # --- НАШИ НОВЫЕ ИНСТРУМЕНТЫ ---
 # Импортируем модули с нашими нодами
-from .nodes import noise, blending, effects
+from .steps import noise, blending, effects
 
 # --- РЕЕСТР НОД ---
 # Этот словарь связывает строковое имя "type" из JSON-конфига

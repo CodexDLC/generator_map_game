@@ -1,4 +1,4 @@
-# Файл: game_engine_restructured/algorithms/terrain/nodes/stamping.py
+# Файл: game_engine_restructured/algorithms/terrain/steps/stamping.py
 
 from __future__ import annotations
 import math

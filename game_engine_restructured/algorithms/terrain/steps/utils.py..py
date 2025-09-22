@@ -1,4 +1,4 @@
-# Файл: terrain/nodes/utils.py
+# Файл: terrain/steps/utils.py
 import numpy as np
 
 def smoothstep(edge0: float, edge1: float, x: np.ndarray) -> np.ndarray:

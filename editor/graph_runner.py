@@ -1,34 +1,49 @@
 # ==============================================================================
 # Файл: editor/graph_runner.py
-# ВЕРСИЯ 2.0: Контекст вычислений вынесен наружу.
+# Назначение: Унифицированный запуск графа нод. Никаких Qt/VisPy/движка.
 # ==============================================================================
+
+from __future__ import annotations
+
 import numpy as np
+import sys
+def _trace(msg):
+    print(f"[TRACE/RUNNER] {msg}", flush=True, file=sys.stdout)
 
 
-# ИСПРАВЛЕНИЕ (п.4): Убираем жестко заданный контекст.
-def compute_graph(graph, context):
+def _find_output_node(graph):
+    _trace("find_output: listing nodes")
+    nodes = list(graph.all_nodes())  # исключения ловятся выше
+    outs = [n for n in nodes if getattr(n, "NODE_NAME", "") == "Output"]
+    _trace(f"find_output: found {len(outs)} output(s)")
+    if not outs:
+        raise RuntimeError("В графе нет нода 'Output'")
+    return outs[0]
+
+
+def run_graph(graph, context: dict, on_tick=None):
     """
-    Находит выходной нод и запускает на нем вычисление, используя переданный контекст.
+    graph: NodeGraphQt.NodeGraph
+    context: dict с x_coords, z_coords, cell_size, seed, и т.п.
+    on_tick: callable(percent:int, message:str) | None
     """
-    output_nodes = [n for n in graph.all_nodes() if n.NODE_NAME == 'Output']
+    _trace("run_graph: start")
+    if on_tick: on_tick(5, "Поиск выхода…")
+    out = _find_output_node(graph)
+    _trace(f"run_graph: output node = {out}")
 
-    if not output_nodes:
-        return None, "В графе отсутствует нод 'Output'!"
+    if on_tick: on_tick(10, "Вычисление…")
+    _trace("run_graph: calling out.compute(context)")
+    result = out.compute(context)
+    _trace(f"run_graph: out.compute returned type={type(result)}")
 
-    if len(output_nodes) > 1:
-        print("!!! ВНИМАНИЕ: В графе несколько нодов 'Output'. Используется первый найденный.")
+    if result is None:
+        raise RuntimeError("Output.compute вернул None (проверь соединения)")
+    if not isinstance(result, np.ndarray):
+        raise RuntimeError(f"Ожидался np.ndarray, получено {type(result)}")
+    if result.ndim != 2:
+        raise RuntimeError(f"Ожидалась 2D карта высот, shape={result.shape}")
+    if on_tick: on_tick(95, f"Размер: {result.shape}")
 
-    output_node = output_nodes[0]
-
-    try:
-        # Используем переданный 'context'
-        final_result = output_node.compute(context)
-        if final_result is not None:
-            return final_result, f"Успешно. Размер карты: {final_result.shape}"
-        else:
-            return None, "Вычисление не дало результата (проверьте соединения)."
-    except Exception as e:
-        import traceback
-        print(f"!!! КРИТИЧЕСКАЯ ОШИБКА при вычислении графа: {e}")
-        traceback.print_exc()
-        return None, f"Ошибка: {e}"
+    # стандартизируем dtype
+    return result.astype(np.float32, copy=False)
