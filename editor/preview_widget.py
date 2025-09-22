@@ -1,12 +1,12 @@
-# ==============================================================================
-# Файл: editor/preview_widget.py
-# ВЕРСИЯ 2.2: Полный рабочий виджет 3D-превью с тайловым обновлением.
-# ==============================================================================
-
 import numpy as np
 from PySide6 import QtCore, QtWidgets
 from vispy import scene
-import time, sys
+import sys, time
+
+TILES_PER_TICK = 3
+DRAIN_INTERVAL_MS = 16
+
+
 def _vtrace(msg):
     print(f"[TRACE/VIEW] {msg}", flush=True, file=sys.stdout)
 
@@ -14,146 +14,126 @@ def _vtrace(msg):
 class Preview3DWidget(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-
-        self._upd_count = 0
-        self._tile_count = 0
-
-        # VisPy canvas
-        self.canvas = scene.SceneCanvas(keys="interactive", show=False)
+        self.canvas = scene.SceneCanvas(keys="interactive", show=False, config={"samples": 4})
         self.view = self.canvas.central_widget.add_view()
         self.view.camera = "turntable"
-        self.view.camera.fov = 45
-
-        # Оси для ориентира
         scene.visuals.XYZAxis(parent=self.view.scene)
 
-        # Контейнер в Qt
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.canvas.native)
 
-        # Данные
-        self.surface = None
-        self._full = None
-        self._pending_redraw = False
-        self._size = None          # (w, h) текущей геометрии SurfacePlot
-        self._cell_size = 1.0      # последний cell_size (для прокси)
-        self._proxy_step = 1       # шаг даунсемплинга для тайлов
+        # Узел-контейнер для всех тайлов
+        self._tile_root = scene.Node(parent=self.view.scene)
 
-    # ---------- ВСПОМОГАТЕЛЬНОЕ ----------
+        # Состояние чанкового рендера
+        self._cs = 0
+        self._rs = 0
+        self._cell_size = 1.0
+        self._tiles = {}
+        self._tile_queue = []
+        self._drain_timer = QtCore.QTimer(self)
+        self._drain_timer.timeout.connect(self._drain_tile_queue)
+        self._last_layout_key = None
 
-    def _ensure_surface(self, width_px: int, height_px: int, cell_size: float):
-        t0 = time.perf_counter()
-        import numpy as np
-        w, h = int(width_px), int(height_px)
-        need_recreate = (self.surface is None) or (self._size != (w, h))
+    def _reset_chunk_scene(self, cs: int, rs: int, cell_size: float):
+        self._cs = int(cs)
+        self._rs = int(rs)
+        self._cell_size = float(cell_size)
+        self._tiles.clear()
+        self._tile_queue.clear()
 
-        x = np.linspace(0, (w - 1) * cell_size, w, dtype=np.float32)
-        z = np.linspace(0, (h - 1) * cell_size, h, dtype=np.float32)
-        X, Z = np.meshgrid(x, z)
+        # Очищаем контейнер от старых тайлов
+        self._tile_root.parent = None
+        self._tile_root = scene.Node(parent=self.view.scene)
 
-        if need_recreate:
-            if self.surface is not None:
-                try:
-                    self.surface.parent = None
-                except Exception:
-                    pass
-                self.surface = None
-            self.surface = scene.visuals.SurfacePlot(
-                x=X, y=Z, z=np.zeros((h, w), dtype=np.float32),
-                shading="smooth", color=(0.72, 0.72, 0.76, 1.0),
-                parent=self.view.scene
+        # Настраиваем камеру на весь регион
+        world_size = self._cs * self._rs * self._cell_size
+        self.view.camera.set_range(x=(0, world_size), y=(0, world_size), z=(-world_size, world_size))
+        self.view.camera.center = (world_size / 2, world_size / 2, 0)
+
+        self._last_layout_key = (self._cs, self._rs, self._cell_size)
+        _vtrace(f"Chunk scene reset: cs={cs}, rs={rs}, cell_size={cell_size}")
+
+    def _make_or_update_tile_visual(self, tx: int, tz: int, tile_np: np.ndarray):
+        cs = self._cs
+
+        tile_size_with_apron = cs + 1
+        # Проверка размера остается, она важна
+        assert tile_np.shape == (tile_size_with_apron, tile_size_with_apron), "Tile has incorrect shape!"
+
+        x0 = tx * cs * self._cell_size
+        z0 = tz * cs * self._cell_size
+
+        # --- ИСПРАВЛЕНИЕ: Создаем ОДНОМЕРНЫЕ массивы для x и y ---
+        x_coords_1d = x0 + np.arange(tile_size_with_apron, dtype=np.float32) * self._cell_size
+        z_coords_1d = z0 + np.arange(tile_size_with_apron, dtype=np.float32) * self._cell_size
+        # Meshgrid больше не передается в SurfacePlot
+
+        key = (tx, tz)
+        vis = self._tiles.get(key)
+        if vis is None:
+            # --- ИСПРАВЛЕНИЕ: Передаем 1D массивы в x и y ---
+            vis = scene.visuals.SurfacePlot(
+                x=x_coords_1d, y=z_coords_1d, z=tile_np, # <-- ИСПРАВЛЕНО
+                shading='smooth',
+                color=(0.72, 0.72, 0.76, 1.0),
+                parent=self._tile_root
             )
-            self._size = (w, h)
-            _vtrace(f"surface RECREATE {w}x{h} cell={cell_size:.3f}")
+            units = float((tx + tz) & 7)
+            vis.set_gl_state(polygon_offset=(1.0, units), depth_test=True)
+            self._tiles[key] = vis
         else:
-            self.surface.set_data(x=X, y=Z)
-            _vtrace(f"surface set XY {w}x{h} cell={cell_size:.3f}")
+            # --- ИСПРАВЛЕНИЕ: set_data тоже ожидает 1D массивы ---
+            vis.set_data(x=x_coords_1d, y=z_coords_1d, z=tile_np)
 
-        self.view.camera.set_range(
-            x=(0, x[-1] if x.size else 1),
-            y=(0, z[-1] if z.size else 1),
-            z=(0, max(w, h) * 0.5)
-        )
-        _vtrace(f"_ensure_surface done in {(time.perf_counter() - t0) * 1000:.1f} ms")
-
-    def _request_redraw(self):
-        """
-        Просим перерисовку с троттлингом (раз в ~100 мс).
-        """
-        if not self._pending_redraw:
-            self._pending_redraw = True
-            QtCore.QTimer.singleShot(100, self._flush_redraw)
-            _vtrace("schedule redraw (+100ms)")
-
-    def _flush_redraw(self):
-        t0 = time.perf_counter()
-        self._pending_redraw = False
-        if self.surface is None or self._full is None:
+    def _drain_tile_queue(self):
+        n = min(TILES_PER_TICK, len(self._tile_queue))
+        if n <= 0:
+            self._drain_timer.stop()
             return
 
-        step = int(self._proxy_step)
-        if step <= 1:
-            self.surface.set_data(z=self._full)
-            _vtrace(f"flush FULL set_data {(time.perf_counter() - t0) * 1000:.1f} ms")
-            return
+        for _ in range(n):
+            tx, tz, tile_np = self._tile_queue.pop(0)
+            self._make_or_update_tile_visual(tx, tz, tile_np)
 
-        proxy = self._full[::step, ::step]
-        proxy_dim = proxy.shape[0]
-        if self._size != (proxy_dim, proxy_dim):
-            proxy_cell = self._cell_size * step
-            self._ensure_surface(proxy_dim, proxy_dim, proxy_cell)
-        t1 = time.perf_counter()
-        self.surface.set_data(z=proxy)
-        _vtrace(f"flush PROXY {proxy_dim}x{proxy_dim} step={step} "
-                f"set_data={(time.perf_counter() - t1) * 1000:.1f} ms total={(time.perf_counter() - t0) * 1000:.1f} ms")
+    @QtCore.Slot(object, str)
+    def on_compute_finished(self, result, message):
+        # Этот слот теперь будет вызываться для всего региона целиком
+        # Если мы в чанковом режиме, то он просто сигнализирует о завершении
+        if self._tile_queue:
+            # Даем таймеру шанс обработать оставшиеся тайлы
+            QtCore.QTimer.singleShot(DRAIN_INTERVAL_MS * 2, lambda: self.on_compute_finished(result, message))
+        _vtrace(f"Compute finished: {message}")
 
-    # ---------- ПОЛНОЕ ОБНОВЛЕНИЕ ----------
+    @QtCore.Slot(int, int, object)
+    def update_tile(self, tx: int, tz: int, tile_map: np.ndarray):
+        # Этот слот был в старой версии, теперь мы получаем все данные
+        # из partial_ready воркера, поэтому он может быть не нужен,
+        # но оставим его для совместимости, если где-то используется.
+        pass
 
-    def update_mesh(self, height_map: np.ndarray, cell_size: float):
-        t0 = time.perf_counter()
-        if height_map is None:
-            return
-        h, w = int(height_map.shape[0]), int(height_map.shape[1])
-        self._full = height_map.astype(np.float32, copy=True)
-        self._cell_size = float(cell_size)
-        self._proxy_step = 1  # полный рендер
+    def on_tile_ready(self, tx: int, tz: int, tile_with_apron: np.ndarray, cs: int, rs: int, cell_size: float):
+        # Этот метод будет вызываться напрямую из MainWindow
 
-        self._ensure_surface(w, h, self._cell_size)
-        t1 = time.perf_counter()
-        self.surface.set_data(z=self._full)
-        t2 = time.perf_counter()
-        self._upd_count += 1
-        _vtrace(
-            f"update_mesh z={w}x{h} set_data={(t2 - t1) * 1000:.1f} ms total={(t2 - t0) * 1000:.1f} ms (upd#{self._upd_count})")
+        # Используем переданные параметры для проверки, нужно ли сбросить сцену
+        key = (cs, rs, cell_size)
+        if self._last_layout_key != key:
+            self._reset_chunk_scene(cs, rs, cell_size)
 
-    # ---------- ЧАСТИЧНОЕ ОБНОВЛЕНИЕ (ТАЙЛЫ) ----------
+        self._tile_queue.append((tx, tz, tile_with_apron.copy()))
+        if not self._drain_timer.isActive():
+            self._drain_timer.start(DRAIN_INTERVAL_MS)
 
-    def update_tile(self, tile_map: np.ndarray, tx: int, tz: int,
-                    cs: int, rs: int, cell_size: float):
-        t0 = time.perf_counter()
-        if tile_map is None:
-            return
+    def update_mesh(self, height_map, cell_size):
+        # Этот метод для монолитного рендера (кнопка APPLY)
+        # Он должен сбросить сцену под размер 1x1 чанк
+        self._reset_chunk_scene(height_map.shape[1], 1, cell_size)
 
-        H = int(cs) * int(rs)
-        self._cell_size = float(cell_size)
+        # --- ИСПРАВЛЕНИЕ: Искусственно создаем "фартук" для монолитного блока ---
+        # np.pad добавляет 1 пиксель по краям, дублируя крайние значения
+        padded_map = np.pad(height_map, ((0, 1), (0, 1)), 'edge')
 
-        if self._full is None or self._full.shape != (H, H):
-            self._full = np.zeros((H, H), dtype=np.float32)
-            self._proxy_step = max(1, int(np.ceil(H / PROXY_MAX_DIM)))
-            proxy_cell = self._cell_size * self._proxy_step
-            proxy_dim = (H // self._proxy_step)
-            self._ensure_surface(proxy_dim, proxy_dim, proxy_cell)
-            self.surface.set_data(z=self._full[::self._proxy_step, ::self._proxy_step])
-            _vtrace(f"tile: init buffer H={H} step={self._proxy_step} proxy={proxy_dim}x{proxy_dim}")
-
-        y0 = int(tz) * int(cs)
-        x0 = int(tx) * int(cs)
-        self._full[y0:y0 + cs, x0:x0 + cs] = tile_map.astype(np.float32, copy=False)
-        self._tile_count += 1
-        _vtrace(f"tile put ({tx},{tz}) at [{y0}:{y0 + cs},{x0}:{x0 + cs}] "
-                f"cs={cs} rs={rs} step={self._proxy_step} tile#{self._tile_count} "
-                f"put={(time.perf_counter() - t0) * 1000:.1f} ms")
-
-        self._request_redraw()
-
+        # Вызываем _make_or_update_tile_visual, который теперь получит данные
+        # правильного размера (например, 513x513)
+        self._make_or_update_tile_visual(0, 0, padded_map)

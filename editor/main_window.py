@@ -25,44 +25,47 @@ from .actions.compute_actions import on_apply_clicked, on_apply_tiled_clicked
 
 class MainWindow(QtWidgets.QMainWindow):
     # Слоты, чтобы получать сигналы из фоновых воркеров «в очередь»
+
+
     @QtCore.Slot(int, int, object)
     def on_tile_ready(self, tx, tz, tile):
+        # Этот слот получает тайлы от TiledComputeWorker
         import numpy as np
-        t = np.asarray(tile)
+        t = np.asarray(tile, dtype=np.float32)
         if t.ndim != 2 or not np.isfinite(t).all():
+            self.statusBar.showMessage(f"Пропущен плохой тайл ({tx},{tz})", 2000)
             return
-        # Можно дорисовывать прогресс-наложение здесь; пока просто игнор — финал соберёт всё.
+
+        # ---> НАЧАЛО ИЗМЕНЕНИЙ <---
+        # Получаем актуальные параметры из UI
+        cs = self.chunk_size_input.value()
+        rs = self.region_size_input.value()
+        cell = self.cell_size_input.value()
+
+        # Вызываем обновленный метод виджета с дополнительными параметрами
+        self.preview_widget.on_tile_ready(tx, tz, t, cs, rs, cell)
+        # ---> КОНЕЦ ИЗМЕНЕНИЙ <---
 
     @QtCore.Slot(object, str)
     def on_compute_finished(self, result, message):
-        import numpy as np, time, sys
-        t0 = time.perf_counter()
-        arr = np.asarray(result)
-        if arr.ndim != 2 or arr.size == 0 or not np.isfinite(arr).all():
-            self.on_compute_error(f"Неверный результат: shape={getattr(arr, 'shape', None)}")
-            return
+        # Этот слот вызывается от ОБОИХ воркеров
+        import numpy as np
 
-        cell_size = float(self.cell_size_input.value())
-        h, w = arr.shape
-        print(f"[TRACE/UI] finished: result {w}x{h}, sending to preview...", flush=True, file=sys.stdout)
-
-        def _do():
-            t1 = time.perf_counter()
-            self.preview_widget.update_mesh(arr, cell_size)
-            dt = (time.perf_counter() - t1) * 1000
-            print(f"[TRACE/UI] preview.update_mesh took {dt:.1f} ms", flush=True, file=sys.stdout)
-
-        QtCore.QTimer.singleShot(0, _do)
+        # Если result не пустой, значит это был ОДИНОЧНЫЙ рендер (кнопка APPLY)
+        # TiledComputeWorker в конце присылает result=None
+        if result is not None:
+            cell = float(self.cell_size_input.value())
+            # Вызываем исправленный update_mesh
+            self.preview_widget.update_mesh(result, cell)
 
         self.statusBar.showMessage(message, 4000)
-        print(f"[TRACE/UI] on_compute_finished total {(time.perf_counter() - t0) * 1000:.1f} ms", flush=True,
-              file=sys.stdout)
 
     @QtCore.Slot(str)
     def on_compute_error(self, message):
         print(f"[TRACE/UI] on_compute_error: {message}", flush=True)
         QtWidgets.QMessageBox.critical(self, "Ошибка вычисления", str(message))
-        self.statusBar.showMessage(f"Ошибка: {message}", 5000)
+        # НИЧЕГО не делаем с preview_widget: оставляем текущую картинку как есть
+        self.statusBar.showMessage(f"Ошибка: {message.splitlines()[0]}", 6000)
 
     def __init__(self):
         super().__init__()
@@ -75,8 +78,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # --- центральная область: сверху превью, снизу граф ---
         graph_widget = self.graph.widget
         graph_widget.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
-        # Используем дефолтное контекстное меню NodeGraphQt (ничего не переопределяем).
-        # graph_widget.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.DefaultContextMenu)
+        delete_sc = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Delete), graph_widget)
+        delete_sc.setContext(QtCore.Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        delete_sc.activated.connect(self._delete_selected_nodes)
+
+        back_sc = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Backspace), graph_widget)
+        back_sc.setContext(QtCore.Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        back_sc.activated.connect(self._delete_selected_nodes)
 
         central = QtWidgets.QWidget()
         v = QtWidgets.QVBoxLayout(central); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(0)
@@ -88,6 +96,9 @@ class MainWindow(QtWidgets.QMainWindow):
         splitter.setSizes([420, 680])
         v.addWidget(splitter)
         self.setCentralWidget(central)
+
+        self._ensure_graph_focus()
+        QtCore.QTimer.singleShot(0, self._ensure_graph_focus)
 
         # Delete — используем встроенную обработку NodeGraphQt.
         # Никаких QShortcut/QAction сверху не навешиваем, чтобы не было конфликтов.
@@ -214,3 +225,43 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as e:
             self.statusBar.showMessage(f"Ошибка чтения файла проекта: {e}", 5000)
             return None
+
+    def _ensure_graph_focus(self):
+        """Дать фокус именно viewer’у редактора графа, чтобы работал Delete."""
+        viewer = getattr(self.graph, "widget", None) or getattr(self.graph, "viewer", None)
+        if viewer is None:
+            return
+        viewer.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
+        if not viewer.hasFocus():
+            viewer.setFocus(QtCore.Qt.FocusReason.ActiveWindowFocusReason)
+
+
+
+    def _delete_selected_nodes(self):
+        # Трейс, чтобы видеть, что шорткат действительно сработал
+        print("[TRACE/UI] delete pressed", flush=True)
+        try:
+            selected = list(self.graph.selected_nodes())
+        except Exception:
+            selected = []
+        if not selected:
+            return
+        # Пытаемся удалить пачкой; если у твоей версии другой API — подстрахуемся
+        if hasattr(self.graph, "delete_nodes"):
+            try:
+                self.graph.delete_nodes(selected)
+                return
+            except Exception as e:
+                print(f"[TRACE/UI] delete_nodes(list) failed: {e}", flush=True)
+        if hasattr(self.graph, "delete_selected_nodes"):
+            try:
+                self.graph.delete_selected_nodes()
+                return
+            except Exception as e:
+                print(f"[TRACE/UI] delete_selected_nodes() failed: {e}", flush=True)
+        # Жёсткий fallback — по одному
+        for n in selected:
+            try:
+                self.graph.delete_nodes([n])
+            except Exception:
+                pass
