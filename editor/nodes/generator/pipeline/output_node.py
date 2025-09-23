@@ -17,12 +17,10 @@ class OutputNode(GeneratorNode):
         self.set_color(10, 20, 30)
 
     def compute(self, *args, **kwargs):
-        # ... (логика без изменений) ...
         input_port = self.get_input(0)
         if not input_port or not input_port.connected_ports():
-            print("Output node is not connected.")
-            self._result_cache = None
-            return None
+            # ИЗМЕНЕНИЕ: Вызываем исключение вместо возврата None
+            raise RuntimeError("Вход ноды 'Output' не подключен!")
 
         source_node = input_port.connected_ports()[0].node()
 

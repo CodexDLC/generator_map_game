@@ -25,9 +25,9 @@ def _atomic_write_json(path: Path, data: dict) -> None:
     os.replace(tmp_path, path)
 
 def _default_project_dict(project_name: str) -> dict:
-    """Единый формат project.json, теперь с блоком global_noise."""
+    """Единый формат project.json, теперь с поддержкой пресетов регионов."""
     return {
-        "version": 2,
+        "version": 3, # <-- Повышаем версию
         "project_name": project_name,
         "seed": 1,
         "chunk_size": 128,
@@ -35,12 +35,21 @@ def _default_project_dict(project_name: str) -> dict:
         "cell_size": 1.0,
         "global_x_offset": 0.0,
         "global_z_offset": 0.0,
-        # --- НОВЫЙ БЛОК ---
         "global_noise": {
             "scale_tiles": 6000.0,
             "octaves": 3,
             "amp_m": 400.0,
             "ridge": False
+        },
+        # --- НОВЫЙ БЛОК ДЛЯ ПРЕСЕТОВ ---
+        "active_preset_name": "default",
+        "region_presets": {
+            "default": {
+                "description": "Пресет по умолчанию",
+                "landscape_graph": "pipelines/default_landscape.json",
+                "climate_graph": "pipelines/default_climate.json",
+                "biome_graph": "pipelines/default_biome.json"
+            }
         }
     }
 

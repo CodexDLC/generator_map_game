@@ -5,6 +5,8 @@
 # ==============================================================================
 from PySide6 import QtWidgets, QtCore  # <-- ДОБАВЛЕН ИМПОРТ QtCore
 
+from editor.system_utils import get_recommended_max_map_size
+
 
 def create_project_params_dock(main_window) -> None:
     """
@@ -30,6 +32,33 @@ def create_project_params_dock(main_window) -> None:
 
     main_window.cell_size_input = QtWidgets.QDoubleSpinBox(minimum=0.1, maximum=10.0, decimals=2, singleStep=0.1)
     form_layout.addRow("Cell Size (m):", main_window.cell_size_input)
+
+    form_layout.addRow(QtWidgets.QLabel("---"))  # Разделитель
+
+    main_window.total_size_label = QtWidgets.QLabel("Total size: 0 x 0 px")
+    main_window.total_size_label.setStyleSheet("color: #aaa;")
+    form_layout.addRow(main_window.total_size_label)
+
+    recommended_size = get_recommended_max_map_size()
+    rec_label = QtWidgets.QLabel(f"Recommended max: {recommended_size} px")
+    rec_label.setStyleSheet("color: #88aaff;")
+    form_layout.addRow(rec_label)
+
+    def update_total_size():
+        cs = main_window.chunk_size_input.value()
+        rs = main_window.region_size_input.value()
+        total = cs * rs
+        main_window.total_size_label.setText(f"Total size: {total} x {total} px")
+
+        # Подсветка, если превысили рекомендацию
+        if total > recommended_size:
+            main_window.total_size_label.setStyleSheet("color: #ffcc00; font-weight: bold;")
+        else:
+            main_window.total_size_label.setStyleSheet("color: #aaa;")
+
+    main_window.chunk_size_input.valueChanged.connect(update_total_size)
+    main_window.region_size_input.valueChanged.connect(update_total_size)
+    # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
 
     dock = QtWidgets.QDockWidget("Параметры Проекта", main_window)
     dock.setWidget(settings_widget)

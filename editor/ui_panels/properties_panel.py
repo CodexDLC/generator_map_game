@@ -7,16 +7,18 @@ from PySide6 import QtWidgets, QtCore  # <-- ДОБАВЛЕН ИМПОРТ QtCor
 from NodeGraphQt import PropertiesBinWidget
 from typing import cast
 
+
 def create_properties_dock(main_window) -> None:
     """
     Создает и настраивает док-виджет для отображения свойств выбранной ноды.
     """
-    props_bin = PropertiesBinWidget(node_graph=main_window.graph)
+    # --- ИЗМЕНЕНИЕ: Используем get_active_graph() для инициализации ---
+    props_bin = PropertiesBinWidget(node_graph=main_window.get_active_graph())
 
     dock = QtWidgets.QDockWidget("Свойства Нода", main_window)
     dock.setWidget(cast(QtWidgets.QWidget, props_bin))
 
-    # --- ИСПРАВЛЕНИЕ: Используем QtCore.Qt вместо QtWidgets.Qt ---
     main_window.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, dock)
 
+    # Сохраняем ссылку на док-виджет
     main_window.dock_props = dock

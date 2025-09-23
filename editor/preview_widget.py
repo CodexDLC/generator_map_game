@@ -32,11 +32,11 @@ class Preview3DWidget(QtWidgets.QWidget):
         self._rs = 0
         self._cell_size = 1.0
         self._tiles = {}
-        self._tile_queue = []  # Очередь для тайлов из потока
-        self._drain_timer = QtCore.QTimer(self)  # Таймер для обработки очереди
+        self._tile_queue = {}  # ИЗМЕНЕНИЕ: Заменяем список на словарь
+        self._drain_timer = QtCore.QTimer(self)
         self._drain_timer.timeout.connect(self._drain_tile_queue)
         self._last_layout_key = None
-        # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
+
 
     def _reset_chunk_scene(self, cs: int, rs: int, cell_size: float):
         """Сбрасывает сцену при изменении параметров генерации."""
@@ -90,15 +90,16 @@ class Preview3DWidget(QtWidgets.QWidget):
 
     def _drain_tile_queue(self):
         """Обрабатывает несколько тайлов из очереди за один вызов."""
-        n = min(TILES_PER_TICK, len(self._tile_queue))
-        if n <= 0:
+        # ИЗМЕНЕНИЕ: Логика работы со словарем
+        keys_to_process = list(self._tile_queue.keys())[:TILES_PER_TICK]
+        if not keys_to_process:
             self._drain_timer.stop()
             logger.info("Tile queue is empty. Stopping drain timer.")
             return
 
-        logger.debug(f"Draining {n} tiles from queue (remaining: {len(self._tile_queue) - n}).")
-        for _ in range(n):
-            tx, tz, tile_np = self._tile_queue.pop(0)
+        logger.debug(f"Draining {len(keys_to_process)} tiles from queue (remaining: {len(self._tile_queue) - len(keys_to_process)}).")
+        for key in keys_to_process:
+            tx, tz, tile_np = self._tile_queue.pop(key)
             self._make_or_update_tile_visual(tx, tz, tile_np)
 
     @QtCore.Slot(int, int, object, int, int, float)
@@ -110,10 +111,10 @@ class Preview3DWidget(QtWidgets.QWidget):
         if self._last_layout_key != key:
             self._reset_chunk_scene(cs, rs, cell_size)
 
-        # Копируем данные, чтобы избежать проблем с памятью
-        self._tile_queue.append((tx, tz, tile_with_apron.copy()))
+        # ИЗМЕНЕНИЕ: Добавляем в словарь по ключу координат
+        tile_key = (tx, tz)
+        self._tile_queue[tile_key] = (tx, tz, tile_with_apron.copy())
 
-        # Запускаем таймер, если он еще не активен
         if not self._drain_timer.isActive():
             logger.info("Starting tile queue drain timer.")
             self._drain_timer.start(DRAIN_INTERVAL_MS)
@@ -121,12 +122,14 @@ class Preview3DWidget(QtWidgets.QWidget):
     def update_mesh(self, height_map, cell_size):
         """Обновляет сцену для монолитного рендера (кнопка APPLY)."""
         logger.info(f"Updating mesh for single-chunk render. Shape: {height_map.shape}")
+
+
         self._reset_chunk_scene(height_map.shape[1], 1, cell_size)
 
         # Искусственно создаем "фартук" для бесшовного отображения
         padded_map = np.pad(height_map, ((0, 1), (0, 1)), 'edge')
 
-        # Добавляем в очередь, чтобы обработка шла через единый механизм
-        self._tile_queue.append((0, 0, padded_map))
+        self._tile_queue[(0, 0)] = (0, 0, padded_map)
+
         if not self._drain_timer.isActive():
             self._drain_timer.start(DRAIN_INTERVAL_MS)

@@ -20,11 +20,14 @@ def _generate_noise_field(params: Dict[str, Any], context: Dict[str, Any]) -> np
     z_coords = context["z_coords"]
     cell_size = context["cell_size"]
 
-    # --- ИЗМЕНЕНИЕ: Используем хэш для создания уникального сида слоя ---
     global_seed = context["seed"]
     seed_offset = params.get("seed_offset", 0)
-    layer_seed = hash64(global_seed, seed_offset)
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+    # Генерируем 64-битный хэш, а затем отсекаем его до 32 бит с помощью
+    # побитовой операции AND. Это гарантирует, что число не вызовет переполнения в Numba.
+    layer_seed = hash64(global_seed, seed_offset) & 0xFFFFFFFF
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
     gain = float(params.get("gain", 0.5))
     octaves = int(params.get("octaves", 4))

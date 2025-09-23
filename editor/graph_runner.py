@@ -1,61 +1,48 @@
-# ==============================================================================
-# Файл: editor/graph_runner.py
-# Назначение: Унифицированный запуск графа нод. Никаких Qt/VisPy/движка.
-# + ВНЕДРЕНИЕ ЛОГИРОВАНИЯ
-# ==============================================================================
-import logging  # <--- ДОБАВЛЕНО
+# editor/graph_runner.py
+import logging
 import numpy as np
-import sys
-import traceback  # <--- ДОБАВЛЕНО
+import traceback
 
-logger = logging.getLogger(__name__)  # <--- ДОБАВЛЕНО
-
-
-def _find_output_node(graph):
-    logger.debug("Searching for 'Output' node...")
-    nodes = list(graph.all_nodes())
-    outs = [n for n in nodes if getattr(n, "NODE_NAME", "") == "Output"]
-    logger.debug(f"Found {len(outs)} output node(s).")
-    if not outs:
-        # Это критическая ошибка, поэтому уровень ERROR
-        logger.error("No 'Output' node found in the graph!")
-        raise RuntimeError("В графе нет нода 'Output'")
-    return outs[0]
+logger = logging.getLogger(__name__)
 
 
-def run_graph(graph, context, on_tick=lambda p, m: True):
+def run_graph(out_node, context, on_tick=lambda p, m: True):
     """
-    graph: NodeGraphQt.NodeGraph
-    context: dict с x_coords, z_coords, cell_size, seed, ...
-    on_tick: callable(percent:int, message:str) | None
+    Запускает вычисление графа, начиная с переданной выходной ноды.
+
+    Args:
+        out_node: Нода (например, OutputNode), с которой начинается вычисление.
+        context: Словарь с параметрами для генерации.
+        on_tick: Callback для отслеживания прогресса.
     """
 
     def tick(p, m):
         try:
-            return on_tick and on_tick(int(p), str(m))
+            if on_tick:
+                return on_tick(int(p), str(m))
         except Exception:
-            # Не даем ошибке в колбэке прогресса уронить всю генерацию
             logger.warning("Error in on_tick callback.", exc_info=True)
             return None
 
     try:
         logger.info("Graph run started.")
-        tick(5, "Поиск выхода…")
-        out_node = _find_output_node(graph)
+        # ИЗМЕНЕНИЕ: Мы больше не ищем выходную ноду здесь.
+        # Она уже найдена и передана как аргумент `out_node`.
+        # tick(5, "Поиск выхода…")
+        # out_node = _find_output_node(graph) # <--- УБИРАЕМ ЭТУ ЛОГИКУ
 
         tick(10, f"Вычисление от ноды '{out_node.name()}'…")
         result = out_node.compute(context)
         logger.info("Graph computation finished successfully.")
 
     except Exception:
-        # logger.exception сам добавит полный трейсбек в лог
         logger.exception("An exception occurred during graph execution.")
-        # Пробрасываем ошибку дальше, чтобы ее увидел воркер и UI
         raise
 
     # --- Валидация и стандартизация результата ---
     logger.info("Validating final result...")
     if result is None:
+        # Эта проверка остается на случай, если сама нода вернет None
         logger.error("Validation failed: Output node returned None.")
         raise RuntimeError("Output.compute вернул None (проверь соединения)")
 
@@ -69,7 +56,6 @@ def run_graph(graph, context, on_tick=lambda p, m: True):
         logger.error("Validation failed: Result contains NaN or Inf values.")
         raise RuntimeError("Результат содержит NaN/Inf")
 
-    # приведение типов для VisPy/GL
     arr = arr.astype(np.float32, copy=False, order="C")
 
     logger.info(f"Validation successful. Final map shape: {arr.shape}")

@@ -12,3 +12,6 @@ PySide6
 NodeGraphQt
 vispy
 setuptools
+
+
+psutil

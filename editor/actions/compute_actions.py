@@ -54,9 +54,15 @@ def _connect_worker_signals_for_dialog(worker: QtCore.QObject,
     if hasattr(worker, "finished"):
         worker.finished.connect(dlg.accept, type=QtCore.Qt.ConnectionType.QueuedConnection)
         worker.finished.connect(thread.quit, type=QtCore.Qt.ConnectionType.QueuedConnection)
+        # ИЗМЕНЕНИЕ: Добавляем очистку
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
     if hasattr(worker, "error"):
         worker.error.connect(dlg.reject, type=QtCore.Qt.ConnectionType.QueuedConnection)
         worker.error.connect(thread.quit, type=QtCore.Qt.ConnectionType.QueuedConnection)
+        # ИЗМЕНЕНИЕ: Добавляем очистку
+        worker.error.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
 
     thread.finished.connect(worker.deleteLater)
     if hasattr(dlg, "cancel_button") and hasattr(worker, "cancel"):
@@ -127,6 +133,13 @@ def _get_context_from_ui(main_window) -> dict:
 def on_apply_clicked(main_window):
     logger.info("Action triggered: on_apply_clicked.")
 
+    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+    if main_window.thread and main_window.thread.isRunning():
+        logger.warning("A compute thread is already running. Aborting new request.")
+        QtWidgets.QMessageBox.warning(main_window, "Внимание", "Предыдущая операция вычисления еще не завершена.")
+        return
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
     output_node = _find_output_node(main_window.graph, main_window)
     if not output_node:
         return
@@ -136,20 +149,34 @@ def on_apply_clicked(main_window):
     dlg.setWindowTitle("Генерация (single)")
     dlg.open()
 
-    thread = QtCore.QThread(parent=main_window)
-    worker = ComputeWorker(output_node=output_node, context=context)
-    worker.moveToThread(thread)
+    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+    main_window.thread = QtCore.QThread(parent=main_window)
+    main_window.worker = ComputeWorker(output_node=output_node, context=context)
+    main_window.worker.moveToThread(main_window.thread)
 
-    _connect_worker_signals_for_dialog(worker, thread, dlg)
-    _connect_worker_signals_for_mainwindow(main_window, worker)
+    _connect_worker_signals_for_dialog(main_window.worker, main_window.thread, dlg)
+    _connect_worker_signals_for_mainwindow(main_window, main_window.worker)
 
-    thread.started.connect(worker.run)
-    thread.start()
+    # Это предотвратит падение при повторном клике.
+    main_window.thread.finished.connect(lambda: setattr(main_window, 'thread', None))
+    main_window.thread.finished.connect(lambda: setattr(main_window, 'worker', None))
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
+    main_window.thread.started.connect(main_window.worker.run)
+    main_window.thread.start()
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
     logger.debug("Single compute thread started.")
 
 
 def on_apply_tiled_clicked(main_window):
     logger.info("Action triggered: on_apply_tiled_clicked.")
+
+    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+    if main_window.thread and main_window.thread.isRunning():
+        logger.warning("A compute thread is already running. Aborting new request.")
+        QtWidgets.QMessageBox.warning(main_window, "Внимание", "Предыдущая операция вычисления еще не завершена.")
+        return
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
     output_node = _find_output_node(main_window.graph, main_window)
     if not output_node:
@@ -160,18 +187,25 @@ def on_apply_tiled_clicked(main_window):
     dlg.setWindowTitle("Генерация (tiled)")
     dlg.open()
 
-    thread = QtCore.QThread(parent=main_window)
-    worker = TiledComputeWorker(
+    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+    main_window.thread = QtCore.QThread(parent=main_window)
+    main_window.worker = TiledComputeWorker(
         output_node=output_node,
         base_context=context,
         chunk_size=context["chunk_size"],
         region_size=context["region_size_in_chunks"],
     )
-    worker.moveToThread(thread)
+    main_window.worker.moveToThread(main_window.thread)
 
-    _connect_worker_signals_for_dialog(worker, thread, dlg)
-    _connect_worker_signals_for_mainwindow(main_window, worker)
+    _connect_worker_signals_for_dialog(main_window.worker, main_window.thread, dlg)
+    _connect_worker_signals_for_mainwindow(main_window, main_window.worker)
 
-    thread.started.connect(worker.run)
-    thread.start()
+    # Делаем то же самое для тайлового воркера.
+    main_window.thread.finished.connect(lambda: setattr(main_window, 'thread', None))
+    main_window.thread.finished.connect(lambda: setattr(main_window, 'worker', None))
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
+    main_window.thread.started.connect(main_window.worker.run)
+    main_window.thread.start()
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
     logger.debug("Tiled compute thread started.")
