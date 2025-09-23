@@ -1,32 +1,35 @@
 # ==============================================================================
 # Файл: editor/actions/worker.py
-# ВЕРСИЯ 2.0: Исправлена ошибка 0xC0000005 (Access Violation) в TiledComputeWorker
-#             путем добавления параметров тайла в сигнал partial_ready.
+# ВЕРСИЯ 2.4: Конструкторы обновлены для приема output_node.
 # ==============================================================================
-
-from __future__ import annotations
+import logging
+import time
 import numpy as np
 from PySide6 import QtCore
+from pathlib import Path  # <--- Добавлен импорт
 
 from ..graph_runner import run_graph
 
+logger = logging.getLogger(__name__)
+
 
 class ComputeWorker(QtCore.QObject):
-    # ... (этот класс остается без изменений) ...
     set_busy = QtCore.Signal(bool)
     progress = QtCore.Signal(int, str)
     finished = QtCore.Signal(object, str)
     error = QtCore.Signal(str)
 
-    def __init__(self, graph, context: dict):
+    def __init__(self, output_node, context: dict):
         super().__init__()
-        self._graph = graph
+        self._output_node = output_node
         self._ctx = dict(context or {})
         self._cancelled = False
 
     @QtCore.Slot()
     def run(self):
         try:
+            logger.info("ComputeWorker started.")
+            start_time = time.perf_counter()
             self._cancelled = False
             self.set_busy.emit(True)
             self.progress.emit(0, "Инициализация…")
@@ -36,7 +39,14 @@ class ComputeWorker(QtCore.QObject):
                 self.progress.emit(int(p), str(msg))
                 return True
 
-            res = run_graph(self._graph, self._ctx, on_tick=_tick)
+            res = run_graph(self._output_node, self._ctx, on_tick=_tick)
+            end_time = time.perf_counter()
+            logger.info(f"Graph computation finished in {end_time - start_time:.3f} seconds.")
+            if res is not None:
+                logger.debug(f"  - Output map stats: shape={res.shape}, "
+                             f"min={res.min():.2f}, max={res.max():.2f}, "
+                             f"has_nan={np.isnan(res).any()}")
+
             if self._cancelled:
                 self.set_busy.emit(False);
                 self.error.emit("Отменено");
@@ -48,25 +58,26 @@ class ComputeWorker(QtCore.QObject):
         except Exception as e:
             import traceback
             tb = traceback.format_exc()
+            logger.exception("Error during graph computation.")
             self.set_busy.emit(False)
             self.error.emit(f"{e}\n--- TRACEBACK ---\n{tb}")
 
     @QtCore.Slot()
     def cancel(self):
+        logger.warning("ComputeWorker cancellation requested.")
         self._cancelled = True
 
 
 class TiledComputeWorker(QtCore.QObject):
     set_busy = QtCore.Signal(bool)
     progress = QtCore.Signal(int, str)
-    # --- ИЗМЕНЕНИЕ: Добавляем в сигнал параметры cs, rs, cell_size ---
-    partial_ready = QtCore.Signal(int, int, object, int, int, float)  # tx, tz, tile, cs, rs, cell_size
-    finished = QtCore.Signal(object, str)
+    partial_ready = QtCore.Signal(int, int, object, int, int, float)
+    finished = QtCore.Signal(str)
     error = QtCore.Signal(str)
 
-    def __init__(self, graph, base_context: dict, chunk_size: int, region_size: int):
+    def __init__(self, output_node, base_context: dict, chunk_size: int, region_size: int):
         super().__init__()
-        self._graph = graph
+        self._output_node = output_node
         self._base = dict(base_context or {})
         self._cs = int(chunk_size)
         self._rs = int(region_size)
@@ -75,14 +86,15 @@ class TiledComputeWorker(QtCore.QObject):
     @QtCore.Slot()
     def run(self):
         try:
+            logger.info(f"TiledComputeWorker started for {self._rs}x{self._rs} tiles.")
+            total_start_time = time.perf_counter()
+
             self._cancelled = False
             self.set_busy.emit(True)
             cs, rs = self._cs, self._rs
-            # --- ИЗМЕНЕНИЕ: Получаем cell_size один раз в начале ---
             cell_size = float(self._base.get("cell_size", 1.0))
             tiles_total = rs * rs
 
-            full = np.zeros((cs * rs, cs * rs), dtype=np.float32)
             self.progress.emit(0, f"Старт тайлов: {rs}×{rs}")
 
             done = 0
@@ -90,6 +102,8 @@ class TiledComputeWorker(QtCore.QObject):
                 if self._cancelled: self.error.emit("Отменено"); return
                 for tx in range(rs):
                     if self._cancelled: self.error.emit("Отменено"); return
+
+                    tile_start_time = time.perf_counter()
 
                     gx = float(self._base.get("global_x_offset", 0.0))
                     gz = float(self._base.get("global_z_offset", 0.0))
@@ -108,28 +122,71 @@ class TiledComputeWorker(QtCore.QObject):
 
                     def _tick(p, m):
                         if self._cancelled: return False
-                        self.progress.emit(int(((done + p / 100.0) / tiles_total) * 100), f"{msg}: {m}")
+                        percent = int(((done + p / 100.0) / tiles_total) * 100)
+                        self.progress.emit(percent, f"{msg}: {m}")
                         return True
 
-                    tile_with_apron = run_graph(self._graph, ctx, on_tick=_tick)
-                    visible_part = tile_with_apron[:-1, :-1]
-                    z0, z1 = tz * cs, (tz + 1) * cs
-                    x0, x1 = tx * cs, (tx + 1) * cs
-                    full[z0:z1, x0:x1] = visible_part
+                    tile_with_apron = run_graph(self._output_node, ctx, on_tick=_tick)
 
-                    # --- ИЗМЕНЕНИЕ: Отправляем сигнал с дополнительными параметрами ---
+                    tile_end_time = time.perf_counter()
+                    logger.debug(f"Tile ({tx},{tz}) computed in {tile_end_time - tile_start_time:.3f} seconds.")
+
                     self.partial_ready.emit(tx, tz, tile_with_apron, cs, rs, cell_size)
 
                     done += 1
                     self.progress.emit(int(done / tiles_total * 100), f"{msg}: готов")
 
+            total_end_time = time.perf_counter()
+            logger.info(f"All tiles computed in {total_end_time - total_start_time:.3f} seconds.")
+
             self.set_busy.emit(False)
             self.progress.emit(100, "Все тайлы собраны")
-            self.finished.emit(full, "Tiled-compute завершён")
+            self.finished.emit("Tiled-compute завершён")
+
         except Exception as e:
+            logger.exception("Error during tiled computation.")
             self.set_busy.emit(False)
             self.error.emit(f"{e.__class__.__name__}: {e}")
 
     @QtCore.Slot()
     def cancel(self):
+        logger.warning("TiledComputeWorker cancellation requested.")
         self._cancelled = True
+
+
+# --- ДОБАВЛЕН НОВЫЙ КЛАСС-ЗАГЛУШКА ---
+class GenerationWorker(QtCore.QObject):
+    progress = QtCore.Signal(int, str)
+    finished = QtCore.Signal(str)
+    error = QtCore.Signal(str)
+
+    def __init__(self, graph_data: dict, artifacts_root):
+        super().__init__()
+        self._graph_data = dict(graph_data)
+        self._artifacts_root = Path(str(artifacts_root))
+        self._is_stopped = False
+
+    @QtCore.Slot()
+    def run(self):
+        try:
+            logger.info(f"GenerationWorker started. Artifacts will be saved to: {self._artifacts_root}")
+            self.progress.emit(5, "Подготовка артефактов…")
+            if self._is_stopped: return
+
+            self._artifacts_root.mkdir(parents=True, exist_ok=True)
+            out = self._artifacts_root / "node_graph.json"
+
+            import json
+            with open(out, "w", encoding="utf-8") as f:
+                json.dump(self._graph_data.get("node_graph", {}), f, ensure_ascii=False, indent=2)
+
+            if self._is_stopped: return
+            self.progress.emit(100, "Экспорт графа завершён")
+            self.finished.emit(f"Артефакты сохранены: {out}")
+        except Exception as e:
+            logger.exception("Error in GenerationWorker.")
+            self.error.emit(str(e))
+
+    def stop(self):
+        logger.warning("GenerationWorker stop requested.")
+        self._is_stopped = True

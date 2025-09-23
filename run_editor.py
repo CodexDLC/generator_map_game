@@ -9,6 +9,7 @@ from PySide6 import QtWidgets
 
 # Импортируем наш новый класс MainWindow и стили
 from editor.main_window import MainWindow
+from editor.setup_logging import setup_logging
 from editor.theme import APP_STYLE_SHEET
 # --- НОВЫЙ ИМПОРТ ---
 # Импортируем функцию, которая показывает наш новый диалог
@@ -19,6 +20,8 @@ def run_editor():
     """
     Инициализирует и запускает приложение.
     """
+    setup_logging()
+
     app = QtWidgets.QApplication(sys.argv)
     app.setStyleSheet(APP_STYLE_SHEET)
 

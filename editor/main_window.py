@@ -4,6 +4,8 @@
 # ==============================================================================
 
 import json
+import logging
+import time
 from pathlib import Path
 
 from PySide6 import QtWidgets, QtCore, QtGui
@@ -24,6 +26,8 @@ from .ui_panels.nodes_palette_panel import create_nodes_palette_dock
 from .ui_panels.properties_panel import create_properties_dock
 from .ui_panels.compute_panel import create_compute_dock
 
+logger = logging.getLogger(__name__)
+
 
 class MainWindow(QtWidgets.QMainWindow):
     # --- Слоты для сигналов от воркеров (без изменений) ---
@@ -43,26 +47,52 @@ class MainWindow(QtWidgets.QMainWindow):
         # --- ИЗМЕНЕНИЕ: Мы больше не читаем значения из UI-виджетов. ---
         # Вместо этого мы используем параметры `cs`, `rs`, `cell_size`,
         # пришедшие вместе с сигналом.
-
+        logger.debug(f"Received tile ({tx},{tz}) with params: cs={cs}, rs={rs}, cell_size={cell_size}")
         self.preview_widget.on_tile_ready(tx, tz, t, cs, rs, cell_size)
+
+
+    @QtCore.Slot(object, str)
+    def on_tiled_compute_finished(self, result, message):
+        """Слот, который вызывается ТОЛЬКО по завершении тайловой генерации."""
+        logger.info(f"Tiled compute finished: {message}")
+        # Мы НЕ вызываем self.preview_widget.update_mesh() здесь.
+        # Просто показываем сообщение в статус-баре.
+        self.statusBar.showMessage(message, 4000)
 
     @QtCore.Slot(object, str)
     def on_compute_finished(self, result, message):
-        import numpy as np
-        if result is not None:
-            cell = float(self.cell_size_input.value())
-            self.preview_widget.update_mesh(result, cell)
-        self.statusBar.showMessage(message, 4000)
+        logger.info(f"Single compute finished: {message}")
+        if result is None:
+            logger.warning("Received None result. Graph connection might be broken.")
+            self.statusBar.showMessage("Пустой результат (None). Проверь соединения графа.", 6000)
+            return
+
+        try:
+            arr = np.asarray(result, dtype=np.float32)
+            if arr.ndim != 2 or not np.isfinite(arr).all():
+                logger.error(f"Invalid result format. Shape: {arr.shape}, Has NaN/Inf: {not np.isfinite(arr).all()}")
+                self.statusBar.showMessage("Неверный формат результата (ожидается 2D, без NaN/Inf).", 6000)
+                return
+
+            # Берём текущий cell_size из UI
+            cell_size = float(self.cell_size_input.value())
+            logger.debug(f"Updating preview mesh with shape {arr.shape} and cell_size {cell_size}")
+            self.preview_widget.update_mesh(arr, cell_size)
+            self.statusBar.showMessage(message or "Готово", 4000)
+        except Exception as e:
+            logger.exception("Error processing final result in on_compute_finished.")
+            self.on_compute_error(str(e))
 
     @QtCore.Slot(str)
     def on_compute_error(self, message):
-        print(f"[TRACE/UI] on_compute_error: {message}", flush=True)
+        logger.error(f"Compute error: {message}")
         QtWidgets.QMessageBox.critical(self, "Ошибка вычисления", str(message))
         self.statusBar.showMessage(f"Ошибка: {message.splitlines()[0]}", 6000)
 
     # --- Обновленный конструктор и методы ---
     def __init__(self, project_path: str):
         super().__init__()
+        logger.info("Initializing MainWindow...")
         self.graph = NodeGraph()
         self.current_project_path = project_path
 
@@ -123,8 +153,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusBar.showMessage(f"Проект загружен: {project_path}", 5000)
 
     def closeEvent(self, e):
-        # ... (без изменений) ...
-        print("[TRACE/UI] closeEvent: quitting all QThreads", flush=True)
+        logger.info("Close event triggered. Quitting all QThreads.")
         for th in self.findChildren(QtCore.QThread):
             th.quit()
             th.wait(2000)
@@ -175,8 +204,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.chunk_size_input.setValue(int(data.get("chunk_size", 128)))
         self.region_size_input.setValue(int(data.get("region_size_in_chunks", 4)))
         self.cell_size_input.setValue(float(data.get("cell_size", 1.0)))
-        self.global_x_offset_input.setValue(float(data.get("global_x_offset", 0.0)))
-        self.global_z_offset_input.setValue(float(data.get("global_z_offset", 0.0)))
+        self.global_x_offset_input.setValue(int(data.get("global_x_offset", 0.0)))
+        self.global_z_offset_input.setValue(int(data.get("global_z_offset", 0.0)))
 
         # --- Параметры глобального шума ---
         noise_data = data.get("global_noise", {})
