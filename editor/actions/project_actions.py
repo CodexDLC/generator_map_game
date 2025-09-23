@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 from PySide6 import QtWidgets
 
+from editor.graph_utils import create_default_graph_session
+
 logger = logging.getLogger(__name__)
 
 def _ask_dir(parent, title: str) -> str | None:
@@ -55,30 +57,40 @@ def _default_project_dict(project_name: str) -> dict:
 
 
 def on_new_project(parent_widget) -> str | None:
+    """Создает новый проект, включая файлы пресета по умолчанию с нодами."""
     logger.info("Action triggered: on_new_project.")
     base_dir = _ask_dir(parent_widget, "Выберите папку для проектов")
-    if not base_dir:
-        logger.warning("Project creation cancelled: No base directory selected.")
-        return None
-    project_name, ok = QtWidgets.QInputDialog.getText(parent_widget, "Новый проект", "Введите имя проекта:")
-    if not ok or not project_name.strip():
-        logger.warning("Project creation cancelled: No project name entered.")
-        return None
+    if not base_dir: return None
 
-    project_path = Path(base_dir) / project_name.strip()
+    project_name, ok = QtWidgets.QInputDialog.getText(parent_widget, "Новый проект", "Введите имя проекта:")
+    if not (ok and project_name.strip()): return None
+
+    project_name = project_name.strip()
+    project_path = Path(base_dir) / project_name
+
     try:
         _ensure_dir(project_path)
-        _ensure_dir(project_path / "pipelines")
+        pipelines_dir = project_path / "pipelines"
+        _ensure_dir(pipelines_dir)
         _ensure_dir(project_path / "output")
-        project_data = _default_project_dict(project_name.strip())
-        with open(project_path / "project.json", "w", encoding="utf-8") as f:
-            json.dump(project_data, f, ensure_ascii=False, indent=2)
-        logger.info(f"Project '{project_name.strip()}' created at: {project_path}")
+
+        # 1. Создаем структуру project.json
+        project_data = _default_project_dict(project_name)
+        _atomic_write_json(project_path / "project.json", project_data)
+
+        # 2. Создаем корректные файлы для пресета 'default'
+        default_graph_data = create_default_graph_session()
+
+        default_preset_info = project_data["region_presets"]["default"]
+        for key in ["landscape_graph", "climate_graph", "biome_graph"]:
+            file_path = project_path / default_preset_info[key]
+            _atomic_write_json(file_path, default_graph_data)
+
+        logger.info(f"Project '{project_name}' created at: {project_path}")
         return str(project_path)
     except Exception as e:
-        msg = f"Ошибка создания проекта: {e}"
         logger.exception("Failed to create new project.")
-        QtWidgets.QMessageBox.critical(parent_widget, "Ошибка", msg)
+        QtWidgets.QMessageBox.critical(parent_widget, "Ошибка", f"Ошибка создания проекта: {e}")
         return None
 
 
@@ -107,10 +119,10 @@ def on_open_project(parent_widget) -> str | None:
         return None
 
 
-def on_save_project(main_window) -> None:
+def on_save_project(main_window, data_to_write: dict = None) -> None:
     """
-    Собирает все настройки из UI и сохраняет их в project.json,
-    включая новый блок global_noise.
+    Собирает все настройки из UI и сохраняет их в project.json.
+    Может также принимать готовый словарь для прямой записи.
     """
     logger.info("Action triggered: on_save_project.")
     if not main_window.current_project_path:
@@ -119,40 +131,48 @@ def on_save_project(main_window) -> None:
         return
 
     try:
-        # 1. Собрать текущие значения из виджетов
-        project_data_from_ui = {
-            "seed": main_window.seed_input.value(),
-            "chunk_size": main_window.chunk_size_input.value(),
-            "region_size_in_chunks": main_window.region_size_input.value(),
-            "cell_size": main_window.cell_size_input.value(),
-            "global_x_offset": main_window.global_x_offset_input.value(),
-            "global_z_offset": main_window.global_z_offset_input.value(),
-            # --- СОБИРАЕМ ДАННЫЕ ИЗ НОВОЙ ПАНЕЛИ ---
-            "global_noise": {
-                "scale_tiles": main_window.gn_scale_input.value(),
-                "octaves": main_window.gn_octaves_input.value(),
-                "amp_m": main_window.gn_amp_input.value(),
-                "ridge": main_window.gn_ridge_checkbox.isChecked()
-            }
-        }
-
         project_file_path = Path(main_window.current_project_path) / "project.json"
-        logger.debug(f"Reading existing project file: {project_file_path}")
+        final_data = {}
 
-        # 2. Читаем существующий файл, чтобы не потерять то, чего нет в UI
-        with open(project_file_path, "r", encoding="utf-8") as f:
-            existing_data = json.load(f)
-
-        # 3. Обновляем данные (глубокое слияние)
-        existing_data.update(project_data_from_ui)
-        # Отдельно обновим вложенный словарь
-        if "global_noise" in existing_data:
-            existing_data["global_noise"].update(project_data_from_ui["global_noise"])
+        if data_to_write:
+            # РЕЖИМ 1: Нам передали готовые данные (например, после создания пресета).
+            # Просто используем их.
+            logger.debug("Saving project with provided data (programmatic save).")
+            final_data = data_to_write
         else:
-            existing_data["global_noise"] = project_data_from_ui["global_noise"]
+            # РЕЖИМ 2: Данные не переданы, значит это ручное сохранение.
+            # Собираем все данные из виджетов интерфейса.
+            logger.debug("Saving project with data from UI (manual save).")
 
-        # 4. Атомарно записать обновленный JSON обратно
-        _atomic_write_json(project_file_path, existing_data)  # <--- Используем новую атомарную запись
+            # Читаем существующий файл, чтобы не потерять данные, которых нет в UI (список пресетов)
+            with open(project_file_path, "r", encoding="utf-8") as f:
+                existing_data = json.load(f)
+
+            # Собираем данные из UI
+            project_data_from_ui = {
+                "seed": main_window.seed_input.value(),
+                "chunk_size": main_window.chunk_size_input.value(),
+                "region_size_in_chunks": main_window.region_size_input.value(),
+                "cell_size": main_window.cell_size_input.value(),
+                "global_x_offset": main_window.global_x_offset_input.value(),
+                "global_z_offset": main_window.global_z_offset_input.value(),
+                "global_noise": {
+                    "scale_tiles": main_window.gn_scale_input.value(),
+                    "octaves": main_window.gn_octaves_input.value(),
+                    "amp_m": main_window.gn_amp_input.value(),
+                    "ridge": main_window.gn_ridge_checkbox.isChecked()
+                }
+            }
+
+            # Обновляем существующие данные данными из UI
+            existing_data.update(project_data_from_ui)
+            if "global_noise" in existing_data:
+                existing_data["global_noise"].update(project_data_from_ui["global_noise"])
+
+            final_data = existing_data
+
+        # Атомарно записываем финальные данные в файл
+        _atomic_write_json(project_file_path, final_data)
 
         logger.info(f"Project saved successfully to: {project_file_path}")
         main_window.statusBar.showMessage(f"Проект сохранен: {project_file_path}", 4000)
@@ -161,5 +181,4 @@ def on_save_project(main_window) -> None:
         msg = f"Ошибка сохранения проекта: {e}"
         main_window.statusBar.showMessage(msg, 6000)
         QtWidgets.QMessageBox.critical(main_window, "Ошибка сохранения", msg)
-        print(f"[Project] -> SAVE ERROR: {msg}")
-
+        logger.exception("Failed to save project.")

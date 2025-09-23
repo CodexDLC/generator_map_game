@@ -9,7 +9,7 @@ from game_engine_restructured.algorithms.terrain.steps.effects import apply_terr
 
 class TerracerNode(GeneratorNode):
     # Указываем новую категорию
-    __identifier__ = 'generator.effects'
+    __identifier__ = 'Ландшафт.Эффекты'
     NODE_NAME = 'Terracer'
 
     def __init__(self):

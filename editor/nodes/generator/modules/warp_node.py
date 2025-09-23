@@ -6,7 +6,7 @@ from editor.nodes.base_node import GeneratorNode
 from game_engine_restructured.algorithms.terrain.steps.noise import _generate_noise_field
 
 class WarpNode(GeneratorNode):
-    __identifier__ = 'generator.modules'
+    __identifier__ = 'Ландшафт.Модули'
     NODE_NAME = 'Warp'
 
     def __init__(self):

@@ -9,7 +9,7 @@ import logging #
 import time #
 
 import numpy as np
-from PySide6 import QtCore
+from PySide6 import QtCore, QtWidgets
 
 from .worker import ComputeWorker, TiledComputeWorker
 from .progress_dialog import ProgressDialog
@@ -140,6 +140,10 @@ def on_apply_clicked(main_window):
         return
     # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
+    active_graph = main_window.get_active_graph()
+    if not active_graph:
+        logger.error("No active graph found.")
+        return
     output_node = _find_output_node(main_window.graph, main_window)
     if not output_node:
         return
@@ -171,14 +175,19 @@ def on_apply_clicked(main_window):
 def on_apply_tiled_clicked(main_window):
     logger.info("Action triggered: on_apply_tiled_clicked.")
 
-    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
     if main_window.thread and main_window.thread.isRunning():
         logger.warning("A compute thread is already running. Aborting new request.")
         QtWidgets.QMessageBox.warning(main_window, "Внимание", "Предыдущая операция вычисления еще не завершена.")
         return
-    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
-    output_node = _find_output_node(main_window.graph, main_window)
+
+    active_graph = main_window.get_active_graph()
+    if not active_graph:
+        logger.error("No active graph found.")
+        return
+    output_node = _find_output_node(active_graph, main_window)
+
+
     if not output_node:
         return
 

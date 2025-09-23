@@ -26,6 +26,12 @@ def create_region_presets_dock(main_window) -> None:
     button_layout.addWidget(delete_button)
     layout.addLayout(button_layout)
 
+    new_button.clicked.connect(main_window.on_new_preset_clicked)
+
+    delete_button.clicked.connect(main_window.on_delete_preset_clicked)
+
+    main_window.presets_list_widget.currentItemChanged.connect(main_window.on_preset_selected)
+
     dock = QtWidgets.QDockWidget("Пресеты Региона", main_window)
     dock.setWidget(presets_widget)
 

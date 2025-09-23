@@ -9,7 +9,7 @@ from game_engine_restructured.algorithms.terrain.uber_blend import donut_mask
 
 
 class BorderMaskNode(GeneratorNode):
-    __identifier__ = 'generator.modules'
+    __identifier__ = 'Ландшафт.Модули'
     NODE_NAME = 'Border Mask'
 
     def __init__(self):

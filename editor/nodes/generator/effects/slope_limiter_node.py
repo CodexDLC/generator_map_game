@@ -10,7 +10,7 @@ from game_engine_restructured.numerics.slope import apply_slope_limiter
 
 
 class SlopeLimiterNode(GeneratorNode):
-    __identifier__ = 'generator.effects'
+    __identifier__ = 'Ландшафт.Эффекты'
     NODE_NAME = 'Slope Limiter'
 
     def __init__(self):

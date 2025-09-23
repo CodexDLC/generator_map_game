@@ -8,7 +8,7 @@ from editor.nodes.base_node import GeneratorNode
 from game_engine_restructured.algorithms.terrain.steps.blending import blend_layers
 
 class BlendNode(GeneratorNode):
-    __identifier__ = 'generator.pipeline'
+    __identifier__ = 'Ландшафт.Шумы'
     NODE_NAME = 'Blend'
 
     def __init__(self):

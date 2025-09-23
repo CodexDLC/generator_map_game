@@ -8,7 +8,7 @@ from game_engine_restructured.numerics.new_test import anti_ripple
 
 
 class AntiRippleNode(GeneratorNode):
-    __identifier__ = 'generator.effects'
+    __identifier__ = 'Ландшафт.Эффекты'
     NODE_NAME = 'Anti Ripple'
 
     def __init__(self):

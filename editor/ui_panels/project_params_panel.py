@@ -65,3 +65,5 @@ def create_project_params_dock(main_window) -> None:
 
     # --- ИСПРАВЛЕНИЕ: Используем QtCore.Qt вместо QtWidgets.Qt ---
     main_window.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, dock)
+
+    main_window.dock_project_params = dock

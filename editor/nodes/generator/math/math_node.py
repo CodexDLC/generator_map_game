@@ -8,7 +8,7 @@ from editor.nodes.base_node import GeneratorNode
 
 class MathNode(GeneratorNode):
     # Указываем новую категорию для палитры нодов
-    __identifier__ = 'generator.math'
+    __identifier__ = 'Ландшафт.Математика'
     NODE_NAME = 'Math'
 
     def __init__(self):
@@ -67,7 +67,7 @@ class MathNode(GeneratorNode):
 
 class MathNode(GeneratorNode):
     # Указываем новую категорию для палитры нодов
-    __identifier__ = 'generator.math'
+    __identifier__ = 'Ландшафт.Математика'
     NODE_NAME = 'Math'
 
     def __init__(self):
@@ -125,7 +125,7 @@ class MathNode(GeneratorNode):
 
 
 class ClampNode(GeneratorNode):
-    __identifier__ = 'generator.math'
+    __identifier__ = 'Ландшафт.Математика'
     NODE_NAME = 'Clamp'
 
     def __init__(self):
@@ -160,7 +160,7 @@ class ClampNode(GeneratorNode):
 
 
 class NormalizeNode(GeneratorNode):
-    __identifier__ = 'generator.math'
+    __identifier__ = 'Ландшафт.Математика'
     NODE_NAME = 'Normalize'
 
     def __init__(self):

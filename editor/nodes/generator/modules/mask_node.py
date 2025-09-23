@@ -9,7 +9,7 @@ from game_engine_restructured.numerics.masking import create_mask
 
 class MaskNode(GeneratorNode):
     # Поместим ее в категорию модулей, так как она создает данные для других нод
-    __identifier__ = 'generator.modules'
+    __identifier__ = 'Ландшафт.Модули'
     NODE_NAME = 'Mask'
 
     def __init__(self):

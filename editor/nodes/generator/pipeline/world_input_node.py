@@ -11,7 +11,7 @@ from game_engine_restructured.algorithms.terrain.steps.noise import _generate_no
 logger = logging.getLogger(__name__)
 
 class WorldInputNode(GeneratorNode):
-    __identifier__ = 'generator.pipeline'
+    __identifier__ = 'Ландшафт.Пайплайн'
     NODE_NAME = 'World Input'
 
     def __init__(self):

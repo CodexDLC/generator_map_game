@@ -9,7 +9,7 @@ from game_engine_restructured.algorithms.terrain.steps.effects import apply_sele
 
 class SelectiveSmoothNode(GeneratorNode):
     # Указываем ту же категорию, что и у Terracer
-    __identifier__ = 'generator.effects'
+    __identifier__ = 'Ландшафт.Эффекты'
     NODE_NAME = 'Selective Smooth'
 
     def __init__(self):

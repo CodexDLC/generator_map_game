@@ -7,7 +7,7 @@ from editor.nodes.base_node import GeneratorNode
 
 class StampNode(GeneratorNode):
     # Поместим ее в новую категорию "Инструкции"
-    __identifier__ = 'generator.instructions'
+    __identifier__ = 'Ландшафт.Инструкции'
     NODE_NAME = 'Stamp'
 
     def __init__(self):

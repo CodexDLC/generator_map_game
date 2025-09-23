@@ -8,7 +8,7 @@ from game_engine_restructured.algorithms.terrain.steps.blending import apply_wal
 
 
 class WalkerNode(GeneratorNode):
-    __identifier__ = 'generator.pipeline'
+    __identifier__ = 'Ландшафт.Пайплайн'
     NODE_NAME = 'Walker Agent'
 
     def __init__(self):

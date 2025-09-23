@@ -18,28 +18,34 @@ from editor.project_manager import show_project_manager
 
 def run_editor():
     """
-    Инициализирует и запускает приложение.
+    Инициализирует и запускает приложение в цикле, позволяя
+    возвращаться в менеджер проектов.
     """
     setup_logging()
-
     app = QtWidgets.QApplication(sys.argv)
     app.setStyleSheet(APP_STYLE_SHEET)
 
-    # --- ИЗМЕНЕННАЯ ЛОГИКА ЗАПУСКА ---
-    # 1. Сначала показываем менеджер проектов. Он вернет путь или None.
-    project_path = show_project_manager()
+    while True:  # <-- НАЧАЛО ЦИКЛА
+        project_path = show_project_manager()
 
-    # 2. Если пользователь выбрал или создал проект, запускаем главный редактор
-    if project_path:
-        # Передаем полученный путь к проекту в конструктор MainWindow
+        if not project_path:
+            # Если пользователь закрыл менеджер, выходим из цикла и приложения
+            print("--- Запуск отменен пользователем, выход ---")
+            break
+
+        # Создаем и показываем главное окно
         window = MainWindow(project_path=project_path)
         window.show()
-        sys.exit(app.exec())
-    else:
-        # Если project_path равен None, значит пользователь закрыл диалог.
-        # В этом случае приложение просто завершает работу.
-        print("--- Запуск отменен пользователем ---")
-        sys.exit(0)
+
+        # app.exec() блокирует выполнение до закрытия окна
+        app.exec()
+
+        # После закрытия окна проверяем, нужно ли нам перезапуститься
+        # или полностью выйти из приложения.
+        if not getattr(window, 'wants_restart', False):
+            print("--- Окно закрыто, выход из приложения ---")
+            break
+        # Если wants_restart=True, цикл начнется заново
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ from editor.nodes.base_node import GeneratorNode
 
 class OutputNode(GeneratorNode):
     # ИСПРАВЛЕНИЕ (п.8): Используем общий идентификатор.
-    __identifier__ = 'generator.pipeline'
+    __identifier__ = 'Ландшафт.Пайплайн'
     NODE_NAME = 'Output'
 
     def __init__(self):
