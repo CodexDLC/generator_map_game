@@ -27,17 +27,24 @@ from .ui_panels.compute_panel import create_compute_dock
 
 class MainWindow(QtWidgets.QMainWindow):
     # --- Слоты для сигналов от воркеров (без изменений) ---
-    @QtCore.Slot(int, int, object)
-    def on_tile_ready(self, tx, tz, tile):
+    @QtCore.Slot(int, int, object, int, int, float)
+    def on_tile_ready(self, tx, tz, tile, cs, rs, cell_size):
+        """
+        Слот, который получает готовый тайл от воркера.
+        Теперь он также получает параметры, с которыми тайл был создан,
+        чтобы избежать состояния гонки.
+        """
         import numpy as np
         t = np.asarray(tile, dtype=np.float32)
         if t.ndim != 2 or not np.isfinite(t).all():
             self.statusBar.showMessage(f"Пропущен плохой тайл ({tx},{tz})", 2000)
             return
-        cs = self.chunk_size_input.value()
-        rs = self.region_size_input.value()
-        cell = self.cell_size_input.value()
-        self.preview_widget.on_tile_ready(tx, tz, t, cs, rs, cell)
+
+        # --- ИЗМЕНЕНИЕ: Мы больше не читаем значения из UI-виджетов. ---
+        # Вместо этого мы используем параметры `cs`, `rs`, `cell_size`,
+        # пришедшие вместе с сигналом.
+
+        self.preview_widget.on_tile_ready(tx, tz, t, cs, rs, cell_size)
 
     @QtCore.Slot(object, str)
     def on_compute_finished(self, result, message):
@@ -58,6 +65,22 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.graph = NodeGraph()
         self.current_project_path = project_path
+
+        # --- НОВЫЙ БЛОК: Инициализация всех атрибутов UI ---
+        # Это решает проблему "Unresolved attribute reference" и делает код чище.
+        self.seed_input = None
+        self.global_x_offset_input = None
+        self.global_z_offset_input = None
+        self.chunk_size_input = None
+        self.region_size_input = None
+        self.cell_size_input = None
+        self.gn_scale_input = None
+        self.gn_octaves_input = None
+        self.gn_amp_input = None
+        self.gn_ridge_checkbox = None
+        self.apply_button = None
+        self.apply_tiled_button = None
+        # ----------------------------------------------------
 
         project_data = self.get_project_data()
         if not project_data:
@@ -90,7 +113,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # --- Инициализация компонентов ---
         register_all_nodes(self.graph)
-        self._setup_docks()
+        self._setup_docks()  # Этот метод теперь заполнит атрибуты реальными виджетами
         self._setup_menu()
         self.statusBar = QtWidgets.QStatusBar()
         self.setStatusBar(self.statusBar)
