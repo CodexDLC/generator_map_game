@@ -2,7 +2,6 @@
 # Файл: editor/nodes/border_mask_node.py
 # Назначение: Нода для создания маски, обеспечивающей бесшовные края региона.
 # ==============================================================================
-import numpy as np
 from editor.nodes.base_node import GeneratorNode
 # Импортируем нашу функцию из движка
 from game_engine_restructured.algorithms.terrain.uber_blend import donut_mask

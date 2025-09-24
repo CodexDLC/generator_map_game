@@ -1,7 +1,6 @@
 # editor/graph_runner.py
 import logging
 import numpy as np
-import traceback
 
 logger = logging.getLogger(__name__)
 

@@ -1,7 +1,7 @@
 # Файл: game_engine_restructured/world/analytics/region_analysis.py
 from __future__ import annotations
 import textwrap
-from typing import Dict, Tuple, Any
+from typing import Dict, Any
 import numpy as np
 
 # --- НАЧАЛО ИЗМЕНЕНИЙ ---

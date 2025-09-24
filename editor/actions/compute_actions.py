@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import logging #
-import time #
 
 import numpy as np
 from PySide6 import QtCore, QtWidgets

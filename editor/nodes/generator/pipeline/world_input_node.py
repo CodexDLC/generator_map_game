@@ -49,7 +49,7 @@ class WorldInputNode(GeneratorNode):
                          f"has_nan={np.isnan(height_map).any()}")
         else:
             # Эта ситуация не должна происходить, но логируем на всякий случай
-            logger.error(f"  - _generate_noise_field returned None!")
+            logger.error("  - _generate_noise_field returned None!")
 
         self._result_cache = height_map
         return self._result_cache

@@ -3,7 +3,7 @@ from __future__ import annotations
 import random
 import math
 from dataclasses import dataclass
-from typing import List, Dict, Any
+from typing import List, Any
 
 from .base_feature import FeatureBrush
 from ..prefab_manager import PrefabManager

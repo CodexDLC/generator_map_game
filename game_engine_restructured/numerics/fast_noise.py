@@ -23,16 +23,16 @@ def _u32(x: int) -> int: return x & 0xFFFFFFFF
 @njit(inline='always', cache=True)
 def _hash2(ix: int, iz: int, seed: int) -> int:
     a, b, c = 0x9e3779b3, 0x9e3779b3, 0x9e3779b3
-    a = _u32(a + ix);
-    b = _u32(b + iz);
+    a = _u32(a + ix)
+    b = _u32(b + iz)
     c = _u32(c + seed)
-    a = _u32(a - b - c) ^ (c >> 13);
+    a = _u32(a - b - c) ^ (c >> 13)
     b = _u32(b - c - a) ^ (a << 8)
-    c = _u32(c - a - b) ^ (b >> 13);
+    c = _u32(c - a - b) ^ (b >> 13)
     a = _u32(a - b - c) ^ (c >> 12)
-    b = _u32(b - c - a) ^ (a << 16);
+    b = _u32(b - c - a) ^ (a << 16)
     c = _u32(c - a - b) ^ (b >> 5)
-    a = _u32(a - b - c) ^ (c >> 3);
+    a = _u32(a - b - c) ^ (c >> 3)
     b = _u32(b - c - a) ^ (a << 10)
     c = _u32(c - a - b) ^ (b >> 15)
     return _u32(c)
@@ -61,11 +61,11 @@ def value_noise_2d(x: float, z: float, seed: int) -> float:
     xi, zi = int(np.floor(x)), int(np.floor(z))
     xf, zf = x - xi, z - zi
     u, v = _fade(xf), _fade(zf)
-    n00 = _rand01(xi, zi, seed);
+    n00 = _rand01(xi, zi, seed)
     n10 = _rand01(xi + 1, zi, seed)
-    n01 = _rand01(xi, zi + 1, seed);
+    n01 = _rand01(xi, zi + 1, seed)
     n11 = _rand01(xi + 1, zi + 1, seed)
-    nx0 = _lerp(n00, n10, u);
+    nx0 = _lerp(n00, n10, u)
     nx1 = _lerp(n01, n11, u)
     return _lerp(nx0, nx1, v)
 # --- НАЧАЛО ИЗМЕНЕНИЙ ---

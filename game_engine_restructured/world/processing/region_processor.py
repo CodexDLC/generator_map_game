@@ -87,7 +87,6 @@ class RegionProcessor:
             chunk_size = self.preset.size
             ext_size = (preset_region_size + 2) * chunk_size
 
-            from ..grid_utils import region_base
             base_cx, base_cz = _region_base(scx, scz, preset_region_size)
             x0_px = (base_cx - 1) * chunk_size
             z0_px = (base_cz - 1) * chunk_size

@@ -10,7 +10,6 @@ from typing import List
 
 import numpy as np
 
-from .. import preset
 from ..constants import SURFACE_ID_TO_KIND
 
 

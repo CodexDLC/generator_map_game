@@ -1,6 +1,6 @@
 # Файл: game_engine/world/features/local_roads.py
 from __future__ import annotations
-from typing import TYPE_CHECKING, List, Tuple
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ...core.preset import Preset
@@ -13,7 +13,6 @@ from ..grid_utils import region_base
 from ...algorithms.pathfinding.routers import BaseRoadRouter
 from ...algorithms.pathfinding.network import apply_paths_to_grid, find_path_network
 from ...algorithms.pathfinding.policies import make_road_policy
-from .road_helpers import carve_ramp_along_path
 from ...core.grid.hex import HexGridSpec
 
 # --- КОНЕЦ ИЗМЕНЕНИЙ ---

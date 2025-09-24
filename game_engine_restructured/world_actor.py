@@ -9,12 +9,11 @@ from typing import Dict, Any  # <-- ИЗМЕНЕНИЕ: Добавляем ти�
 
 # --- Компоненты движка ---
 # --- ИЗМЕНЕНИЕ: Убираем Preset, добавляем SimpleNamespace ---
-from .core.preset import load_preset  # Оставляем для совместимости
 from types import SimpleNamespace
 
 from .core.export import (
     write_client_chunk_meta, write_heightmap_r16,
-    write_control_map_r32, write_world_meta_json, write_objects_json,
+    write_control_map_r32, write_objects_json,
     read_raw_chunk
 )
 from .world.processing.detail_processor import DetailProcessor

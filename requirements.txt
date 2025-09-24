@@ -15,3 +15,7 @@ setuptools
 
 
 psutil
+
+ruff
+Mypy
+types-psutil

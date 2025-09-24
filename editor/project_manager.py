@@ -7,7 +7,7 @@ import logging
 import json
 import os
 from pathlib import Path
-from PySide6 import QtWidgets, QtCore, QtGui
+from PySide6 import QtWidgets, QtCore
 
 from .actions.project_actions import on_new_project, on_open_project
 

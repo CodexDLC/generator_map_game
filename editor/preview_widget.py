@@ -1,7 +1,6 @@
 import numpy as np
 from PySide6 import QtCore, QtWidgets
 from vispy import scene
-import sys
 import logging
 
 logger = logging.getLogger(__name__)

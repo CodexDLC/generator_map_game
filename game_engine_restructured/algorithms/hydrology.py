@@ -34,7 +34,7 @@ def apply_sea_level(height: np.ndarray, surface: np.ndarray, nav: np.ndarray, pr
     - Изменяет текстуру поверхности на "дно" (waterbed).
     - Делает затопленные участки непроходимыми (water).
     """
-    print(f"  -> [Hydrology] Применение уровня моря...")
+    print("  -> [Hydrology] Применение уровня моря...")
     sea_level = float(getattr(preset, "elevation", {}).get("sea_level_m", 40.0))
 
     # Создаем маску всех пикселей, которые находятся ниже уровня моря

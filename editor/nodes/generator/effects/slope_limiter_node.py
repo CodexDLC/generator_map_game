@@ -2,7 +2,6 @@
 # Файл: editor/nodes/generator/effects/slope_limiter_node.py
 # Назначение: Нода для итеративного ограничения максимального уклона.
 # ==============================================================================
-import numpy as np
 import math
 from editor.nodes.base_node import GeneratorNode
 # Импортируем "мозг" из нашего движка

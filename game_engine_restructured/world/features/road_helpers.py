@@ -7,7 +7,6 @@ import math
 # --- НАЧАЛО ИЗМЕНЕНИЙ ---
 
 from ...core.constants import NAV_WATER, NAV_OBSTACLE
-from ...core.grid.hex import HexGridSpec
 
 # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 

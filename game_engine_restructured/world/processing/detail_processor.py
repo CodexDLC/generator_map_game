@@ -1,19 +1,10 @@
 # Файл: game_engine_restructured/world/processing/detail_processor.py
 from __future__ import annotations
-import json
-from pathlib import Path
-from typing import Any
 
 from ...core.types import GenResult
 from ...core.preset import Preset
 from ..context import Region
-from ..features.blending import BlendingBrush
-from ..features.forests import ForestBrush
-from ..features.rocks import RockBrush
-from ..features.local_roads import build_local_roads
 from ..prefab_manager import PrefabManager
-from ..object_types import PlacedObject
-from ..grid_utils import generate_hex_map_from_pixels
 
 
 class DetailProcessor:

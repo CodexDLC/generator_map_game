@@ -48,8 +48,8 @@ class ComputeWorker(QtCore.QObject):
                              f"has_nan={np.isnan(res).any()}")
 
             if self._cancelled:
-                self.set_busy.emit(False);
-                self.error.emit("Отменено");
+                self.set_busy.emit(False)
+                self.error.emit("Отменено")
                 return
 
             self.progress.emit(100, "Готово")

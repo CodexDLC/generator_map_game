@@ -22,7 +22,7 @@ class WarpNode(GeneratorNode):
         self.set_color(25, 80, 30)
 
     def compute(self, context):
-        print(f"  -> [WarpNode] Computing directional warp field...")
+        print("  -> [WarpNode] Computing directional warp field...")
 
         def _f(name, default):
             v = self.get_property(name)

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import math
-from typing import Iterable, List, Tuple
+from typing import List, Tuple
 
 SQRT3 = math.sqrt(3.0)
 

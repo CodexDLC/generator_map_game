@@ -1,9 +1,8 @@
 # Файл: game_engine/world/planners/road_planner.py
 from __future__ import annotations
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 from collections import defaultdict
 
-from ...core import constants as const
 from ..grid_utils import region_base
 from ...core.types import GenResult
 from ..road_types import GlobalCoord, RoadWaypoint, ChunkRoadPlan
