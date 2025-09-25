@@ -5,7 +5,7 @@
 # ==============================================================================
 from PySide6 import QtWidgets, QtCore
 
-from ..actions.compute_actions import on_apply_clicked, on_apply_tiled_clicked
+
 
 
 def create_compute_dock(main_window) -> None:
@@ -26,14 +26,12 @@ def create_compute_dock(main_window) -> None:
     layout.addWidget(apply_tiled_button)
     layout.addStretch()
 
-    apply_button.clicked.connect(lambda: on_apply_clicked(main_window))
-    apply_tiled_button.clicked.connect(lambda: on_apply_tiled_clicked(main_window))
-
     dock = QtWidgets.QDockWidget("Вычисление", main_window)
     dock.setObjectName("Панель 'Вычисление'")
     dock.setWidget(compute_widget)
 
     main_window.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, dock)
 
+    # Мы по-прежнему сохраняем ссылки на кнопки, чтобы MainWindow мог их настроить
     main_window.apply_button = apply_button
     main_window.apply_tiled_button = apply_tiled_button

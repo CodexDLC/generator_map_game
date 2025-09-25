@@ -1,7 +1,7 @@
 # ==============================================================================
 # Файл: editor/nodes/node_registry.py
 # Назначение: Централизованная регистрация всех нод в редакторе.
-# ВЕРСИЯ 2.0: Добавлены новые ноды категорий Math и Effects.
+# ВЕРСИЯ 2.1: Добавлена кастомная нода для группировки.
 # ==============================================================================
 
 # --- Существующие ноды ---
@@ -30,12 +30,16 @@ from editor.nodes.generator.effects.selective_smooth_node import SelectiveSmooth
 from editor.nodes.generator.effects.slope_limiter_node import SlopeLimiterNode
 from editor.nodes.generator.effects.anti_ripple_node import AntiRippleNode
 
+# --- НОВЫЙ ИМПОРТ ДЛЯ ИСПРАВЛЕНИЯ ---
+
+
 
 def register_all_nodes(graph):
     """
     Регистрирует все доступные ноды в переданном графе.
     """
     print("[NodeRegistry] Registering all nodes...")
+
 
     # --- Старые ноды ---
     graph.register_node(WorldInputNode)

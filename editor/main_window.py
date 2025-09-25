@@ -9,6 +9,7 @@ from PySide6 import QtWidgets, QtCore, QtGui
 from NodeGraphQt import NodeGraph, BackdropNode
 from PySide6.QtGui import QKeySequence
 
+
 # --- Логика, вынесенная в другие модули ---
 from .compute_manager import ComputeManager
 from .actions.preset_actions import (
@@ -19,6 +20,7 @@ from .actions.preset_actions import (
 from .actions.project_actions import on_save_project, load_project_data
 from .actions.generation_actions import on_generate_world
 from .actions.pipeline_actions import on_save_pipeline, on_load_pipeline
+from .custom_graph import CustomNodeGraph
 
 # --- UI компоненты ---
 from .nodes.base_node import GeneratorNode
@@ -97,32 +99,56 @@ class MainWindow(QtWidgets.QMainWindow):
         return self.graph
 
     def _setup_central_widget(self):
-        self.graph = NodeGraph()
+        # Используем только кастомный граф
+        self.graph = CustomNodeGraph()
         register_all_nodes(self.graph)
+
         graph_widget = self.graph.widget
         graph_widget.setObjectName("Основной граф 'Ландшафт'")
-
-        # Действия (Shortcuts) для графа
-        group_action = QtGui.QAction("Сгруппировать ноды", self)
-        group_action.setShortcut(QKeySequence("Ctrl+G"))
-        group_action.setShortcutContext(QtCore.Qt.ShortcutContext.WidgetShortcut)
-        def create_group():
-            selected_nodes = self.graph.selected_nodes()
-            if not selected_nodes: return
-            backdrop = cast(BackdropNode, self.graph.create_node('BackdropNode'))
-            backdrop.wrap_nodes(selected_nodes)
-        group_action.triggered.connect(create_group)
-        graph_widget.addAction(group_action)
-
-        delete_action = QtGui.QAction("Удалить ноды", self)
-        delete_action.setShortcut(QtGui.QKeySequence.StandardKey.Delete)
-        delete_action.setShortcutContext(QtCore.Qt.ShortcutContext.WidgetShortcut)
-        delete_action.triggered.connect(lambda: self.graph.delete_nodes(self.graph.selected_nodes()))
-        graph_widget.addAction(delete_action)
-
         graph_widget.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
         graph_widget.setFocus(QtCore.Qt.FocusReason.ActiveWindowFocusReason)
 
+        # --- Привязка Delete к реальному QGraphicsView + локальная диагностика ---
+        view = graph_widget.findChild(QtWidgets.QGraphicsView)
+        if view is None:
+            logger.warning("Graph view not found, binding shortcuts to graph_widget")
+            view = graph_widget  # fallback
+
+        def _do_delete():
+            sel = [n.name() for n in self.graph.selected_nodes()]
+            logger.debug("[DELETE] shortcut fired; selected=%s", sel)
+            if sel:
+                self.graph.delete_nodes(self.graph.selected_nodes())
+
+        # Один набор хоткеев (без дубликатов и без QAction)
+        del_sc = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Delete), view)
+        del_sc.setContext(QtCore.Qt.ShortcutContext.WidgetShortcut)
+        del_sc.activated.connect(_do_delete)
+
+        back_sc = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Backspace), view)
+        back_sc.setContext(QtCore.Qt.ShortcutContext.WidgetShortcut)
+        back_sc.activated.connect(_do_delete)
+
+        # Локальный шпион — чтобы видеть, доходят ли нажатия (не требует импортов)
+        class _KeySpy(QtCore.QObject):
+            def eventFilter(self, o, e):
+                if e.type() == QtCore.QEvent.Type.KeyPress:
+                    try:
+                        key_name = QtCore.Qt.Key(e.key()).name
+                    except Exception:
+                        key_name = str(e.key())
+                    logger.debug("[KEY on VIEW] %s (focus=%s)",
+                                 key_name, QtWidgets.QApplication.focusWidget())
+                return super().eventFilter(o, e)
+
+        spy = _KeySpy(view)
+        view.installEventFilter(spy)
+
+        # Гарантируем фокус на канве после сборки UI
+        view.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
+        QtCore.QTimer.singleShot(0, view.setFocus)
+
+        # --- Центральный сплиттер: превью сверху, граф снизу ---
         splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
         splitter.addWidget(self.preview_widget)
         splitter.addWidget(cast(QtWidgets.QWidget, graph_widget))

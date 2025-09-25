@@ -22,6 +22,17 @@ IGNORED_FOCUS_CLASSES = [
     'QStyleSheetStyle'
 ]
 
+try:
+    from NodeGraphQt import BackdropNode
+
+    def backdrop_icon_fix(self):
+        return None
+
+    BackdropNode.icon = backdrop_icon_fix
+    logging.info("BackdropNode successfully patched with missing 'icon' method.")
+except ImportError:
+    logging.error("Could not import BackdropNode to apply patch.")
+
 class DebugEventFilter(QtCore.QObject):
     """
     Этот класс-шпион будет перехватывать и логировать
@@ -94,6 +105,11 @@ def run_editor():
 
         window = MainWindow(project_path=project_path)
         window.show()
+
+        QtCore.QTimer.singleShot(1000, lambda: logger.debug(
+            f"[FOCUS] focusWidget={QtWidgets.QApplication.focusWidget()}, "
+            f"activeWindow={QtWidgets.QApplication.activeWindow()}"
+        ))
 
         app.exec()
 
