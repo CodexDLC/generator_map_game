@@ -3,10 +3,22 @@ import json
 import logging
 from pathlib import Path
 
+from PySide6 import QtWidgets
+
+from editor.actions.project_actions import on_save_project
 from editor.graph_utils import create_default_graph_session
 
 logger = logging.getLogger(__name__)
 
+
+def get_project_data(self):
+    if not self.current_project_path: return None
+    try:
+        with open(Path(self.current_project_path) / "project.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        self.statusBar.showMessage(f"Ошибка чтения файла проекта: {e}", 5000)
+        return None
 
 def create_new_preset_files(project_path: str, preset_name: str) -> dict:
     """Создает 3 .json файла для нового пресета с нодами по умолчанию."""
@@ -31,6 +43,7 @@ def create_new_preset_files(project_path: str, preset_name: str) -> dict:
                 json.dump(default_graph_data, f, indent=2)
 
     return preset_info
+
 
 
 def load_preset_into_graphs(main_window, preset_info: dict):
@@ -69,3 +82,71 @@ def load_preset_into_graphs(main_window, preset_info: dict):
                 # --- КОНЕЦ ИЗМЕНЕНИЯ ---
             except Exception as e:
                 logger.error(f"Failed to load graph file {graph_path}: {e}")
+
+
+def handle_new_preset(main_window):
+    """
+    Обрабатывает логику создания нового пресета, включая диалог с пользователем,
+    создание файлов и обновление project.json.
+    """
+    preset_name, ok = QtWidgets.QInputDialog.getText(main_window, "Новый пресет", "Введите имя пресета:")
+    if not (ok and preset_name.strip()):
+        return
+
+    preset_name = preset_name.strip()
+    project_data = main_window.get_project_data()
+
+    if preset_name in project_data.get("region_presets", {}):
+        QtWidgets.QMessageBox.warning(main_window, "Ошибка", "Пресет с таким именем уже существует.")
+        return
+
+    # Логика создания файлов
+    preset_info = create_new_preset_files(main_window.current_project_path, preset_name)
+
+    if "region_presets" not in project_data:
+        project_data["region_presets"] = {}
+
+    project_data["region_presets"][preset_name] = preset_info
+    on_save_project(main_window, project_data)  # Сохраняем изменения
+
+    main_window._load_presets_list() # Обновляем UI
+    main_window.statusBar.showMessage(f"Пресет '{preset_name}' создан.", 4000)
+
+
+def handle_delete_preset(main_window):
+    """Обрабатывает логику удаления пресета."""
+    selected_items = main_window.presets_list_widget.selectedItems()
+    if not selected_items:
+        main_window.statusBar.showMessage("Сначала выберите пресет для удаления.", 3000)
+        return
+
+    preset_name = selected_items[0].text()
+    if preset_name == "default":
+        QtWidgets.QMessageBox.warning(main_window, "Ошибка", "Пресет 'default' нельзя удалить.")
+        return
+
+    reply = QtWidgets.QMessageBox.question(main_window, "Подтверждение",
+                                           f"Вы уверены, что хотите удалить пресет '{preset_name}'?",
+                                           QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
+    if reply == QtWidgets.QMessageBox.StandardButton.No:
+        return
+
+    project_data = main_window.get_project_data()
+    presets = project_data.get("region_presets", {})
+    preset_to_delete = presets.pop(preset_name, None)
+
+    if preset_to_delete:
+        # Удаляем файлы
+        project_path = Path(main_window.current_project_path)
+        for key in ["landscape_graph", "climate_graph", "biome_graph"]:
+            try:
+                (project_path / preset_to_delete[key]).unlink(missing_ok=True)
+            except Exception as e:
+                logger.error(f"Could not delete file: {e}")
+
+    if project_data.get("active_preset_name") == preset_name:
+        project_data["active_preset_name"] = "default"
+
+    on_save_project(main_window, project_data)
+    main_window._load_presets_list()
+    main_window.statusBar.showMessage(f"Пресет '{preset_name}' удален.", 4000)

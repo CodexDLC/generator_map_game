@@ -1,27 +1,30 @@
 # ==============================================================================
 # Файл: editor/main_window.py
-# ВЕРСИЯ 6.0: Полный рефакторинг UI с использованием модульных панелей.
+# ВЕРСИЯ 7.0: Логика вычислений вынесена в ComputeManager
 # ==============================================================================
-
-import json
 import logging
-from pathlib import Path
+from typing import cast
 
-import numpy as np
 from PySide6 import QtWidgets, QtCore, QtGui
-from NodeGraphQt import NodeGraph
 
-from .actions.preset_actions import load_preset_into_graphs
+from NodeGraphQt import NodeGraph, BackdropNode
+from PySide6.QtGui import QKeySequence
+
+# --- Логика, вынесенная в другие модули ---
+from .compute_manager import ComputeManager
+from .actions.preset_actions import (
+    load_preset_into_graphs,
+    handle_new_preset,
+    handle_delete_preset,
+)
+from .actions.project_actions import on_save_project, load_project_data
+from .actions.generation_actions import on_generate_world
+from .actions.pipeline_actions import on_save_pipeline, on_load_pipeline
+
+# --- UI компоненты ---
 from .nodes.base_node import GeneratorNode
 from .nodes.node_registry import register_all_nodes
 from .preview_widget import Preview3DWidget
-
-# --- ACTIONS ---
-from .actions.pipeline_actions import on_save_pipeline, on_load_pipeline
-from .actions.generation_actions import on_generate_world
-from .actions.project_actions import on_save_project
-
-# --- НОВЫЕ ИМПОРТЫ ДЛЯ МОДУЛЬНЫХ ПАНЕЛЕЙ ---
 from .ui_panels.project_params_panel import create_project_params_dock
 from .ui_panels.global_noise_panel import create_global_noise_dock
 from .ui_panels.nodes_palette_panel import create_nodes_palette_dock
@@ -33,186 +36,168 @@ logger = logging.getLogger(__name__)
 
 
 class MainWindow(QtWidgets.QMainWindow):
-    # --- Слоты для сигналов от воркеров (без изменений) ---
-    @QtCore.Slot(int, int, object, int, int, float)
-    def on_tile_ready(self, tx, tz, tile, cs, rs, cell_size):
-        """
-        Слот, который получает готовый тайл от воркера.
-        """
-        # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
-        # 1. Преобразуем полученный объект в numpy массив
-        tile_np = np.asarray(tile, dtype=np.float32)
-
-        # 2. Проводим валидацию
-        if tile_np.ndim != 2 or not np.isfinite(tile_np).all():
-            self.statusBar.showMessage(f"Пропущен плохой тайл ({tx},{tz})", 2000)
-            return
-        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-
-        # Сохраняем тайл в словарь для последующей сборки
-        self.tiled_results[(tx, tz)] = tile_np
-
-        # Сохраняем параметры генерации (на случай, если они изменятся)
-        if not self.tiled_params:
-            self.tiled_params = {'cs': cs, 'rs': rs, 'cell_size': cell_size}
-
-        # Отправляем тайл на "прогрессивную" отрисовку, как и раньше
-        self.preview_widget.on_tile_ready(tx, tz, tile_np, cs, rs, cell_size)
-
-    @QtCore.Slot(str)
-    def on_tiled_compute_finished(self, message):
-        """Слот, который вызывается ТОЛЬКО по завершении тайловой генерации."""
-        logger.info(f"Tiled compute finished: {message}")
-
-        # --- НАЧАЛО ИЗМЕНЕНИЙ: Логика сборки холста ---
-        try:
-            logger.info("Stitching tiles into a single heightmap...")
-            if not self.tiled_results or not self.tiled_params:
-                logger.warning("No tiles were generated or params are missing. Skipping stitch.")
-                return
-
-            cs = self.tiled_params['cs']
-            rs = self.tiled_params['rs']
-            cell_size = self.tiled_params['cell_size']
-
-            # Создаем большой пустой массив для всего региона
-            # Важно: мы не используем "фартук" (+1) для финального холста
-            full_heightmap = np.zeros((rs * cs, rs * cs), dtype=np.float32)
-
-            # Собираем все тайлы в один большой массив
-            for (tx, tz), tile_data in self.tiled_results.items():
-                # Обрезаем "фартук" (+1 пиксель) с каждого тайла
-                tile_core = tile_data[:-1, :-1]
-
-                # Вычисляем позицию и вставляем в большой массив
-                x_offset = tx * cs
-                z_offset = tz * cs
-                full_heightmap[z_offset:z_offset + cs, x_offset:x_offset + cs] = tile_core
-
-            logger.info(f"Stitching complete. Final heightmap shape: {full_heightmap.shape}")
-
-            # Отправляем собранный холст в 3D-вьювер для финальной отрисовки
-            self.preview_widget.update_mesh(full_heightmap, cell_size)
-            self.statusBar.showMessage("Сборка тайлов завершена.", 5000)
-
-        except Exception as e:
-            logger.exception("Failed to stitch tiles.")
-            self.on_compute_error(f"Ошибка сборки тайлов: {e}")
-        finally:
-            # Очищаем кэш для следующего запуска
-            self.tiled_results.clear()
-            self.tiled_params.clear()
-
-    @QtCore.Slot(object, str)
-    def on_compute_finished(self, result, message):
-        logger.info(f"Single compute finished: {message}")
-        if result is None:
-            logger.warning("Received None result. Graph connection might be broken.")
-            self.statusBar.showMessage("Пустой результат (None). Проверь соединения графа.", 6000)
-            return
-
-        try:
-            arr = np.asarray(result, dtype=np.float32)
-            if arr.ndim != 2 or not np.isfinite(arr).all():
-                logger.error(f"Invalid result format. Shape: {arr.shape}, Has NaN/Inf: {not np.isfinite(arr).all()}")
-                self.statusBar.showMessage("Неверный формат результата (ожидается 2D, без NaN/Inf).", 6000)
-                return
-
-            # Берём текущий cell_size из UI
-            cell_size = float(self.cell_size_input.value())
-            logger.debug(f"Updating preview mesh with shape {arr.shape} and cell_size {cell_size}")
-            self.preview_widget.update_mesh(arr, cell_size)
-            self.statusBar.showMessage(message or "Готово", 4000)
-        except Exception as e:
-            logger.exception("Error processing final result in on_compute_finished.")
-            self.on_compute_error(str(e))
-
-    @QtCore.Slot(str)
-    def on_compute_error(self, message):
-        logger.error(f"Compute error: {message}")
-        QtWidgets.QMessageBox.critical(self, "Ошибка вычисления", str(message))
-        self.statusBar.showMessage(f"Ошибка: {message.splitlines()[0]}", 6000)
-
-    # --- Обновленный конструктор и методы ---
     def __init__(self, project_path: str):
         super().__init__()
-        logger.info("Initializing MainWindow with layered architecture...")
+        logger.info("Initializing MainWindow...")
         self.current_project_path = project_path
 
-        # --- АТРИБУТЫ ДЛЯ МНОЖЕСТВА ГРАФОВ ---
-        self.graphs = {}
-        self.tab_widget = QtWidgets.QTabWidget()
         self._init_ui_attributes()
-
         project_data = self.get_project_data()
         if not project_data:
-            QtWidgets.QMessageBox.critical(self, "Ошибка проекта", f"Не удалось загрузить данные из {project_path}")
+            QtWidgets.QMessageBox.critical(
+                self, "Ошибка проекта", "Не удалось загрузить данные."
+            )
             QtCore.QTimer.singleShot(0, self.close)
             return
+        # --- Создаем менеджеры ---
+        self.compute_manager = ComputeManager(self)
 
         self.setWindowTitle("Редактор Миров")
         self.resize(1600, 900)
-
         self.setTabPosition(
             QtCore.Qt.DockWidgetArea.AllDockWidgetAreas,
-            QtWidgets.QTabWidget.TabPosition.North
+            QtWidgets.QTabWidget.TabPosition.North,
         )
 
         self._setup_central_widget_with_tabs()
+        self.tab_widget.currentChanged.connect(self._on_tab_changed)
+        self.tab_widget.currentChanged.connect(
+            lambda: self.tab_widget.currentWidget().setFocus(QtCore.Qt.FocusReason.OtherFocusReason)
+        )
 
-        # --- ИНИЦИАЛИЗАЦИЯ ---
         self._setup_docks()
         self._setup_menu()
-        self.statusBar = QtWidgets.QStatusBar()
-        self.setStatusBar(self.statusBar)
+        self.setStatusBar(QtWidgets.QStatusBar())
 
-        # Связываем изменение свойств с кэшированием
-        for graph in self.graphs.values():
-            graph.property_changed.connect(self._on_node_property_changed)
 
         self._apply_project_to_ui(project_data)
         self._load_presets_list()
-        self.statusBar.showMessage(f"Проект загружен: {project_path}", 5000)
-
-
+        self.statusBar().showMessage(f"Проект загружен: {project_path}", 5000)
 
     def _init_ui_attributes(self):
-        """Инициализирует все атрибуты UI и состояния в None или пустые значения."""
-        # Панель "Пресеты Региона"
+        """Инициализирует все атрибуты UI в None или пустые значения."""
+        self.graphs = {}
+        self.tab_widget = QtWidgets.QTabWidget()
+        self.preview_widget = Preview3DWidget()
         self.presets_list_widget = None
-
-        self.dock_region_presets = None
-        self.dock_nodes = None
-        self.dock_props = None
-        self.dock_project_params = None
-        self.dock_global_noise = None
-
-        # Панель "Параметры Проекта"
-        self.seed_input = None
-        self.global_x_offset_input = None
-        self.global_z_offset_input = None
-        self.chunk_size_input = None
-        self.region_size_input = None
-        self.cell_size_input = None
+        self.dock_region_presets = self.dock_nodes = self.dock_props = None
+        self.dock_project_params = self.dock_global_noise = None
+        self.seed_input = (
+            self.global_x_offset_input
+        ) = self.global_z_offset_input = None
+        self.chunk_size_input = self.region_size_input = self.cell_size_input = None
         self.total_size_label = None
-
-        # Панель "Глобальный Шум"
-        self.gn_scale_input = None
-        self.gn_octaves_input = None
-        self.gn_amp_input = None
+        self.gn_scale_input = self.gn_octaves_input = self.gn_amp_input = None
         self.gn_ridge_checkbox = None
-
-        # Панель "Вычисление"
-        self.apply_button = None
-        self.apply_tiled_button = None
-
-        # Асинхронные операции и состояние
-        self.thread = None
-        self.worker = None
-        self.tiled_results = {}
-        self.tiled_params = {}
-
+        self.apply_button = self.apply_tiled_button = None
         self.wants_restart = False
+
+    def _connect_signals(self):
+        """Подключает все сигналы к слотам."""
+        # Сигналы от ComputeManager к слотам MainWindow
+        self.compute_manager.display_mesh.connect(self.preview_widget.update_mesh)
+        self.compute_manager.display_tiled_mesh.connect(
+            self.preview_widget.update_mesh
+        )
+        self.compute_manager.display_partial_tile.connect(
+            self.preview_widget.on_tile_ready
+        )
+        self.compute_manager.display_status_message.connect(
+            self.statusBar().showMessage
+        )
+        self.compute_manager.show_error_dialog.connect(
+            lambda title, msg: QtWidgets.QMessageBox.critical(self, title, msg)
+        )
+        self.compute_manager.set_busy_mode.connect(self._set_ui_busy)
+
+        # Сигналы от UI к менеджерам и actions
+        self.apply_button.clicked.connect(self._on_apply_clicked)
+        self.apply_tiled_button.clicked.connect(self._on_apply_tiled_clicked)
+        self.tab_widget.currentChanged.connect(
+            lambda: self.tab_widget.currentWidget().setFocus()
+        )
+
+        self.presets_list_widget.currentItemChanged.connect(self.on_preset_selected)
+
+        # Сигналы от самого графа
+        for graph in self.graphs.values():
+            graph.property_changed.connect(self._on_node_property_changed)
+
+    def _set_ui_busy(self, busy: bool):
+        """Блокирует или разблокирует кнопки вычисления."""
+        self.apply_button.setEnabled(not busy)
+        self.apply_tiled_button.setEnabled(not busy)
+
+    # --- МЕТОДЫ-ПРОКСИ: Передают управление менеджерам ---
+
+    def _on_apply_clicked(self):
+        """Запускает одиночное вычисление через ComputeManager."""
+        active_graph = self.get_active_graph()
+        if not active_graph:
+            return
+        output_node = self._find_output_node(active_graph)
+        if not output_node:
+            return
+
+        context = self._get_context_from_ui()
+        self.compute_manager.start_single_compute(output_node, context)
+
+    def _on_apply_tiled_clicked(self):
+        """Запускает тайловое вычисление через ComputeManager."""
+        active_graph = self.get_active_graph()
+        if not active_graph:
+            return
+        output_node = self._find_output_node(active_graph)
+        if not output_node:
+            return
+
+        context = self._get_context_from_ui()
+        self.compute_manager.start_tiled_compute(output_node, context)
+
+    def on_new_preset_clicked(self):
+        """Прокси-метод для вызова логики создания пресета."""
+        handle_new_preset(self)
+
+    def on_delete_preset_clicked(self):
+        """Прокси-метод для вызова логики удаления пресета."""
+        handle_delete_preset(self)
+
+    def on_save_project(self):
+        """Прокси-метод для вызова сохранения проекта."""
+        on_save_project(self)
+
+    # --- МЕТОДЫ, УПРАВЛЯЮЩИЕ UI ---
+
+    def _find_output_node(self, graph):
+        """Находит выходную ноду в графе."""
+        nodes = list(graph.all_nodes())
+        outs = [n for n in nodes if getattr(n, "NODE_NAME", "") == "Output"]
+        if not outs:
+            QtWidgets.QMessageBox.warning(
+                self, "Ошибка графа", "В графе отсутствует нода 'Output'."
+            )
+            return None
+        return outs[0]
+
+    def _get_context_from_ui(self) -> dict:
+        """Собирает все параметры из UI для передачи в движок."""
+        global_noise_params = {
+            "scale_tiles": self.gn_scale_input.value(),
+            "octaves": self.gn_octaves_input.value(),
+            "amp_m": self.gn_amp_input.value(),
+            "ridge": self.gn_ridge_checkbox.isChecked(),
+        }
+        cs = int(self.chunk_size_input.value())
+        rs = int(self.region_size_input.value())
+        return {
+            "cell_size": self.cell_size_input.value(),
+            "seed": self.seed_input.value(),
+            "global_x_offset": self.global_x_offset_input.value(),
+            "global_z_offset": self.global_z_offset_input.value(),
+            "chunk_size": cs,
+            "region_size_in_chunks": rs,
+            "global_noise": global_noise_params,
+        }
 
     def get_active_graph(self) -> NodeGraph | None:
         """Возвращает объект графа из активной вкладки."""
@@ -230,164 +215,157 @@ class MainWindow(QtWidgets.QMainWindow):
 
             self.graphs[name] = graph
             graph_widget = graph.widget
+
+            # --- НАЧАЛО ФИНАЛЬНОГО ИСПРАВЛЕНИЯ ---
+
+            # 2. Создаем QAction для группировки.
+            group_action = QtGui.QAction("Сгруппировать ноды", graph_widget)
+            group_action.setShortcut(QKeySequence("Ctrl+G"))
+            group_action.setShortcutContext(QtCore.Qt.ShortcutContext.WidgetShortcut)
+
+            def create_group():
+                selected_nodes = graph.selected_nodes()
+                if not selected_nodes:
+                    return
+                # Создаём BackdropNode из реестра (так гарантированно сработает)
+                backdrop = graph.create_node('BackdropNode')  # убеждаемся, что register_all_nodes(graph) уже вызван
+                backdrop = cast(BackdropNode, backdrop)
+                backdrop.wrap_nodes(selected_nodes)
+
+            group_action.triggered.connect(create_group)
+            graph_widget.addAction(group_action)
+
+            # 3. Устанавливаем политику фокуса.
+            graph_widget.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
+            graph_widget.setFocus(QtCore.Qt.FocusReason.ActiveWindowFocusReason)
+            # --- КОНЕЦ ФИНАЛЬНОГО ИСПРАВЛЕНИЯ ---
+
             graph_widget.setProperty("graph_instance", graph)
+            # Используем cast, чтобы IDE не ругалась на тип
+            self.tab_widget.addTab(cast(QtWidgets.QWidget, graph_widget), name)
 
-            delete_shortcut = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key.Key_Delete), graph_widget)
-            delete_shortcut.setContext(QtCore.Qt.ShortcutContext.WidgetShortcut)
-            delete_shortcut.activated.connect(self._delete_selected_nodes)
-
-            self.tab_widget.addTab(graph_widget, name)
-
-
-
-        # Splitter для 3D-превью и вкладок с графами
         splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
-        self.preview_widget = Preview3DWidget()
         splitter.addWidget(self.preview_widget)
         splitter.addWidget(self.tab_widget)
         splitter.setSizes([400, 600])
         self.setCentralWidget(splitter)
 
     def closeEvent(self, e):
-        logger.info("Close event triggered. Quitting all QThreads.")
-        for th in self.findChildren(QtCore.QThread):
-            th.quit()
-            th.wait(2000)
+        logger.info("Close event triggered.")
         super().closeEvent(e)
 
-
     def _setup_docks(self):
+        """Создает и размещает все док-панели."""
         self.setDockNestingEnabled(True)
-        # --- ИЗМЕНЕНИЕ: Убираем отсюда создание панелей, зависящих от графа ---
         create_region_presets_dock(self)
-        # create_nodes_palette_dock(self) # <-- УДАЛЯЕМ
         create_project_params_dock(self)
         create_global_noise_dock(self)
-        # create_properties_dock(self) # <-- УДАЛЯЕМ
         create_compute_dock(self)
-
-        # --- ИЗМЕНЕНИЕ: Вся логика теперь в обработчике смены вкладок ---
-        self.tab_widget.currentChanged.connect(self._on_tab_changed)
-        # Вызываем один раз для инициализации панелей для первой вкладки
-        self._on_tab_changed()
+        self._on_tab_changed()  # Создает панели, зависящие от графа
 
     def _on_tab_changed(self):
-        """
-        Полностью пересоздает панели, зависящие от графа, при смене вкладки.
-        Это единственно надежный способ работы с NodeGraphQt.
-        """
-        # --- НАЧАЛО НОВОЙ ЛОГИКИ ---
-
-        # 1. Удаляем старые док-виджеты, если они существуют
+        """Пересоздает панели, зависящие от активного графа."""
         if self.dock_nodes:
             self.removeDockWidget(self.dock_nodes)
             self.dock_nodes.deleteLater()
-            self.dock_nodes = None
         if self.dock_props:
             self.removeDockWidget(self.dock_props)
             self.dock_props.deleteLater()
-            self.dock_props = None
 
-        # 2. Создаем новые док-виджеты, которые будут автоматически
-        #    привязаны к текущему активному графу.
         create_nodes_palette_dock(self)
         create_properties_dock(self)
 
-        # Восстанавливаем расположение панелей (опционально, для удобства)
+        active_graph = self.get_active_graph()
+        if active_graph:
+            active_graph.node_selected.connect(self._on_node_selected)
+
+        # Восстанавливаем расположение
         self.tabifyDockWidget(self.dock_region_presets, self.dock_nodes)
         self.tabifyDockWidget(self.dock_project_params, self.dock_global_noise)
         self.tabifyDockWidget(self.dock_global_noise, self.dock_props)
 
+    def _on_node_selected(self, node):
+        """Добавляет вкладку с описанием в панель свойств."""
+        if not self.dock_props: return
+        props_bin = self.dock_props.widget()
+        if not props_bin: return
+        tab_widget = props_bin.findChild(QtWidgets.QTabWidget)
+        if not tab_widget: return
+
+        for i in range(tab_widget.count()):
+            if tab_widget.tabText(i) == "Описание":
+                tab_widget.removeTab(i)
+                break
+
+        if isinstance(node, GeneratorNode):
+            desc_widget = QtWidgets.QWidget()
+            layout = QtWidgets.QVBoxLayout(desc_widget)
+            text_label = QtWidgets.QLabel(node.get_description())
+            text_label.setWordWrap(True)
+            text_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignTop)
+            layout.addWidget(text_label)
+            tab_widget.addTab(desc_widget, "Описание")
+
     def _on_node_property_changed(self, node, prop_name, prop_value):
         """Когда свойство ноды меняется, помечаем ее как 'грязную'."""
-
-        logger.debug(f"Node '{node.name()}' property '{prop_name}' changed. Marking as dirty.")
         if isinstance(node, GeneratorNode):
             node.mark_dirty()
 
     def _setup_menu(self):
-
+        """Создает главное меню приложения."""
         m = self.menuBar()
-        proj = m.addMenu("Проект")
+        proj_menu = m.addMenu("Проект")
 
         def return_to_manager():
             self.wants_restart = True
             self.close()
 
-        proj.addAction("Сменить проект...").triggered.connect(return_to_manager)
-        proj.addSeparator()
+        proj_menu.addAction("Сменить проект...").triggered.connect(return_to_manager)
+        proj_menu.addSeparator()
+        proj_menu.addAction("Сохранить Проект").triggered.connect(self.on_save_project)
+        proj_menu.addSeparator()
+        proj_menu.addAction("Сгенерировать Мир...").triggered.connect(lambda: on_generate_world(self))
+        proj_menu.addSeparator()
+        proj_menu.addAction("Выход").triggered.connect(self.close)
 
-        proj.addAction("Сохранить Проект").triggered.connect(self.on_save_project)
-        proj.addSeparator()
-        proj.addAction("Сгенерировать Мир...").triggered.connect(lambda: on_generate_world(self))
-        proj.addSeparator()
-        proj.addAction("Выход").triggered.connect(self.close)
+        presets_menu = m.addMenu("Пресеты")
+        presets_menu.addAction("Загрузить Пресет").triggered.connect(lambda: on_load_pipeline(self))
+        presets_menu.addAction("Сохранить Пресет...").triggered.connect(lambda: on_save_pipeline(self))
 
-        layers = m.addMenu("Пресеты регионов")
-        layers.addAction("Загрузить Пресет").triggered.connect(lambda: on_load_pipeline(self))
-        layers.addAction("Сохранить Пресет...").triggered.connect(lambda: on_save_pipeline(self))
-
-    def get_project_data(self):
-        # ... (без изменений) ...
-        if not self.current_project_path: return None
-        try:
-            with open(Path(self.current_project_path) / "project.json", "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            self.statusBar.showMessage(f"Ошибка чтения файла проекта: {e}", 5000)
-            return None
+    def get_project_data(self) -> dict | None:
+        """Обертка для загрузки данных проекта из файла."""
+        data = load_project_data(self.current_project_path)
+        if data is None:
+            self.statusBar().showMessage("Ошибка чтения файла проекта!", 5000)
+        return data
 
     def _apply_project_to_ui(self, data: dict) -> None:
         """Загружает данные из project.json во все панели."""
-        # --- Основные параметры ---
         self.seed_input.setValue(int(data.get("seed", 1)))
         self.chunk_size_input.setValue(int(data.get("chunk_size", 128)))
         self.region_size_input.setValue(int(data.get("region_size_in_chunks", 4)))
         self.cell_size_input.setValue(float(data.get("cell_size", 1.0)))
-        self.global_x_offset_input.setValue(int(data.get("global_x_offset", 0.0)))
-        self.global_z_offset_input.setValue(int(data.get("global_z_offset", 0.0)))
+        self.global_x_offset_input.setValue(int(data.get("global_x_offset", 0)))
+        self.global_z_offset_input.setValue(int(data.get("global_z_offset", 0)))
 
-        # --- Параметры глобального шума ---
         noise_data = data.get("global_noise", {})
         self.gn_scale_input.setValue(float(noise_data.get("scale_tiles", 6000.0)))
         self.gn_octaves_input.setValue(int(noise_data.get("octaves", 3)))
         self.gn_amp_input.setValue(float(noise_data.get("amp_m", 400.0)))
         self.gn_ridge_checkbox.setChecked(bool(noise_data.get("ridge", False)))
 
-        # Обновление заголовка
         project_name = data.get("project_name", "Безымянный проект")
         self.setWindowTitle(f"Редактор Миров — [{project_name}]")
 
-    def on_save_project(self):
-        """Прокси-метод для вызова сохранения проекта."""
-        on_save_project(self)
-
-    def _ensure_graph_focus(self):
-
-        viewer = self.graph.widget
-        viewer.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
-        if not viewer.hasFocus():
-            viewer.setFocus(QtCore.Qt.FocusReason.ActiveWindowFocusReason)
-
-    def _delete_selected_nodes(self):
-        """Удаляет выделенные ноды из АКТИВНОГО графа."""
-        active_graph = self.get_active_graph()
-        if not active_graph:
-            return
-
-        selected_nodes = active_graph.selected_nodes()
-        if selected_nodes:
-            active_graph.delete_nodes(selected_nodes)
-
     def _load_presets_list(self):
-        """Читает project.json, заполняет список и выбирает активный пресет."""
-        # Временно отключаем сигнал, чтобы не вызывать on_preset_selected во время заполнения
+        """Читает project.json и заполняет список пресетов."""
         self.presets_list_widget.currentItemChanged.disconnect(self.on_preset_selected)
-
         self.presets_list_widget.clear()
-        project_data = self.get_project_data()
-        presets = project_data.get("region_presets", {})
 
+        project_data = self.get_project_data()
+        if not project_data: return
+
+        presets = project_data.get("region_presets", {})
         active_preset_name = project_data.get("active_preset_name", "")
         item_to_select = None
 
@@ -397,10 +375,8 @@ class MainWindow(QtWidgets.QMainWindow):
             if name == active_preset_name:
                 item_to_select = item
 
-        # Включаем сигнал обратно
         self.presets_list_widget.currentItemChanged.connect(self.on_preset_selected)
 
-        # Выбираем нужный элемент в списке, что вызовет on_preset_selected
         if item_to_select:
             self.presets_list_widget.setCurrentItem(item_to_select)
         elif self.presets_list_widget.count() > 0:
@@ -409,125 +385,30 @@ class MainWindow(QtWidgets.QMainWindow):
     def _update_preset_list_font(self):
         """Обновляет шрифт в списке, делая активный пресет жирным."""
         project_data = self.get_project_data()
+        if not project_data: return
+
         active_preset_name = project_data.get("active_preset_name", "")
         for i in range(self.presets_list_widget.count()):
             item = self.presets_list_widget.item(i)
             font = item.font()
-            is_active = (item.text() == active_preset_name)
-            font.setBold(is_active)
+            font.setBold(item.text() == active_preset_name)
             item.setFont(font)
 
-    def on_preset_selected(self, current_item: QtWidgets.QListWidgetItem, previous_item: QtWidgets.QListWidgetItem):
+    def on_preset_selected(self, current_item: QtWidgets.QListWidgetItem):
         """Загружает выбранный пресет и обновляет UI."""
-        if not current_item:
-            return
+        if not current_item: return
 
         preset_name = current_item.text()
-        logger.info(f"Preset selected: {preset_name}")
         project_data = self.get_project_data()
+        if not project_data: return
 
-        # 1. Запоминаем выбор как активный
         project_data["active_preset_name"] = preset_name
-
-        # 2. Обновляем шрифт в списке
         self._update_preset_list_font()
 
-        # 3. Загружаем графы
         preset_info = project_data.get("region_presets", {}).get(preset_name)
         if not preset_info:
             logger.error(f"Preset '{preset_name}' not found in project.json")
             return
 
         load_preset_into_graphs(self, preset_info)
-        self.statusBar.showMessage(f"Пресет '{preset_name}' загружен", 4000)
-
-
-
-    def on_new_preset_clicked(self):
-        """Вызывается при нажатии кнопки [+] на панели пресетов."""
-        preset_name, ok = QtWidgets.QInputDialog.getText(self, "Новый пресет", "Введите имя пресета:")
-        if not (ok and preset_name.strip()):
-            return
-
-        preset_name = preset_name.strip()
-        project_data = self.get_project_data()
-
-        # Проверяем, существует ли уже пресет с таким именем
-        if preset_name in project_data.get("region_presets", {}):
-            QtWidgets.QMessageBox.warning(self, "Ошибка", "Пресет с таким именем уже существует.")
-            return
-
-        # Создаем информацию о файлах для нового пресета
-        preset_info = {
-            "description": "Новый пресет",
-            "landscape_graph": f"pipelines/{preset_name}_landscape.json",
-            "climate_graph": f"pipelines/{preset_name}_climate.json",
-            "biome_graph": f"pipelines/{preset_name}_biome.json"
-        }
-
-        # Создаем пустые .json файлы
-        pipelines_dir = Path(self.current_project_path) / "pipelines"
-        pipelines_dir.mkdir(exist_ok=True)
-        empty_graph_data = {"nodes": {}, "connections": []}
-        for key in ["landscape_graph", "climate_graph", "biome_graph"]:
-            file_path = Path(self.current_project_path) / preset_info[key]
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(empty_graph_data, f)
-
-        # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
-        # Убеждаемся, что словарь для пресетов существует, прежде чем добавлять в него.
-        if "region_presets" not in project_data:
-            project_data["region_presets"] = {}
-        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-
-        # Обновляем project.json
-        project_data["region_presets"][preset_name] = preset_info
-        on_save_project(self, project_data)  # Сохраняем изменения
-
-        # Обновляем список в UI
-        self._load_presets_list()
-        self.statusBar.showMessage(f"Пресет '{preset_name}' создан.", 4000)
-
-
-    def on_delete_preset_clicked(self):
-        """Удаляет выбранный пресет и его файлы."""
-        selected_items = self.presets_list_widget.selectedItems()
-        if not selected_items:
-            self.statusBar.showMessage("Сначала выберите пресет для удаления.", 3000)
-            return
-
-        preset_name = selected_items[0].text()
-        if preset_name == "default":
-            QtWidgets.QMessageBox.warning(self, "Ошибка", "Пресет 'default' нельзя удалить.")
-            return
-
-        reply = QtWidgets.QMessageBox.question(self, "Подтверждение",
-                                               f"Вы уверены, что хотите удалить пресет '{preset_name}'?\n"
-                                               f"Это действие необратимо.",
-                                               QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
-        if reply == QtWidgets.QMessageBox.StandardButton.No:
-            return
-
-        project_data = self.get_project_data()
-        presets = project_data.get("region_presets", {})
-        preset_to_delete = presets.pop(preset_name, None)
-
-        if preset_to_delete:
-            # Удаляем файлы графов с диска
-            project_path = Path(self.current_project_path)
-            for key in ["landscape_graph", "climate_graph", "biome_graph"]:
-                try:
-                    file_path = project_path / preset_to_delete[key]
-                    if file_path.exists():
-                        file_path.unlink()
-                        logger.info(f"Deleted preset file: {file_path}")
-                except Exception as e:
-                    logger.error(f"Could not delete file {file_path}: {e}")
-
-        # Если мы удалили активный пресет, делаем активным 'default'
-        if project_data.get("active_preset_name") == preset_name:
-            project_data["active_preset_name"] = "default"
-
-        on_save_project(self, project_data) # Сохраняем изменения в project.json
-        self._load_presets_list() # Обновляем список в UI
-        self.statusBar.showMessage(f"Пресет '{preset_name}' удален.", 4000)
+        self.statusBar().showMessage(f"Пресет '{preset_name}' загружен", 4000)

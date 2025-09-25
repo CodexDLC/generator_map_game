@@ -14,15 +14,26 @@ class BlendNode(GeneratorNode):
     def __init__(self):
         super().__init__()
 
-        # --- Три входа, как мы и обсуждали ---
+        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+        # Задаем описание для этой конкретной ноды
+        self.set_description("""
+        Смешивает две карты высот (A и B) по маске.
+
+        Формула: Out = A * (1 - Mask) + B * Mask
+
+        Входы:
+        - A (Background): Базовый слой.
+        - B (Foreground): Накладываемый слой.
+        - Mask: Карта смешивания в диапазоне [0, 1]. 
+                0 = полностью виден слой A,
+                1 = полностью виден слой B.
+        """)
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
         self.add_input('A (Background)', 'A (BG)')
         self.add_input('B (Foreground)', 'B (FG)')
         self.add_input('Mask', 'Mask')
-
-        # --- Один выход с результатом ---
         self.add_output('Out')
-
-        # Задаем цвет для визуального отличия
         self.set_color(40, 40, 80)
 
     def compute(self, context):

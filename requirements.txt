@@ -3,10 +3,10 @@ opencv-python
 imageio
 opensimplex
 Pillow
-numpy==2.2.2
+numpy
 
 numba
-scipy==1.14.1
+scipy
 
 PySide6
 NodeGraphQt

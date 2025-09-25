@@ -16,6 +16,16 @@ def _ask_dir(parent, title: str) -> str | None:
     d = QtWidgets.QFileDialog.getExistingDirectory(parent, title)
     return d if d else None
 
+def load_project_data(project_path_str: str) -> dict | None:
+    """Загружает и возвращает данные из файла project.json."""
+    if not project_path_str:
+        return None
+    try:
+        with open(Path(project_path_str) / "project.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Ошибка чтения файла проекта: {e}")
+        return None
 
 def _ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)

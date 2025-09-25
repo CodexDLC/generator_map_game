@@ -6,6 +6,7 @@ class GeneratorNode(BaseNode):
 
     def __init__(self):
         super().__init__()
+        self._description_text = "Описание для этой ноды не задано."
         self._result_cache = None
         self._is_dirty = True  # Нода "грязная" при создании
 
@@ -16,6 +17,21 @@ class GeneratorNode(BaseNode):
         w = self.get_widget('node_id')
         if w and hasattr(w, 'set_tooltip'):
             w.set_tooltip('Read-only: managed by the node')
+
+    def set_description(self, text: str):
+        """
+        Устанавливает текст описания для ноды.
+        Этот текст будет показан в панели свойств.
+        """
+        # Убираем лишние пробелы и отступы для аккуратного вида
+        import textwrap
+        self._description_text = textwrap.dedent(text).strip()
+
+    def get_description(self) -> str:
+        """
+        Возвращает текст описания ноды.
+        """
+        return self._description_text
 
     def mark_dirty(self):
         """Помечает ноду и все последующие как 'грязные'."""
