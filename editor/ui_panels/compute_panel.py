@@ -1,11 +1,10 @@
 # ==============================================================================
 # Файл: editor/ui_panels/compute_panel.py
 # Назначение: Модуль для создания панели с кнопками вычисления (Apply).
-# ВЕРСИЯ 1.1: Исправлен импорт QtCore.
+# ВЕРСИЯ 1.2: Добавлен objectName.
 # ==============================================================================
-from PySide6 import QtWidgets, QtCore  # <-- ДОБАВЛЕН ИМПОРТ QtCore
+from PySide6 import QtWidgets, QtCore
 
-# Импортируем логику, которая будет вызываться по нажатию кнопок
 from ..actions.compute_actions import on_apply_clicked, on_apply_tiled_clicked
 
 
@@ -31,9 +30,9 @@ def create_compute_dock(main_window) -> None:
     apply_tiled_button.clicked.connect(lambda: on_apply_tiled_clicked(main_window))
 
     dock = QtWidgets.QDockWidget("Вычисление", main_window)
+    dock.setObjectName("Панель 'Вычисление'")
     dock.setWidget(compute_widget)
 
-    # --- ИСПРАВЛЕНИЕ: Используем QtCore.Qt вместо QtWidgets.Qt ---
     main_window.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, dock)
 
     main_window.apply_button = apply_button

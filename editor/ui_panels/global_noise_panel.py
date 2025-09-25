@@ -1,9 +1,9 @@
 # ==============================================================================
 # Файл: editor/ui_panels/global_noise_panel.py
 # Назначение: Модуль для создания панели "Глобальный Шум".
-# ВЕРСИЯ 1.1: Исправлен импорт QtCore.
+# ВЕРСИЯ 1.2: Добавлен objectName.
 # ==============================================================================
-from PySide6 import QtWidgets, QtCore  # <-- ДОБАВЛЕН ИМПОРТ QtCore
+from PySide6 import QtWidgets, QtCore
 
 
 def create_global_noise_dock(main_window) -> None:
@@ -34,9 +34,9 @@ def create_global_noise_dock(main_window) -> None:
     form_layout.addRow("Ridge:", main_window.gn_ridge_checkbox)
 
     dock = QtWidgets.QDockWidget("Глобальный Шум", main_window)
+    dock.setObjectName("Панель 'Глобальный Шум'")
     dock.setWidget(noise_widget)
 
-    # --- ИСПРАВЛЕНИЕ: Используем QtCore.Qt вместо QtWidgets.Qt ---
     main_window.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, dock)
 
     main_window.dock_global_noise = dock

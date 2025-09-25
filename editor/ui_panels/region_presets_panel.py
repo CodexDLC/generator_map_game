@@ -1,4 +1,8 @@
-# editor/ui_panels/region_presets_panel.py
+# ==============================================================================
+# Файл: editor/ui_panels/region_presets_panel.py
+# Назначение: Модуль для создания панели "Пресеты Региона".
+# ВЕРСИЯ 1.1: Добавлен objectName.
+# ==============================================================================
 from PySide6 import QtWidgets, QtCore
 
 
@@ -33,11 +37,9 @@ def create_region_presets_dock(main_window) -> None:
     main_window.presets_list_widget.currentItemChanged.connect(main_window.on_preset_selected)
 
     dock = QtWidgets.QDockWidget("Пресеты Региона", main_window)
+    dock.setObjectName("Панель 'Пресеты Региона'")
     dock.setWidget(presets_widget)
 
     main_window.addDockWidget(QtCore.Qt.DockWidgetArea.LeftDockWidgetArea, dock)
 
-    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
-    # Сохраняем ссылку на созданный док-виджет, чтобы к нему можно было обращаться
     main_window.dock_region_presets = dock
-    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---

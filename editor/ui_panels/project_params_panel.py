@@ -1,9 +1,9 @@
 # ==============================================================================
 # Файл: editor/ui_panels/project_params_panel.py
 # Назначение: Модуль для создания панели "Параметры Проекта".
-# ВЕРСИЯ 1.1: Исправлен импорт QtCore.
+# ВЕРСИЯ 1.2: Добавлен objectName.
 # ==============================================================================
-from PySide6 import QtWidgets, QtCore  # <-- ДОБАВЛЕН ИМПОРТ QtCore
+from PySide6 import QtWidgets, QtCore
 
 from editor.system_utils import get_recommended_max_map_size
 
@@ -33,7 +33,7 @@ def create_project_params_dock(main_window) -> None:
     main_window.cell_size_input = QtWidgets.QDoubleSpinBox(minimum=0.1, maximum=10.0, decimals=2, singleStep=0.1)
     form_layout.addRow("Cell Size (m):", main_window.cell_size_input)
 
-    form_layout.addRow(QtWidgets.QLabel("---"))  # Разделитель
+    form_layout.addRow(QtWidgets.QLabel("---"))
 
     main_window.total_size_label = QtWidgets.QLabel("Total size: 0 x 0 px")
     main_window.total_size_label.setStyleSheet("color: #aaa;")
@@ -50,7 +50,6 @@ def create_project_params_dock(main_window) -> None:
         total = cs * rs
         main_window.total_size_label.setText(f"Total size: {total} x {total} px")
 
-        # Подсветка, если превысили рекомендацию
         if total > recommended_size:
             main_window.total_size_label.setStyleSheet("color: #ffcc00; font-weight: bold;")
         else:
@@ -58,12 +57,11 @@ def create_project_params_dock(main_window) -> None:
 
     main_window.chunk_size_input.valueChanged.connect(update_total_size)
     main_window.region_size_input.valueChanged.connect(update_total_size)
-    # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
 
     dock = QtWidgets.QDockWidget("Параметры Проекта", main_window)
+    dock.setObjectName("Панель 'Параметры Проекта'")
     dock.setWidget(settings_widget)
 
-    # --- ИСПРАВЛЕНИЕ: Используем QtCore.Qt вместо QtWidgets.Qt ---
     main_window.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, dock)
 
     main_window.dock_project_params = dock

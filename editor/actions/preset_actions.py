@@ -1,4 +1,3 @@
-# editor/actions/preset_actions.py
 import json
 import logging
 from pathlib import Path
@@ -20,13 +19,12 @@ def get_project_data(self):
         self.statusBar.showMessage(f"Ошибка чтения файла проекта: {e}", 5000)
         return None
 
+
 def create_new_preset_files(project_path: str, preset_name: str) -> dict:
     """Создает 3 .json файла для нового пресета с нодами по умолчанию."""
     pipelines_dir = Path(project_path) / "pipelines"
     pipelines_dir.mkdir(exist_ok=True)
 
-    # --- ИЗМЕНЕНИЕ ---
-    # Получаем 100% корректный json вместо самописного
     default_graph_data = create_default_graph_session()
 
     preset_info = {
@@ -45,44 +43,44 @@ def create_new_preset_files(project_path: str, preset_name: str) -> dict:
     return preset_info
 
 
-
-def load_preset_into_graphs(main_window, preset_info: dict):
-    """Загружает 3 файла графов из пресета в соответствующие вкладки."""
+# --- НАЧАЛО ФИНАЛЬНОГО ИСПРАВЛЕНИЯ ---
+def load_preset_into_graph(main_window, preset_info: dict):
+    """
+    Загружает граф ЛАНДШАФТА из пресета в единственную рабочую область.
+    """
     project_path = Path(main_window.current_project_path)
 
-    layer_map = {
-        "Ландшафт": "landscape_graph",
-        "Климат (Заглушка)": "climate_graph",
-        "Биомы (Заглушка)": "biome_graph"
-    }
+    # Получаем единственный граф напрямую
+    graph = main_window.graph
 
-    for tab_name, graph_key in layer_map.items():
-        graph = main_window.graphs.get(tab_name)
-        graph_path_str = preset_info.get(graph_key)
+    # Нас интересует только граф ландшафта
+    graph_key = "landscape_graph"
+    graph_path_str = preset_info.get(graph_key)
 
-        if not graph or not graph_path_str:
-            continue
+    if not graph or not graph_path_str:
+        logger.warning(f"Граф или путь к файлу графа '{graph_key}' не найдены. Загрузка пресета пропущена.")
+        return
 
-        graph_path = project_path / graph_path_str
-        graph.clear_session()
+    graph_path = project_path / graph_path_str
+    graph.clear_session()
 
-        if graph_path.exists():
-            try:
-                # --- НАЧАЛО ИЗМЕНЕНИЯ: Улучшенная загрузка ---
-                with open(graph_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+    if graph_path.exists():
+        try:
+            with open(graph_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
 
-                # Если файл пустой или не содержит нод, создаем дефолтные
-                if not data or not data.get("nodes"):
-                    input_node = graph.create_node('Ландшафт.Пайплайн.WorldInputNode', name='Вход', pos=(-300, 0))
-                    output_node = graph.create_node('Ландшафт.Пайплайн.OutputNode', name='Выход', pos=(100, 0))
-                    input_node.set_output(0, output_node.input(0))
-                else:
-                    graph.deserialize_session(data)
-                # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-            except Exception as e:
-                logger.error(f"Failed to load graph file {graph_path}: {e}")
+            # Если файл пустой или не содержит нод, создаем дефолтные
+            if not data or not data.get("nodes"):
+                input_node = graph.create_node('Ландшафт.Пайплайн.WorldInputNode', name='Вход', pos=(-300, 0))
+                output_node = graph.create_node('Ландшафт.Пайплайн.OutputNode', name='Выход', pos=(100, 0))
+                input_node.set_output(0, output_node.input(0))
+            else:
+                graph.deserialize_session(data)
+        except Exception as e:
+            logger.error(f"Не удалось загрузить файл графа {graph_path}: {e}")
 
+
+# --- КОНЕЦ ФИНАЛЬНОГО ИСПРАВЛЕНИЯ ---
 
 def handle_new_preset(main_window):
     """
@@ -100,16 +98,15 @@ def handle_new_preset(main_window):
         QtWidgets.QMessageBox.warning(main_window, "Ошибка", "Пресет с таким именем уже существует.")
         return
 
-    # Логика создания файлов
     preset_info = create_new_preset_files(main_window.current_project_path, preset_name)
 
     if "region_presets" not in project_data:
         project_data["region_presets"] = {}
 
     project_data["region_presets"][preset_name] = preset_info
-    on_save_project(main_window, project_data)  # Сохраняем изменения
+    on_save_project(main_window, project_data)
 
-    main_window._load_presets_list() # Обновляем UI
+    main_window._load_presets_list()
     main_window.statusBar.showMessage(f"Пресет '{preset_name}' создан.", 4000)
 
 
@@ -136,7 +133,6 @@ def handle_delete_preset(main_window):
     preset_to_delete = presets.pop(preset_name, None)
 
     if preset_to_delete:
-        # Удаляем файлы
         project_path = Path(main_window.current_project_path)
         for key in ["landscape_graph", "climate_graph", "biome_graph"]:
             try:
@@ -150,3 +146,4 @@ def handle_delete_preset(main_window):
     on_save_project(main_window, project_data)
     main_window._load_presets_list()
     main_window.statusBar.showMessage(f"Пресет '{preset_name}' удален.", 4000)
+

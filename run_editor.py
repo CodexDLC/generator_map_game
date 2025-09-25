@@ -1,11 +1,11 @@
 # ==============================================================================
 # Файл: run_editor.py
 # Назначение: Главная точка входа для запуска нового редактора.
-# ВЕРСЯ 2.0: Добавлен запуск через "Менеджер Проектов".
+# ВЕРСИЯ 2.3: Улучшенная система логирования событий UI.
 # ==============================================================================
 
 import sys
-import logging # <--- Добавьте этот импорт
+import logging
 from typing import cast
 
 from PySide6 import QtWidgets, QtCore, QtGui
@@ -17,30 +17,49 @@ from editor.project_manager import show_project_manager
 
 logger = logging.getLogger(__name__)
 
+# Классы, которые мы не хотим видеть в логах фокуса, чтобы уменьшить "шум"
+IGNORED_FOCUS_CLASSES = [
+    'QStyleSheetStyle'
+]
+
 class DebugEventFilter(QtCore.QObject):
     """
     Этот класс-шпион будет перехватывать и логировать
-    важные события в приложении.
+    важные события в приложении для отладки.
     """
 
     def eventFilter(self, watched_object, event):
+        # --- ЛОГИРОВАНИЕ ФОКУСА ---
         if event.type() == QtCore.QEvent.Type.FocusIn:
-            widget_class_name = watched_object.metaObject().className()
-            logger.debug(f"[FOCUS] >> Фокус ПОЛУЧИЛ: {widget_class_name} ({watched_object})")
+            class_name = watched_object.metaObject().className()
 
-        # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+            # Если класс в черном списке, просто игнорируем событие
+            if class_name in IGNORED_FOCUS_CLASSES:
+                return super().eventFilter(watched_object, event)
+
+            # Сначала пытаемся получить заданное имя объекта
+            obj_name = watched_object.objectName()
+            # Если имя есть, используем его, иначе — имя класса
+            display_name = f"'{obj_name}'" if obj_name else class_name
+            logger.debug(f"[FOCUS] >> Фокус ПОЛУЧИЛ: {display_name} ({watched_object})")
+
+        # --- ЛОГИРОВАНИЕ НАЖАТИЙ КЛАВИШ ---
         if event.type() == QtCore.QEvent.Type.KeyPress:
-            # Явно приводим тип, чтобы IDE поняла, с чем мы работаем
             key_event = cast(QtGui.QKeyEvent, event)
-
             key_name = key_event.text()
-            if not key_name:
-                key_enum = QtCore.Qt.Key(key_event.key())
-                key_name = key_enum.name
+
+            # Если текст не является печатаемым (служебные клавиши, Delete, Enter и т.д.),
+            # то получаем имя из перечисления клавиш Qt.
+            if not key_name.isprintable():
+                try:
+                    # Пытаемся получить имя из enum
+                    key_enum = QtCore.Qt.Key(key_event.key())
+                    key_name = key_enum.name
+                except ValueError:
+                    # Если по какой-то причине enum не найден, используем код клавиши
+                    key_name = f"Unknown_Key_{key_event.key()}"
 
             modifiers = key_event.modifiers()
-            # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-
             mod_names = []
             if modifiers & QtCore.Qt.KeyboardModifier.ControlModifier:
                 mod_names.append("Ctrl")
@@ -62,35 +81,25 @@ def run_editor():
     app = QtWidgets.QApplication(sys.argv)
     app.setStyleSheet(APP_STYLE_SHEET)
 
-    # --- НАЧАЛО ИЗМЕНЕНИЯ ---
-    # Создаем и устанавливаем наш фильтр на все приложение
     event_filter = DebugEventFilter(app)
     app.installEventFilter(event_filter)
     logger.info("Отладчик событий фокуса и клавиатуры активирован.")
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
-    while True:  # <-- НАЧАЛО ЦИКЛА
+    while True:
         project_path = show_project_manager()
 
         if not project_path:
-            # Если пользователь закрыл менеджер, выходим из цикла и приложения
             print("--- Запуск отменен пользователем, выход ---")
             break
 
-        # Создаем и показываем главное окно
         window = MainWindow(project_path=project_path)
         window.show()
 
-        # app.exec() блокирует выполнение до закрытия окна
         app.exec()
 
-        # После закрытия окна проверяем, нужно ли нам перезапуститься
-        # или полностью выйти из приложения.
         if not getattr(window, 'wants_restart', False):
             print("--- Окно закрыто, выход из приложения ---")
             break
-        # Если wants_restart=True, цикл начнется заново
-
 
 if __name__ == "__main__":
     print("--- Запуск редактора ---")
