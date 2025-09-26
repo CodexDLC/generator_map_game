@@ -15,12 +15,17 @@ def setup_logging():
 
     logging.basicConfig(
         level=logging.DEBUG,
-        format="[%(asctime)s] - [%(levelname)s] - [%(name)s] - %(message)s",
+        format="%(asctime)s.%(msecs)03d [%(levelname)s] %(name)s:%(lineno)d | %(message)s",
+        datefmt="%H:%M:%S",
         handlers=[
-            logging.FileHandler(log_file, mode='w', encoding='utf-8'),
-            logging.StreamHandler(sys.stdout)
-        ]
+            logging.FileHandler(log_file, mode="w", encoding="utf-8"),
+            logging.StreamHandler(sys.stdout),
+        ],
+        force=True,  # <— ВАЖНО: убирает старые хендлеры, чтобы не было дублей
     )
-    logging.info("="*50)
-    logging.info("Logger configured successfully.")
-    logging.info("="*50)
+
+    # детальные логи только наших пакетов, остальное приглушим
+    logging.getLogger("editor").setLevel(logging.DEBUG)
+    logging.getLogger("game_engine_restructured").setLevel(logging.DEBUG)
+    logging.getLogger("NodeGraphQt").setLevel(logging.WARNING)
+    logging.getLogger("numba").setLevel(logging.WARNING)

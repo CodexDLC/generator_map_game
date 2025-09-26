@@ -1,8 +1,7 @@
 # ==============================================================================
 # Файл: editor/nodes/node_registry.py
-# ВЕРСИЯ 4.0: Гибкие импорты (несколько кандидатов на каждый модуль),
-#             понятные логи, безопасная регистрация, минимальный профиль.
-#             Регистрируем: WorldInputNode, NoiseNode, OutputNode.
+# ВЕРСИЯ ДЛЯ ТЕСТИРОВАНИЯ (ИСПРАВЛЕННАЯ): Пути импорта соответствуют
+#                                        новой структуре папок.
 # ==============================================================================
 
 from __future__ import annotations
@@ -12,124 +11,76 @@ from typing import Any, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-def _import_first(candidates: List[str], class_name: str) -> Optional[type]:
-    """
-    Пробует по очереди пути из candidates, импортирует модуль и достаёт класс class_name.
-    Возвращает сам класс или None, если не удалось.
-    """
-    last_err: Optional[Exception] = None
-    for mod in candidates:
-        try:
-            m = importlib.import_module(mod)
-            cls = getattr(m, class_name, None)
-            if cls is None:
-                raise AttributeError(f"Модуль '{mod}' не содержит класс '{class_name}'")
-            logger.info("Импортирован %s из %s", class_name, mod)
-            print(f"[NodeRegistry] import OK: {class_name} <- {mod}")
-            return cls
-        except Exception as e:
-            last_err = e
-            logger.debug("Не удалось импортировать %s из %s: %s", class_name, mod, e)
-    if last_err:
-        logger.exception("Ошибка импорта %s (кандидаты: %s): %s", class_name, candidates, last_err)
-        print(f"[NodeRegistry] import FAIL: {class_name}")
-    return None
-
-
-# --- Кандидаты путей для каждой ноды (перечень покрывает твои варианты структуры) ---
-
-WORLD_INPUT_PATHS = [
-    "editor.nodes.world_input_node",
-    "editor.nodes.generator.pipeline.world_input_node",
-    "editor.steps.world_input_node",
-]
-
-NOISE_NODE_PATHS = [
-    "editor.nodes.noise_node",
-    "editor.nodes.generator.noises.noise_node",
-]
-
-OUTPUT_NODE_PATHS = [
-    "editor.nodes.output_node",
-    "editor.nodes.generator.pipeline.output_node",
-    "editor.steps.output_node",
-]
-MASKED_DELTA_PATHS = [
-    "editor.nodes.masked_delta_node",
-    "editor.nodes.composition.masked_delta_node",
-]
-
-HEIGHT_MERGE_PATHS = [
-    "editor.nodes.height_merge_node",
-    "editor.nodes.pipeline.height_merge_node",
-]
-
-SLOPE_MASK_NODE_PATHS = [
-    "editor.nodes.slope_mask_node",
-    "editor.nodes.masks.slope_mask_node",
-]
-
-def _resolve_active_nodes() -> List[Tuple[str, Any]]:
-    WorldInputNode   = _import_first(WORLD_INPUT_PATHS, "WorldInputNode")
-    NoiseNode        = _import_first(NOISE_NODE_PATHS, "NoiseNode")
-
-    # новые ноды
-    MaskedDeltaNode  = _import_first(MASKED_DELTA_PATHS, "MaskedDeltaNode")
-    HeightMergeNode  = _import_first(HEIGHT_MERGE_PATHS, "HeightMergeNode")
-    SlopeMaskNode    = _import_first(SLOPE_MASK_NODE_PATHS, "SlopeMaskNode")
-
-    OutputNode       = _import_first(OUTPUT_NODE_PATHS, "OutputNode")
-
-    return [
-        ("WorldInputNode",  WorldInputNode),
-        ("NoiseNode",       NoiseNode),
-        ("MaskedDeltaNode", MaskedDeltaNode),
-        ("HeightMergeNode", HeightMergeNode),
-        ("SlopeMaskNode",   SlopeMaskNode),
-        ("OutputNode",      OutputNode),
-    ]
+def _import_class(module_path: str, class_name: str) -> Optional[type]:
+    """Вспомогательная функция для безопасного импорта класса."""
+    try:
+        module = importlib.import_module(module_path)
+        cls = getattr(module, class_name, None)
+        if cls is None:
+            logger.warning(f"Класс '{class_name}' не найден в модуле '{module_path}'")
+        return cls
+    except ImportError as e:
+        logger.warning(f"Не удалось импортировать модуль {module_path}: {e}")
+        return None
 
 def _safe_register(graph: Any, node_cls: Any) -> bool:
-    """
-    Безопасно регистрирует класс ноды в графе.
-    """
-    if node_cls is None:
+    """Безопасно регистрирует класс ноды в графе."""
+    if not node_cls:
         return False
-
-    if not hasattr(graph, "register_node") or not callable(getattr(graph, "register_node")):
-        logger.error("Объект графа не поддерживает register_node(...): %r", graph)
-        return False
-
     try:
         graph.register_node(node_cls)
         return True
     except Exception as e:
-        logger.exception("Ошибка при регистрации ноды %s: %s",
-                         getattr(node_cls, "__name__", node_cls), e)
+        logger.exception(f"Ошибка при регистрации ноды {getattr(node_cls, '__name__', node_cls)}: {e}")
         return False
 
-
 def register_all_nodes(graph: Any) -> None:
-    """
-    Регистрирует минимальный набор нод. Печатает краткую сводку.
-    """
-    print("[NodeRegistry] Registering nodes (flex imports)…")
-    if graph is None or not hasattr(graph, "register_node"):
-        print("[NodeRegistry] ABORT: graph invalid")
-        logger.error("Граф не передан или не поддерживает register_node(...)")
+    print("[NodeRegistry] Регистрация нод для теста...")
+    if graph is None:
+        print("[NodeRegistry] ОШИБКА: Граф не передан.")
         return
 
-    active_nodes = _resolve_active_nodes()
+    # --- ЕДИНЫЙ СПИСОК ИМПОРТОВ (io + noises) ---
+    # --- ЕДИНЫЙ СПИСОК ИМПОРТОВ (io + noises + math + masks + warp) ---
+    NODES_TO_IMPORT = [
+        # IO
+        ("editor.nodes.height.io.world_input_node", "WorldInputNode"),
+        ("editor.nodes.height.io.output_node", "OutputNode"),
+
+        # Noises (все отдают packet [0..1])
+        ("editor.nodes.universal.noises.fbm_noise_node", "FBMNoiseNode"),
+        ("editor.nodes.universal.noises.voronoi_noise_node", "VoronoiNoiseNode"),
+        ("editor.nodes.universal.noises.value_noise_node", "ValueNoiseNode"),
+        ("editor.nodes.universal.noises.simplex_noise_node", "SimplexNoiseNode"),
+
+        # Math
+        ("editor.nodes.universal.math.to_meters_node", "ToMetersNode"),
+        ("editor.nodes.universal.math.normalize01_node", "Normalize01Node"),
+        ("editor.nodes.universal.math.math_ops_node", "MathOpsNode"),
+
+        # Masks
+        ("editor.nodes.universal.masks.mask_node", "MaskNode"),
+
+        # Warp (внешний доменный варп + генератор поля варпа)
+        ("editor.nodes.universal.module.domain_warp_apply_node", "DomainWarpApplyNode"),
+        ("editor.nodes.universal.module.warp_field_node", "WarpFieldNode"),
+
+
+    ]
+
+    # Сборка словаря {ClassName: cls}
+    nodes_to_register = {}
+    for module_path, class_name in NODES_TO_IMPORT:
+        cls = _import_class(module_path, class_name)
+        nodes_to_register[class_name] = cls
 
     ok, fail = 0, 0
-    for display_name, node_cls in active_nodes:
-        if _safe_register(graph, node_cls):
+    for name, cls in nodes_to_register.items():
+        if _safe_register(graph, cls):
             ok += 1
-            print(f"[NodeRegistry]   OK  -> {display_name}")
+            print(f"[NodeRegistry]   OK  -> {name}")
         else:
             fail += 1
-            print(f"[NodeRegistry]   ERR -> {display_name}")
+            print(f"[NodeRegistry]   ERR -> {name} (не найден или ошибка)")
 
-    print(f"[NodeRegistry] Done. Registered: {ok}, Failed: {fail}.")
-    if fail:
-        print("[NodeRegistry] Подсказка: проверь реальное расположение файлов и наличие __init__.py в пакетах.")
+    print(f"[NodeRegistry] Готово. Зарегистрировано: {ok}, Ошибок: {fail}.")

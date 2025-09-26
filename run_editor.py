@@ -92,9 +92,9 @@ def run_editor():
     app = QtWidgets.QApplication(sys.argv)
     app.setStyleSheet(APP_STYLE_SHEET)
 
-    event_filter = DebugEventFilter(app)
-    app.installEventFilter(event_filter)
-    logger.info("Отладчик событий фокуса и клавиатуры активирован.")
+    # event_filter = DebugEventFilter(app)
+    # app.installEventFilter(event_filter)
+    # logger.info("Отладчик событий фокуса и клавиатуры активирован.")
 
     while True:
         project_path = show_project_manager()
