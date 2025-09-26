@@ -128,16 +128,21 @@ def on_open_project(parent_widget) -> str | None:
         QtWidgets.QMessageBox.critical(parent_widget, "Ошибка", msg)
         return None
 
+def _status_msg(main_window, text: str, msec: int = 4000) -> None:
+    """Безопасно показывает сообщение в статус-баре."""
+    try:
+        bar = main_window.statusBar()
+        # QMainWindow.statusBar() создаст бар, если его ещё нет.
+        bar.showMessage(text, msec)
+    except Exception:
+        # В крайнем случае — просто алёрт, но не падаем.
+        QtWidgets.QMessageBox.information(main_window, "Статус", text)
 
 def on_save_project(main_window, data_to_write: dict = None) -> None:
-    """
-    Собирает все настройки из UI и сохраняет их в project.json.
-    Может также принимать готовый словарь для прямой записи.
-    """
     logger.info("Action triggered: on_save_project.")
     if not main_window.current_project_path:
         logger.warning("Project save skipped: No project loaded.")
-        main_window.statusBar.showMessage("Проект не загружен.", 3000)
+        _status_msg(main_window, "Проект не загружен.", 3000)
         return
 
     try:
@@ -145,20 +150,13 @@ def on_save_project(main_window, data_to_write: dict = None) -> None:
         final_data = {}
 
         if data_to_write:
-            # РЕЖИМ 1: Нам передали готовые данные (например, после создания пресета).
-            # Просто используем их.
             logger.debug("Saving project with provided data (programmatic save).")
             final_data = data_to_write
         else:
-            # РЕЖИМ 2: Данные не переданы, значит это ручное сохранение.
-            # Собираем все данные из виджетов интерфейса.
             logger.debug("Saving project with data from UI (manual save).")
-
-            # Читаем существующий файл, чтобы не потерять данные, которых нет в UI (список пресетов)
             with open(project_file_path, "r", encoding="utf-8") as f:
                 existing_data = json.load(f)
 
-            # Собираем данные из UI
             project_data_from_ui = {
                 "seed": main_window.seed_input.value(),
                 "chunk_size": main_window.chunk_size_input.value(),
@@ -174,21 +172,19 @@ def on_save_project(main_window, data_to_write: dict = None) -> None:
                 }
             }
 
-            # Обновляем существующие данные данными из UI
             existing_data.update(project_data_from_ui)
             if "global_noise" in existing_data:
                 existing_data["global_noise"].update(project_data_from_ui["global_noise"])
 
             final_data = existing_data
 
-        # Атомарно записываем финальные данные в файл
         _atomic_write_json(project_file_path, final_data)
 
         logger.info(f"Project saved successfully to: {project_file_path}")
-        main_window.statusBar.showMessage(f"Проект сохранен: {project_file_path}", 4000)
+        _status_msg(main_window, f"Проект сохранен: {project_file_path}", 4000)
 
     except Exception as e:
         msg = f"Ошибка сохранения проекта: {e}"
-        main_window.statusBar.showMessage(msg, 6000)
+        _status_msg(main_window, msg, 6000)
         QtWidgets.QMessageBox.critical(main_window, "Ошибка сохранения", msg)
         logger.exception("Failed to save project.")

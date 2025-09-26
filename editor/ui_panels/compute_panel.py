@@ -1,16 +1,15 @@
 # ==============================================================================
 # Файл: editor/ui_panels/compute_panel.py
-# Назначение: Модуль для создания панели с кнопками вычисления (Apply).
-# ВЕРСИЯ 1.2: Добавлен objectName.
+# Назначение: Панель запуска вычислений (теперь только цельный расчёт).
+# ВЕРСИЯ 2.0: Убрана кнопка "APPLY (tiled)". Оставляем только "APPLY".
+#             Для совместимости main_window.apply_tiled_button = None.
 # ==============================================================================
 from PySide6 import QtWidgets, QtCore
 
 
-
-
 def create_compute_dock(main_window) -> None:
     """
-    Создает и настраивает док-виджет с кнопками APPLY.
+    Создает и настраивает док-виджет с кнопкой APPLY (без тайлового запуска).
     """
     compute_widget = QtWidgets.QWidget()
     layout = QtWidgets.QVBoxLayout(compute_widget)
@@ -19,11 +18,11 @@ def create_compute_dock(main_window) -> None:
     apply_button = QtWidgets.QPushButton("APPLY")
     apply_button.setFixedHeight(40)
 
-    apply_tiled_button = QtWidgets.QPushButton("APPLY (tiled)")
-    apply_tiled_button.setFixedHeight(36)
+    # Тайловую кнопку удаляем — больше не нужна.
+    # Для совместимости оставим атрибут в None, чтобы внешние ссылки не падали.
+    main_window.apply_tiled_button = None
 
     layout.addWidget(apply_button)
-    layout.addWidget(apply_tiled_button)
     layout.addStretch()
 
     dock = QtWidgets.QDockWidget("Вычисление", main_window)
@@ -32,6 +31,5 @@ def create_compute_dock(main_window) -> None:
 
     main_window.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, dock)
 
-    # Мы по-прежнему сохраняем ссылки на кнопки, чтобы MainWindow мог их настроить
+    # Сохраняем ссылку для MainWindow (он сам подпишет on_click)
     main_window.apply_button = apply_button
-    main_window.apply_tiled_button = apply_tiled_button

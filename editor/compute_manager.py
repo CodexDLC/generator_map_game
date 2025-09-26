@@ -1,141 +1,179 @@
 # editor/compute_manager.py
+from __future__ import annotations
 import logging
-import numpy as np
-from PySide6 import QtCore, QtWidgets
+from typing import Optional, Tuple, Dict, Any
 
-from .actions.worker import ComputeWorker, TiledComputeWorker
+import numpy as np
+from PySide6 import QtCore
+
+# твои воркеры лежат тут же
+from .actions.worker import ComputeWorker  # TiledComputeWorker нам больше не нужен
 
 logger = logging.getLogger(__name__)
 
 
 class ComputeManager(QtCore.QObject):
     """
-    Управляет всеми асинхронными вычислениями графа,
-    управляет потоками и воркерами.
+    Диспетчер вычислений графа (только цельный расчёт).
+    - Коалесинг: если пока идёт вычисление, новый запрос откладывается (pending)
+      и стартует один раз после завершения текущего.
+    - Корректное завершение потоков: quit()+wait(), shutdown() при закрытии окна.
     """
-    # Сигналы, которые менеджер отправляет в MainWindow для обновления UI
-    display_mesh = QtCore.Signal(object, float)
-    display_tiled_mesh = QtCore.Signal(object, float)
-    display_partial_tile = QtCore.Signal(int, int, object, int, int, float)
-    display_status_message = QtCore.Signal(str, int)
-    show_error_dialog = QtCore.Signal(str, str)
-    set_busy_mode = QtCore.Signal(bool)
+
+    # Сигналы в MainWindow/Preview
+    display_mesh = QtCore.Signal(object, float)       # (heightmap, cell_size)
+    display_status_message = QtCore.Signal(str, int)  # (text, msec)
+    show_error_dialog = QtCore.Signal(str, str)       # (title, text)
+    set_busy_mode = QtCore.Signal(bool)               # включить/выключить "занято"
 
     def __init__(self, main_window):
         super().__init__()
         self.main_window = main_window
-        self.thread = None
-        self.worker = None
 
-        self.tiled_results = {}
-        self.tiled_params = {}
+        self.thread: Optional[QtCore.QThread] = None
+        self.worker: Optional[QtCore.QObject] = None
 
-    def _is_busy(self) -> bool:
-        """Проверяет, не занят ли уже какой-то процесс."""
-        if self.thread and self.thread.isRunning():
-            logger.warning("A compute thread is already running.")
-            QtWidgets.QMessageBox.warning(self.main_window, "Внимание", "Предыдущая операция еще не завершена.")
-            return True
-        return False
+        self._running: bool = False
+        self._pending: Optional[Tuple[str, Dict[str, Any]]] = None  # ('single', params)
 
-    def _cleanup(self):
-        """Очищает ссылки на поток и воркер после завершения."""
-        self.thread = None
-        self.worker = None
+    # ---------------------------------------------------------------- lifecycle
 
-    # --- SINGLE COMPUTE LOGIC ---
+    def shutdown(self):
+        """Остановить текущий воркер и дождаться завершения потока (на закрытии приложения)."""
+        try:
+            if self.worker and hasattr(self.worker, "stop"):
+                try:
+                    self.worker.stop()  # мягкая отмена, если поддерживается
+                except Exception:
+                    pass
+            if self.thread:
+                try:
+                    self.thread.quit()
+                    self.thread.wait(5000)  # до 5 секунд на корректное завершение
+                except Exception:
+                    pass
+        finally:
+            self.thread = None
+            self.worker = None
+            self._running = False
+            self._pending = None
+            self.set_busy_mode.emit(False)
 
-    def start_single_compute(self, output_node, context):
-        if self._is_busy():
+    # ---------------------------------------------------------- single compute
+
+    def start_single_compute(self, output_node, context: dict):
+        """
+        Запуск цельного расчёта.
+        Если задача уже идёт — откладываем один повтор с последними параметрами.
+        """
+        if self._running:
+            self._pending = ('single', {'output_node': output_node, 'context': context})
+            logger.info("Compute running -> coalesce new 'single' request")
+            self.display_status_message.emit("Расчёт в процессе… Перезапущу с последними параметрами.", 2000)
             return
 
-        self.set_busy_mode.emit(True)
+        # Создаём воркер и поток
         self.thread = QtCore.QThread()
         self.worker = ComputeWorker(output_node, context)
         self.worker.moveToThread(self.thread)
 
-        self.worker.finished.connect(self._on_single_compute_finished)
-        self.worker.error.connect(self._on_compute_error)
+        # Прогресс (если воркер его шлёт)
+        if hasattr(self.worker, "progress"):
+            # type: ignore[attr-defined]
+            self.worker.progress.connect(lambda p, m: self.display_status_message.emit(m or "", 300))
 
-        self.thread.started.connect(self.worker.run)
-        self.thread.finished.connect(self._cleanup)
+        # Результат
+        if hasattr(self.worker, "finished"):
+            # type: ignore[attr-defined]
+            self.worker.finished.connect(self._on_worker_finished)
+            # после завершения — закрыть поток
+            # type: ignore[attr-defined]
+            self.worker.finished.connect(self._thread_quit)
+
+        # Ошибка
+        if hasattr(self.worker, "error"):
+            # type: ignore[attr-defined]
+            self.worker.error.connect(self._on_compute_error)
+            # type: ignore[attr-defined]
+            self.worker.error.connect(self._thread_quit)
+
+        # Запуск
+        self.thread.started.connect(self._thread_run_entry)
+        self.thread.finished.connect(self._on_thread_finished)
         self.thread.finished.connect(self.thread.deleteLater)
-        self.worker.finished.connect(self.worker.deleteLater)
         self.thread.start()
 
-    def _on_single_compute_finished(self, result, message):
-        logger.info(f"Single compute finished: {message}")
-        self.set_busy_mode.emit(False)
-        if result is not None:
-            cell_size = self.main_window.cell_size_input.value()
-            self.display_mesh.emit(result, cell_size)
-        self.display_status_message.emit(message or "Готово", 4000)
-
-    # --- TILED COMPUTE LOGIC ---
-
-    def start_tiled_compute(self, output_node, context):
-        if self._is_busy():
-            return
-
-        self.tiled_results.clear()
-        self.tiled_params.clear()
+        self._running = True
         self.set_busy_mode.emit(True)
 
-        self.thread = QtCore.QThread()
-        self.worker = TiledComputeWorker(
-            output_node=output_node,
-            base_context=context,
-            chunk_size=context["chunk_size"],
-            region_size=context["region_size_in_chunks"],
-        )
-        self.worker.moveToThread(self.thread)
+    # ---------------------------------------------------------- compatibility
 
-        self.worker.partial_ready.connect(self._on_tile_ready)
-        self.worker.finished.connect(self._on_tiled_compute_finished)
-        self.worker.error.connect(self._on_compute_error)
+    def start_tiled_compute(self, output_node, context: dict):
+        """
+        Совместимость со старой кнопкой «APPLY (tiled)».
+        Сейчас тайлов нет: просто перенаправляем на цельный расчёт.
+        """
+        logger.info("Tiled compute is disabled -> redirect to single compute")
+        self.start_single_compute(output_node, context)
 
-        self.thread.started.connect(self.worker.run)
-        self.thread.finished.connect(self._cleanup)
-        self.thread.finished.connect(self.thread.deleteLater)
-        self.worker.finished.connect(self.worker.deleteLater)
-        self.thread.start()
+    # --------------------------------------------------------------- slots
 
-    def _on_tile_ready(self, tx, tz, tile, cs, rs, cell_size):
-        tile_np = np.asarray(tile, dtype=np.float32)
-        if tile_np.ndim != 2 or not np.isfinite(tile_np).all():
-            self.display_status_message.emit(f"Пропущен плохой тайл ({tx},{tz})", 2000)
-            return
+    @QtCore.Slot()
+    def _thread_run_entry(self):
+        if self.worker and hasattr(self.worker, "run"):
+            try:
+                # type: ignore[attr-defined]
+                self.worker.run()
+            except Exception as e:
+                logger.exception("Worker.run() raised: %s", e)
+                self._thread_quit()
 
-        self.tiled_results[(tx, tz)] = tile_np
-        if not self.tiled_params:
-            self.tiled_params = {'cs': cs, 'rs': rs, 'cell_size': cell_size}
-        self.display_partial_tile.emit(tx, tz, tile_np, cs, rs, cell_size)
+    @QtCore.Slot()
+    def _thread_quit(self):
+        if self.thread:
+            try:
+                self.thread.quit()
+            except Exception:
+                pass
 
-    def _on_tiled_compute_finished(self, message):
-        logger.info(f"Tiled compute finished: {message}")
-        self.set_busy_mode.emit(False)
+    @QtCore.Slot(object, str)
+    def _on_worker_finished(self, result, message: str):
+        """Результат от воркера (цельная карта)."""
         try:
-            if not self.tiled_results or not self.tiled_params:
-                return
+            if result is not None:
+                cell_size = float(self.main_window.cell_size_input.value())
+                # проверим sanity, чтобы не убить превью
+                arr = np.asarray(result)
 
-            cs, rs, cell_size = self.tiled_params.values()
-            full_map = np.zeros((rs * cs, rs * cs), dtype=np.float32)
-            for (tx, tz), tile_data in self.tiled_results.items():
-                tile_core = tile_data[:-1, :-1]
-                x_offset, z_offset = tx * cs, tz * cs
-                full_map[z_offset:z_offset + cs, x_offset:x_offset + cs] = tile_core
-
-            self.display_tiled_mesh.emit(full_map, cell_size)
-            self.display_status_message.emit("Сборка тайлов завершена.", 5000)
-        except Exception as e:
-            self._on_compute_error(f"Ошибка сборки тайлов: {e}")
+                if arr.ndim == 2 and np.isfinite(arr).all():
+                    self.display_mesh.emit(arr, cell_size)
+                else:
+                    self.display_status_message.emit("Получена некорректная карта (пропускаю).", 4000)
+            if message:
+                self.display_status_message.emit(message, 4000)
+            else:
+                self.display_status_message.emit("Готово.", 2500)
         finally:
-            self.tiled_results.clear()
-            self.tiled_params.clear()
+            # поток закроется через _thread_quit -> finished -> _on_thread_finished
 
-    # --- COMMON ERROR HANDLING ---
+            pass
 
-    def _on_compute_error(self, message):
-        self.set_busy_mode.emit(False)
+    @QtCore.Slot(str)
+    def _on_compute_error(self, message: str):
+        logger.error("Compute error: %s", message)
         self.show_error_dialog.emit("Ошибка вычисления", message)
         self.display_status_message.emit(f"Ошибка: {message.splitlines()[0]}", 6000)
+
+    @QtCore.Slot()
+    def _on_thread_finished(self):
+        """Поток завершён — чистим и, если нужно, запускаем отложенный запрос."""
+        self.thread = None
+        self.worker = None
+        self._running = False
+        self.set_busy_mode.emit(False)
+
+        if self._pending:
+            job, params = self._pending
+            self._pending = None
+            if job == 'single':
+                self.start_single_compute(**params)

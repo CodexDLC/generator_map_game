@@ -27,40 +27,50 @@ class ComputeWorker(QtCore.QObject):
 
     @QtCore.Slot()
     def run(self):
+        """
+        Единичный (цельный) расчёт: перед запуском графа гарантируем наличие
+        двумерных сеток координат x_coords/z_coords в контексте.
+        """
         try:
-            logger.info("ComputeWorker started.")
-            start_time = time.perf_counter()
-            self._cancelled = False
-            self.set_busy.emit(True)
-            self.progress.emit(0, "Инициализация…")
+            # Копируем исходный контекст, чтобы не портить переданный словарь
+            ctx = dict(self._ctx) if isinstance(self._ctx, dict) else {}
 
-            def _tick(p, msg):
-                if self._cancelled: return False
-                self.progress.emit(int(p), str(msg))
-                return True
+            # Базовые параметры из UI/проекта
+            cs = int(ctx.get("chunk_size", 128))
+            rs = int(ctx.get("region_size_in_chunks", 4))
+            cell_size = float(ctx.get("cell_size", 1.0))
+            gx = float(ctx.get("global_x_offset", 0.0))
+            gz = float(ctx.get("global_z_offset", 0.0))
 
-            res = run_graph(self._output_node, self._ctx, on_tick=_tick)
-            end_time = time.perf_counter()
-            logger.info(f"Graph computation finished in {end_time - start_time:.3f} seconds.")
-            if res is not None:
-                logger.debug(f"  - Output map stats: shape={res.shape}, "
-                             f"min={res.min():.2f}, max={res.max():.2f}, "
-                             f"has_nan={np.isnan(res).any()}")
+            # Полный размер региона (без тайловой сборки)
+            H = W = rs * cs  # под превью и большинство нод этого хватает (без +1)
 
-            if self._cancelled:
-                self.set_busy.emit(False)
-                self.error.emit("Отменено")
-                return
+            # Если координат ещё нет — создаём 2D-сетки мировой системы
+            if "x_coords" not in ctx or "z_coords" not in ctx:
+                xs = gx + np.arange(W, dtype=np.float32) * cell_size
+                zs = gz + np.arange(H, dtype=np.float32) * cell_size
+                xg, zg = np.meshgrid(xs, zs, indexing="xy")  # формы (H, W)
+                ctx["x_coords"] = xg
+                ctx["z_coords"] = zg
 
-            self.progress.emit(100, "Готово")
-            self.set_busy.emit(False)
-            self.finished.emit(res, "Single-compute завершён")
+            # Прогресс-колбэк (если нужен)
+            def _tick(pct: int, msg: str | None = None):
+                try:
+                    if hasattr(self, "progress"):
+                        self.progress.emit(int(pct), msg or "")
+                except Exception:
+                    pass
+
+            # Запуск графа (OutputNode -> …)
+            result = run_graph(self._output_node, ctx, on_tick=_tick)
+
+            # Вернуть результат наверх (и показать сообщение)
+            if hasattr(self, "finished"):
+                self.finished.emit(result, "Готово")
         except Exception as e:
-            import traceback
-            tb = traceback.format_exc()
-            logger.exception("Error during graph computation.")
-            self.set_busy.emit(False)
-            self.error.emit(f"{e}\n--- TRACEBACK ---\n{tb}")
+            logger.exception("Error in ComputeWorker.run()")
+            if hasattr(self, "error"):
+                self.error.emit(str(e))
 
     @QtCore.Slot()
     def cancel(self):

@@ -31,6 +31,8 @@ def setup_central_graph_ui(mw) -> None:
     splitter.setSizes([400, 600])
     mw.setCentralWidget(splitter)
 
+
+
     # 3) Реальный QGraphicsView внутри graph_widget
     view = graph_widget.findChild(QtWidgets.QGraphicsView) or graph_widget
     if isinstance(view, QtWidgets.QGraphicsView):
@@ -52,6 +54,11 @@ def setup_central_graph_ui(mw) -> None:
         back_sc.setContext(QtCore.Qt.ShortcutContext.WidgetShortcut)
         back_sc.activated.connect(_do_delete)
 
+        grp_sc = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+G"), view)
+        grp_sc.setContext(QtCore.Qt.ShortcutContext.WidgetShortcut)
+        grp_sc.activated.connect(lambda: getattr(mw.graph, "_create_backdrop_around_selection", lambda: None)())
+
+
         # Диагностика клавиш — можно удалить позже
         class _KeySpy(QtCore.QObject):
             def eventFilter(self, o, e):
@@ -70,3 +77,28 @@ def setup_central_graph_ui(mw) -> None:
     # 5) Фокус на канву — уже после сборки центрального виджета
     view.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
     QtCore.QTimer.singleShot(0, lambda: view.setFocus(QtCore.Qt.FocusReason.ActiveWindowFocusReason))
+
+    # 6) Контекстное меню через eventFilter на viewport (железный способ)
+    if isinstance(view, QtWidgets.QGraphicsView):
+        vp = view.viewport()
+
+        class _CtxMenuHook(QtCore.QObject):
+            def __init__(self, graph, src):
+                super().__init__(src)
+                self._graph = graph
+                self._src = src
+            def eventFilter(self, o, e):
+                if e.type() == QtCore.QEvent.Type.ContextMenu:
+                    # показать наше меню и погасить дефолтное
+                    try:
+                        self._graph.show_context_menu_at(e.pos(), self._src)
+                        e.accept()
+                        return True
+                    except Exception as ex:
+                        logger.exception("ContextMenu hook failed: %s", ex)
+                return False
+
+        hook = _CtxMenuHook(mw.graph, vp)
+        vp.installEventFilter(hook)
+        # чтобы объект не собрался GC:
+        view._ctx_menu_hook = hook

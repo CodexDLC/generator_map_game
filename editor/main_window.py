@@ -3,7 +3,7 @@
 # ВЕРСИЯ 9.0: Распил по модулям (central_graph, menu, shortcuts, signals, binding, queries)
 # ==============================================================================
 import logging
-from typing import cast
+
 
 from PySide6 import QtWidgets, QtCore
 from NodeGraphQt import NodeGraph
@@ -134,8 +134,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # -- UI busy state --
     def _set_ui_busy(self, busy: bool):
-        self.apply_button.setEnabled(not busy)
-        self.apply_tiled_button.setEnabled(not busy)
+        """Включает/выключает состояние занятости без тайловой кнопки."""
+        if getattr(self, "apply_button", None):
+            self.apply_button.setEnabled(not busy)
+        atb = getattr(self, "apply_tiled_button", None)
+        if atb:  # если вдруг живёт где-то в старом лэйауте
+            atb.setEnabled(False)
+            atb.setVisible(False)
 
     # -- Запуски вычислений --
     def _on_apply_clicked(self):
@@ -149,14 +154,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.compute_manager.start_single_compute(output_node, context)
 
     def _on_apply_tiled_clicked(self):
-        graph = self.get_active_graph()
-        if not graph:
-            return
-        output_node = require_output_node(self, graph)
-        if not output_node:
-            return
-        context = collect_context_from_ui(self)
-        self.compute_manager.start_tiled_compute(output_node, context)
+        """Совместимость: тайлов больше нет — запускаем обычный расчёт."""
+        self._on_apply_clicked()
 
     # -- Делегаты из меню --
     def on_new_preset_clicked(self):
@@ -209,14 +208,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _connect_signals(self):
         """
-        Склеивает все сигналы UI/воркеров. Вызывается один раз после сборки UI.
+        Склеивает все сигналы UI/воркеров. Версия без тайловых сигналов.
         """
         cm = self.compute_manager
 
         # --- Compute → Preview/Status ---
+
+        # 1. Временно отключаем старое подключение
         cm.display_mesh.connect(self.preview_widget.update_mesh)
-        cm.display_tiled_mesh.connect(self.preview_widget.update_mesh)
-        cm.display_partial_tile.connect(self.preview_widget.on_tile_ready)
+
         cm.display_status_message.connect(self.statusBar().showMessage)
         cm.show_error_dialog.connect(
             lambda title, msg: QtWidgets.QMessageBox.critical(self, title, msg)
@@ -225,7 +225,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # --- Кнопки APPLY ---
         self.apply_button.clicked.connect(self._on_apply_clicked)
-        self.apply_tiled_button.clicked.connect(self._on_apply_tiled_clicked)
+
+        # если где-то ещё создаётся apply_tiled_button — безопасно игнорируем
+        if getattr(self, "apply_tiled_button", None):
+            try:
+                self.apply_tiled_button.clicked.disconnect()
+            except Exception:
+                pass
+            self.apply_tiled_button.setEnabled(False)
+            self.apply_tiled_button.setVisible(False)
 
         # --- Список пресетов ---
         if self.presets_list_widget is not None:
@@ -283,6 +291,32 @@ class MainWindow(QtWidgets.QMainWindow):
             node.mark_dirty()
 
     # -- Закрытие --
-    def closeEvent(self, e):
-        logger.info("Close event triggered.")
-        super().closeEvent(e)
+    def closeEvent(self, event):
+        try:
+            if hasattr(self, "compute_manager") and self.compute_manager:
+                self.compute_manager.shutdown()
+        finally:
+            super().closeEvent(event)
+
+    def set_sun(self, azimuth_deg=315.0, altitude_deg=45.0):
+        # переводим в вектор
+        import math
+        az = math.radians(azimuth_deg)
+        alt = math.radians(altitude_deg)
+        lx = math.cos(alt) * math.cos(az)
+        ly = math.sin(alt)
+        lz = math.cos(alt) * math.sin(az)
+        for vis in self._tiles.values():
+            if hasattr(vis, "_hm_light"):
+                vis._hm_light.set_light_dir((lx, ly, lz))
+        self.canvas.update()
+        
+        
+    # def _on_display_impostor(self, height_map, cell_size, *rest):
+    # # можно подкрутить параметры тут
+    #     self.preview_widget.update_impostor(
+    #         height_map,
+    #         cell_size,
+    #         z_scale=1.0,
+    #         light_dir=(0.4, 0.8, 0.4),
+    #     )

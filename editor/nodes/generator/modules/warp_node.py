@@ -1,59 +1,84 @@
 # ==============================================================================
-# Файл: editor/nodes/warp_node.py
-# ВЕРСИЯ 1.1: Добавлено раздельное управление силой по осям X и Z.
+# Файл: editor/nodes/generator/modules/warp_node.py
+# ВЕРСИЯ 2.0: Полное описание, раздельные амплитуды X/Z, безопасный парсинг,
+#             sanity-check формы, независимые сиды по осям.
 # ==============================================================================
+from __future__ import annotations
+import numpy as np
 from editor.nodes.base_node import GeneratorNode
 from game_engine_restructured.algorithms.terrain.steps.noise import _generate_noise_field
 
+
 class WarpNode(GeneratorNode):
+    """
+    Категория (palette): Ландшафт.Модули
+    Роль: Поле варпа (смещения координат) для других нод
+
+    Входы:  — нет (генерирует поле сам)
+    Выходы:
+      - warp_field : dict с ключами
+          'warp_x' : np.ndarray (смещение по X в метрах, H×W)
+          'warp_z' : np.ndarray (смещение по Z в метрах, H×W)
+
+    Параметры:
+      [Warp Settings]
+        - Amplitude X (m) (float>=0) : максимальная сила смещения по X
+        - Amplitude Z (m) (float>=0) : максимальная сила смещения по Z
+        - Scale (tiles)   (float>0)  : крупномасштабный размер «вихрей»
+        - Octaves         (int>=1)   : детализация
+        - Ridge (bool)               : гребневой характер смещения (экспериментально)
+
+    Поведение:
+      - Для независимости направлений используются разные seed_offset по осям.
+      - Формы 'warp_x'/'warp_z' всегда совпадают с формой контекстных координат.
+    """
+
     __identifier__ = 'Ландшафт.Модули'
     NODE_NAME = 'Warp'
 
     def __init__(self):
         super().__init__()
-        self.add_output('warp_field')
+        self.add_output('warp_field', 'Out')
 
-        # --- ИЗМЕНЕНИЕ: Разделяем амплитуду на X и Z ---
-        self.add_text_input('amp_x', 'Amplitude X (m)', tab='Warp Settings', text='200.0')
-        self.add_text_input('amp_z', 'Amplitude Z (m)', tab='Warp Settings', text='200.0')
-        self.add_text_input('scale_tiles', 'Scale (tiles)', tab='Warp Settings', text='4000')
-        self.add_text_input('octaves', 'Octaves', tab='Warp Settings', text='2')
+        self.add_text_input('amp_x',       'Amplitude X (m)', tab='Warp Settings', text='200.0')
+        self.add_text_input('amp_z',       'Amplitude Z (m)', tab='Warp Settings', text='200.0')
+        self.add_text_input('scale_tiles', 'Scale (tiles)',   tab='Warp Settings', text='4000')
+        self.add_text_input('octaves',     'Octaves',         tab='Warp Settings', text='2')
+        self.add_checkbox('ridge',         'Ridge',           tab='Warp Settings', state=False)
 
         self.set_color(25, 80, 30)
 
-    def compute(self, context):
-        print("  -> [WarpNode] Computing directional warp field...")
+        self.set_description("""
+        Генерирует двухкомпонентное поле смещений координат (warp_x/warp_z).
+        Подключите выход этой ноды к входу Warp любой ноды, поддерживающей варп,
+        например — к Noise.
 
-        def _f(name, default):
-            v = self.get_property(name)
-            try: return float(v)
-            except (ValueError, TypeError): return default
+        Советы:
+          • Большой Scale (tiles) даёт плавные «речки» смещения.
+          • Разные амплитуды X/Z позволяют тянуть рельеф в предпочтительном направлении.
+          • Ridge может дать «гребневую» структуру в смещении (пробовать осторожно).
+        """)
 
-        def _i(name, default):
-            v = self.get_property(name)
-            try: return int(v)
-            except (ValueError, TypeError): return default
+    # ---------------------------- ВНУТРЕННИЕ ХЕЛПЕРЫ ----------------------------
 
-        # --- ИЗМЕНЕНИЕ: Собираем параметры для X и Z отдельно ---
-        base_params = {
-            "scale_tiles": _f('scale_tiles', 4000.0),
-            "octaves": _i('octaves', 2),
-            "ridge": False,
-            "additive_only": False
-        }
+    def _as_float(self, name: str, default: float) -> float:
+        v = self.get_property(name)
+        try:
+            x = float(v)
+            if not np.isfinite(x):
+                return default
+            return max(x, 0.0)
+        except (TypeError, ValueError):
+            return default
 
-        # Параметры для смещения по X
-        params_x = base_params.copy()
-        params_x["amp_m"] = _f('amp_x', 200.0)
-        params_x["seed_offset"] = 0
+    def _as_int(self, name: str, default: int, min_value: int | None = None) -> int:
+        v = self.get_property(name)
+        try:
+            i = int(float(v))
+            if min_value is not None:
+                i = max(i, min_value)
+            return i
+        except (TypeError, ValueError):
+            return default
 
-        # Параметры для смещения по Z
-        params_z = base_params.copy()
-        params_z["amp_m"] = _f('amp_z', 200.0)
-        params_z["seed_offset"] = 1 # Другой сид для независимости
-
-        warp_x = _generate_noise_field(params_x, context)
-        warp_z = _generate_noise_field(params_z, context)
-
-        self._result_cache = {'warp_x': warp_x, 'warp_z': warp_z}
-        return self._result_cache
+    # -------------------------------- COMPUTE -----------------------
