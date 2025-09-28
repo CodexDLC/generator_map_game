@@ -32,21 +32,14 @@ class FBMNoiseNode(GeneratorNode):
 
     def __init__(self):
         super().__init__()
-
-        # чистый источник: только выход
         self.add_output("height")
-
-        # параметры
         self.add_enum_input("scale_mode", "Scale Mode", ["tiles", "meters"], tab="Params", default="tiles")
-        self.add_text_input("scale",      "Scale value", tab="Params", text="2000")  # tiles или meters в зависимости от mode
-
-        self.add_text_input("octaves",    "Octaves",     tab="Params", text="4")
-        self.add_text_input("gain",       "Gain (0..1)", tab="Params", text="0.5")
-        self.add_text_input("lacunarity", "Lacunarity",  tab="Params", text="2.0")
-        self.add_checkbox   ("ridge",     "Ridge",       tab="Params", state=False)
-
-        self.add_text_input("seed_offset","Seed Offset", tab="Params", text="0")
-
+        self.add_text_input("scale", "Scale value", tab="Params", text="2000")
+        self.add_text_input("octaves", "Octaves", tab="Params", text="4")
+        self.add_text_input("gain", "Gain (0..1)", tab="Params", text="0.5")
+        self.add_text_input("lacunarity", "Lacunarity", tab="Params", text="2.0")
+        self.add_checkbox("ridge", "Ridge", tab="Params", state=False)
+        self.add_text_input("seed_offset", "Seed Offset", tab="Params", text="0")
         self.set_color(70, 50, 20)
         self.set_description(DESCRIPTION_TEXT)
 

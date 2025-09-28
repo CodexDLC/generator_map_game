@@ -15,6 +15,15 @@ def setup_central_graph_ui(mw) -> None:
     """
     # 0) Граф
     mw.graph = CustomNodeGraph()
+
+    # Привязываем граф к панели свойств (если она уже создана)
+    if hasattr(mw, "props_bin") and mw.props_bin is not None:
+        mw.props_bin.set_graph(mw.graph)
+
+    # Фокус, чтобы события выделения/клавиши доходили до графа
+    mw.graph.widget.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
+    mw.graph.widget.setFocus()
+
     register_all_nodes(mw.graph)
 
     graph_widget = mw.graph.widget

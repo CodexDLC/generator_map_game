@@ -7,6 +7,8 @@ import numpy as np
 from editor.nodes.base_node import GeneratorNode
 from opensimplex import OpenSimplex
 
+from game_engine_restructured.numerics.field_packet import make_packet, SPACE_NORM
+
 # --- Локализация ---
 NODE_NAME_LBL   = "Simplex Noise"
 IDENTIFIER_LBL  = "Универсальные.Шумы"

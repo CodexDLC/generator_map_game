@@ -6,6 +6,7 @@
 import numpy as np
 from editor.nodes.base_node import GeneratorNode
 from game_engine_restructured.numerics.fast_noise import value_noise_2d
+from game_engine_restructured.numerics.field_packet import make_packet, SPACE_NORM
 
 # --- Локализация ---
 NODE_NAME_LBL   = "Value Noise"
