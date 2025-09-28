@@ -3,6 +3,7 @@ from typing import Dict, Optional
 
 from NodeGraphQt import NodeGraph, BaseNode
 from PySide6 import QtWidgets, QtCore
+from PySide6.QtCore import Qt
 
 from editor.theme import PALETTE
 
@@ -13,11 +14,21 @@ class CollapsibleBox(QtWidgets.QGroupBox):
         self.setObjectName("CollapsibleBox")
         self.setCheckable(True)
         self.setChecked(True)
-        self._content = QtWidgets.QWidget(self)
+
+        # Лэйаут: оставим небольшие внутренние поля,
+        # контент пойдёт под заголовком, не заезжая на него
         lay = QtWidgets.QVBoxLayout(self)
-        lay.setContentsMargins(6, 2, 6, 2)
+        lay.setContentsMargins(8, 6, 8, 8)
+        lay.setSpacing(6)
+
+        self._content = QtWidgets.QWidget(self)
         lay.addWidget(self._content)
+
         self.body = QtWidgets.QFormLayout(self._content)
+        self.body.setContentsMargins(4, 4, 4, 4)
+        self.body.setSpacing(6)
+
+        # Раскрытие/скрытие — ок
         self.toggled.connect(self._content.setVisible)
 
     def set_content_enabled(self, enabled: bool):
@@ -136,7 +147,45 @@ class AccordionProperties(QtWidgets.QScrollArea):
                 w = QtWidgets.QLineEdit()
                 v = n.get_property(name)
                 w.setText("" if v is None else str(v))
+                w.setAlignment(Qt.AlignLeft)
                 w.editingFinished.connect(lambda nn=name, ww=w: n.set_property(nn, ww.text()))
+                box.body.addRow(label, w)
+
+            elif kind in ('int', 'i'):
+                w = QtWidgets.QSpinBox()
+                # метаданные для диапазона/шага/ширины
+                lo, hi = m.get('range', (-(10 ** 9), 10 ** 9))
+                step = m.get('step', 1)
+                width = m.get('width', 96)
+                w.setRange(int(lo), int(hi))
+                w.setSingleStep(int(step))
+                w.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
+                w.setAlignment(Qt.AlignRight)
+                w.setMaximumWidth(int(width))
+                try:
+                    w.setValue(int(n.get_property(name)))
+                except Exception:
+                    pass
+                w.valueChanged.connect(lambda val, nn=name: n.set_property(nn, int(val)))
+                box.body.addRow(label, w)
+
+            elif kind in ('float', 'double', 'f'):
+                w = QtWidgets.QDoubleSpinBox()
+                lo, hi = m.get('range', (-1e12, 1e12))
+                step = m.get('step', 0.1)
+                decimals = m.get('decimals', 2)
+                width = m.get('width', 100)
+                w.setDecimals(int(decimals))
+                w.setRange(float(lo), float(hi))
+                w.setSingleStep(float(step))
+                w.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
+                w.setAlignment(Qt.AlignRight)
+                w.setMaximumWidth(int(width))
+                try:
+                    w.setValue(float(n.get_property(name)))
+                except Exception:
+                    pass
+                w.valueChanged.connect(lambda val, nn=name: n.set_property(nn, float(val)))
                 box.body.addRow(label, w)
 
             elif kind == 'check':
