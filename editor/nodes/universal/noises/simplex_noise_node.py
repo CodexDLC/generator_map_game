@@ -50,7 +50,7 @@ class SimplexNoiseNode(GeneratorNode):
         seed_offset = self._as_int('seed_offset', 0)
         scale = max(self._as_float('scale_tiles', 2000.0), 1e-6)
 
-        layer_seed = int(context.get('seed', 0)) + int(self.id) + seed_offset
+        layer_seed = int(context.get('seed', 0)) + int(self.id, 0) + seed_offset
         noise_generator = OpenSimplex(seed=layer_seed)
         freq = 1.0 / (scale + 1e-6)
 

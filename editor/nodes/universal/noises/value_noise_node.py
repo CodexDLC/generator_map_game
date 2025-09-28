@@ -58,7 +58,7 @@ class ValueNoiseNode(GeneratorNode):
         scale = max(self._as_float('scale_tiles', 2000.0), 1e-6)
         cell_size = max(self._as_int('cell_size', 4, min_value=1), 1)
 
-        layer_seed = int(context.get('seed', 0)) + int(self.id) + seed_offset
+        layer_seed = int(context.get('seed', 0)) + int(self.id, 0) + seed_offset
         freq = 1.0 / (scale * cell_size + 1e-6)
 
         x = context["x_coords"];

@@ -64,4 +64,36 @@ APP_STYLE_SHEET = f"""
     QTreeView::branch:selected {{
         background-color: {PALETTE['item_selected_bg']};
     }}
+        /* --- Стили для панели свойств --- */
+    PropertiesBinWidget QWidget {{
+        background-color: {PALETTE['dock_bg']};
+        border: none;
+    }}
+    PropertiesBinWidget QLineEdit, PropertiesBinWidget QComboBox {{
+        background-color: {PALETTE['editor_bg']};
+        color: {PALETTE['text_color']};
+        border: 1px solid {PALETTE['border_color']};
+        padding: 2px;
+    }}
+    PropertiesBinWidget QLabel {{
+        color: {PALETTE['text_color']};
+        padding-top: 4px;
+    }}
+    PropertiesBinWidget QCheckBox::indicator {{
+        width: 14px;
+        height: 14px;
+    }}
+    PropertiesBinWidget QTabWidget::pane {{
+        border: 1px solid {PALETTE['border_color']};
+    }}
+    PropertiesBinWidget QTabBar::tab {{
+        background: {PALETTE['dock_bg']};
+        color: {PALETTE['text_color']};
+        padding: 4px 8px;
+        border: 1px solid {PALETTE['border_color']};
+        border-bottom: none;
+    }}
+    PropertiesBinWidget QTabBar::tab:selected {{
+        background: {PALETTE['window_bg']};
+    }}
 """

@@ -8,11 +8,13 @@ import logging
 from PySide6 import QtWidgets, QtCore
 from NodeGraphQt import NodeGraph
 
+from .actions.close_actions import handle_close_event
 from .compute_manager import ComputeManager
 from .actions.preset_actions import (
     load_preset_into_graph,
     handle_new_preset,
     handle_delete_preset,
+    handle_save_active_preset,
 )
 from .actions.project_actions import on_save_project, load_project_data
 from .actions.generation_actions import on_generate_world
@@ -164,6 +166,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def on_delete_preset_clicked(self):
         handle_delete_preset(self)
 
+    def on_save_active_preset_clicked(self):
+        handle_save_active_preset(self)
+
     def on_save_project(self):
         on_save_project(self)
 
@@ -215,7 +220,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # --- Compute → Preview/Status ---
 
         # 1. Временно отключаем старое подключение
-        cm.display_mesh.connect(self.preview_widget.update_mesh)
+        cm.display_mesh.connect(
+            self.preview_widget.update_mesh,
+            type=QtCore.Qt.ConnectionType.QueuedConnection
+        )
 
         cm.display_status_message.connect(self.statusBar().showMessage)
         cm.show_error_dialog.connect(
@@ -265,18 +273,30 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # -- Свойства/описание ноды --
     def _on_node_selected(self, node):
+        """
+        Вызывается при выборе ноды.
+        Теперь отвечает ТОЛЬКО за кастомную вкладку "Описание".
+        """
+        # Эта проверка остается на всякий случай
         if not self.dock_props:
             return
+
         props_bin = self.dock_props.widget()
         if not props_bin:
             return
+
+        # Наша кастомная логика для вкладки "Описание"
+        # Она не мешает работе виджета
         tab_widget = props_bin.findChild(QtWidgets.QTabWidget)
         if not tab_widget:
             return
+        # Сначала удаляем старую вкладку "Описание", если она есть
         for i in range(tab_widget.count()):
             if tab_widget.tabText(i) == "Описание":
                 tab_widget.removeTab(i)
                 break
+
+        # Если выбрана наша нода, добавляем для нее "Описание"
         if isinstance(node, GeneratorNode):
             desc_widget = QtWidgets.QWidget()
             layout = QtWidgets.QVBoxLayout(desc_widget)
@@ -292,10 +312,19 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # -- Закрытие --
     def closeEvent(self, event):
-        try:
-            if hasattr(self, "compute_manager") and self.compute_manager:
-                self.compute_manager.shutdown()
-        finally:
+        """Перехватывает закрытие и передает управление в close_actions."""
+        # Вся сложная логика теперь в отдельном файле
+        handle_close_event(self, event)
+
+        # Если событие было принято (не отменено), корректно завершаем фоновые процессы
+        if event.isAccepted():
+            try:
+                if hasattr(self, "compute_manager") and self.compute_manager:
+                    self.compute_manager.shutdown()
+            finally:
+                super().closeEvent(event)
+        else:
+            # Если пользователь нажал "Отмена", просто игнорируем событие
             super().closeEvent(event)
 
     def set_sun(self, azimuth_deg=315.0, altitude_deg=45.0):

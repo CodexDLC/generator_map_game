@@ -85,7 +85,7 @@ class FBMNoiseNode(GeneratorNode):
         H, W     = x.shape
         seed     = int(context.get("seed", 0))
         so       = self._i("seed_offset", 0)
-        layer_sd = (seed + int(self.id) + so) & 0xFFFFFFFF
+        layer_sd = (seed + int(self.id, 0) + so) & 0xFFFFFFFF
 
         scale_mode = self._enum("scale_mode", ["tiles", "meters"], "tiles")
         scale      = max(self._f("scale", 2000.0), 1e-6)

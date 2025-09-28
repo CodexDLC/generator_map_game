@@ -10,7 +10,7 @@ import logging
 import numpy as np
 from editor.nodes.base_node import GeneratorNode
 from game_engine_restructured.numerics.field_packet import (
-    get_data, get_space, to_norm01, SPACE_NORM, SPACE_METR
+    get_data, to_norm01
 )
 
 logger = logging.getLogger(__name__)
@@ -37,18 +37,14 @@ class MaskNode(GeneratorNode):
         super().__init__()
         self.add_input("height_in")
         self.add_output("mask")
-
-        # --- выпадающие списки (enum) ---
-        self.add_enum_input("mode", "Mode", ["noise", "height"], tab="Mask", default="noise")
-        self.add_enum_input("which", "Which side", ["above", "below"], tab="Mask", default="above")
-        self.add_enum_input("ref_policy", "Ref policy", ["world", "layer"], tab="Mask", default="world")
-
-        # --- числовые поля ---
+        self.add_combo_menu("mode", "Mode", items=["noise", "height"], tab="Mask")
+        self.add_combo_menu("which", "Which side", items=["above", "below"], tab="Mask")
+        self.add_combo_menu("ref_policy", "Ref policy", items=["world", "layer"], tab="Mask")
         self.add_text_input("threshold", "Threshold", tab="Mask", text="0.5")
         self.add_text_input("falloff", "Falloff width", tab="Mask", text="0.1")
         self.add_text_input("world_max_m", "World Max (m) fallback", tab="Mask", text="1000")
-
         self.set_color(50, 50, 90)
+        self.set_description(DESCRIPTION_TEXT)
 
         # — описание ноды (панель справа)
         self.set_description("""

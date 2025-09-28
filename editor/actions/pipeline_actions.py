@@ -151,9 +151,9 @@ def on_load_pipeline(main_window):
         # Важно: к этому моменту все классы нод уже должны быть зарегистрированы!
         graph.deserialize_session(graph_data)
 
-        main_window.statusBar.showMessage(f"Пайплайн загружен: {file_path}", 5000)
+        main_window.statusBar().showMessage(f"Пайплайн загружен: {file_path}", 5000)
         _remember_dir("pipeline_load", Path(file_path).parent)
         print(f"[Pipeline] loaded <- {file_path}")
     except Exception as e:
-        main_window.statusBar.showMessage(f"Ошибка загрузки: {e}", 6000)
+        main_window.statusBar().showMessage(f"Ошибка загрузки: {e}", 6000)
         QtWidgets.QMessageBox.critical(main_window, "Ошибка загрузки", str(e))

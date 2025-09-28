@@ -1,0 +1,152 @@
+{
+  "graph": {
+    "layout_direction": 0,
+    "acyclic": true,
+    "pipe_collision": false,
+    "pipe_slicing": true,
+    "pipe_style": 1,
+    "accept_connection_types": "{}",
+    "reject_connection_types": "{}"
+  },
+  "nodes": {
+    "0x25e0c50b550": {
+      "custom": {
+        "node_name": "Континент (Основа)",
+        "display_id": "0x25e0c50b550",
+        "about_desc_fallback": "Источник «сырого» мирового шума..."
+      },
+      "type_": "editor.nodes.height.io.world_input_node.WorldInputNode",
+      "name": "Континент (Основа)",
+      "pos": [ -631, -11 ],
+      "color": "128, 25, 30, 255"
+    },
+    "0x25e0c50b7d0": {
+      "custom": {
+        "node_name": "Острые Горы (FBM)",
+        "display_id": "0x25e0c50b7d0",
+        "scale_mode": 0, "scale": "2500", "octaves": "6",
+        "gain": "0.45", "lacunarity": "2.1", "ridge": true, "seed_offset": "1"
+      },
+      "type_": "editor.nodes.universal.noises.fbm_noise_node.FBMNoiseNode",
+      "name": "Острые Горы (FBM)",
+      "pos": [ -633, 226 ],
+      "color": "70, 50, 20, 255"
+    },
+    "0x25e0c50b9b0": {
+      "custom": {
+        "node_name": "Маска для Гор",
+        "display_id": "0x25e0c50b9b0",
+        "mode": 0, "which": 0, "ref_policy": 0, "threshold": "0.6",
+        "falloff": "0.25", "world_max_m": "1000"
+      },
+      "type_": "editor.nodes.universal.masks.mask_node.MaskNode",
+      "name": "Маска для Гор",
+      "pos": [ -373, 96 ],
+      "color": "50, 50, 90, 255"
+    },
+    "0x25e0c50bb90": {
+      "custom": {
+        "node_name": "Применить Маску Гор",
+        "display_id": "0x25e0c50bb90",
+        "operation": 2, "const_b": "0.0", "lerp_t": "0.5",
+        "space_policy": 0, "world_max_m": "1000", "use_clamp": false
+      },
+      "type_": "editor.nodes.universal.math.math_ops_node.MathOpsNode",
+      "name": "Применить Маску Гор",
+      "pos": [ -148, 149 ],
+      "color": "40, 60, 90, 255"
+    },
+    "0x25e0c50bd70": {
+      "custom": {
+        "node_name": "Искаженные Холмы",
+        "display_id": "0x25e0c50bd70",
+        "amp_x_m": "400", "amp_z_m": "400", "warp_mode": 0, "strength": "1.0"
+      },
+      "type_": "editor.nodes.universal.module.domain_warp_apply_node.DomainWarpApplyNode",
+      "name": "Искаженные Холмы",
+      "pos": [ -151, 421 ],
+      "color": "40, 90, 90, 255"
+    },
+    "0x25e0c50bf50": {
+      "custom": {
+        "node_name": "Шум для Холмов",
+        "display_id": "0x25e0c50bf50",
+        "seed_offset": "2", "scale_tiles": "4000"
+      },
+      "type_": "editor.nodes.universal.noises.simplex_noise_node.SimplexNoiseNode",
+      "name": "Шум для Холмов",
+      "pos": [ -395, 421 ],
+      "color": "90, 30, 90, 255"
+    },
+    "0x25e0c50c130": {
+      "custom": {
+        "node_name": "Поле Искажения",
+        "display_id": "0x25e0c50c130",
+        "warp_mode": 0, "amp_x_m": "800", "amp_z_m": "800", "scale_tiles": "5000",
+        "octaves": "2", "ridge": false, "seed_offset": "3"
+      },
+      "type_": "editor.nodes.universal.module.warp_field_node.WarpFieldNode",
+      "name": "Поле Искажения",
+      "pos": [ -397, 591 ],
+      "color": "40, 90, 90, 255"
+    },
+    "0x25e0c50c310": {
+      "custom": {
+        "node_name": "Смешать с Холмами",
+        "display_id": "0x25e0c50c310",
+        "operation": 0
+      },
+      "type_": "editor.nodes.universal.math.math_ops_node.MathOpsNode",
+      "name": "Смешать с Холмами",
+      "pos": [ 110, 299 ],
+      "color": "40, 60, 90, 255"
+    },
+    "0x25e0c50c4f0": {
+      "custom": {
+        "node_name": "Перевести в Метры",
+        "display_id": "0x25e0c50c4f0",
+        "amp_m": "1200"
+      },
+      "type_": "editor.nodes.universal.math.to_meters_node.ToMetersNode",
+      "name": "Перевести в Метры",
+      "pos": [ 318, 231 ],
+      "color": "30, 70, 30, 255"
+    },
+    "0x25e0c50c6d0": {
+      "custom": {
+        "node_name": "Финальный Результат",
+        "display_id": "0x25e0c50c6d0",
+        "height_max_m": "1200", "sea_level_m": "350", "preview_with_offset": true
+      },
+      "type_": "editor.nodes.height.io.output_node.OutputNode",
+      "name": "Финальный Результат",
+      "pos": [ 551, 229 ],
+      "color": "25, 80, 30, 255"
+    },
+    "0x25e0c50c8b0": {
+      "custom": {
+        "node_name": "Сложить Основу и Горы",
+        "display_id": "0x25e0c50c8b0",
+        "operation": 0
+      },
+      "type_": "editor.nodes.universal.math.math_ops_node.MathOpsNode",
+      "name": "Сложить Основу и Горы",
+      "pos": [ -146, -13 ],
+      "color": "40, 60, 90, 255"
+    }
+  },
+  "connections": [
+    { "out": [ "0x25e0c50b550", "height" ], "in": [ "0x25e0c50b9b0", "height_in" ] },
+    { "out": [ "0x25e0c50b7d0", "height" ], "in": [ "0x25e0c50bb90", "A" ] },
+    { "out": [ "0x25e0c50b9b0", "mask" ], "in": [ "0x25e0c50bb90", "B" ] },
+    { "out": [ "0x25e0c50bf50", "height" ], "in": [ "0x25e0c50bd70", "src" ] },
+    { "out": [ "0x25e0c50c130", "warp_x" ], "in": [ "0x25e0c50bd70", "warp_x" ] },
+    { "out": [ "0x25e0c50c130", "warp_z" ], "in": [ "0x25e0c50bd70", "warp_z" ] },
+    { "out": [ "0x25e0c50bb90", "Out" ], "in": [ "0x25e0c50c8b0", "B" ] },
+    { "out": [ "0x25e0c50b550", "height" ], "in": [ "0x25e0c50c8b0", "A" ] },
+    { "out": [ "0x25e0c50c8b0", "Out" ], "in": [ "0x25e0c50c310", "A" ] },
+    { "out": [ "0x25e0c50bd70", "out" ], "in": [ "0x25e0c50c310", "B" ] },
+    { "out": [ "0x25e0c50c310", "Out" ], "in": [ "0x25e0c50c4f0", "height" ] },
+    { "out": [ "0x25e0c50c4f0", "height" ], "in": [ "0x25e0c50c6d0", "height" ] }
+  ]
+}

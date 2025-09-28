@@ -32,6 +32,8 @@ def create_region_presets_dock(main_window) -> None:
 
     new_button.clicked.connect(main_window.on_new_preset_clicked)
 
+    save_button.clicked.connect(main_window.on_save_active_preset_clicked)
+
     delete_button.clicked.connect(main_window.on_delete_preset_clicked)
 
     main_window.presets_list_widget.currentItemChanged.connect(main_window.on_preset_selected)
