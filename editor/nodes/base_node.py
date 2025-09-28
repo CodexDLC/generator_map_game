@@ -1,5 +1,5 @@
 # editor/nodes/base_node.py
-# ВЕРСИЯ 4.0: Компактные ноды. Свойства только в правой панели.
+# ВЕРСИЯ 5.1: Базовая нода с compact/expanded режимом и хелперами UI/кеша.
 # -----------------------------------------------------------------------------
 from __future__ import annotations
 
@@ -12,56 +12,96 @@ import numpy as np
 from PySide6 import QtCore
 from NodeGraphQt import BaseNode
 
+# Хелперы UI и кеш-сигнатур
+from editor.nodes._helpers import node_ui as UIH
+from editor.nodes._helpers import cache_utils as CU
+
 logger = logging.getLogger(__name__)
 
 
 class GeneratorNode(BaseNode):
     """
-    Базовая нода для генератора:
-    - Никаких виджетов на самой ноде: только model.add_property(...) -> редактирование в PropertiesBin.
-    - Кеширование результата с инвалидацией по контексту и апстриму.
-    - Устойчивые тултипы (по именам портов).
-    - Авто-инвалидация при connect/disconnect.
+    Базовый узел:
+      - Свойства регистрируются нативным API NodeGraphQt (панель свойств их видит).
+      - На самой ноде виджеты можно скрывать (compact=True) или показывать (compact=False).
+      - Кеш вычислений с инвалидацией по контексту и апстриму.
+      - Тултипы для ноды и портов.
     """
     __identifier__ = 'generator.nodes'
 
-    # --- Конструктор ---------------------------------------------------------
+    # ------------------------------------------------------------------ ctor --
     def __init__(self):
         super().__init__()
+
+        self._prop_meta: Dict[
+            str, dict] = {}  # {name: {'type': 'line'|'check'|'combo', 'label': str, 'tab': str, 'items': list}}
+
+        # UI/режим
+        self._onnode_widgets: List[Any] = []   # виджеты, созданные на самой ноде
+        self._compact: bool = True             # по умолчанию — компактный режим
+
+        # Текст/подсказки
         self._description_text: str = "Описание для этой ноды не задано."
-        self._port_desc_by_name: Dict[str, str] = {}   # ключ: имя порта
+        self._port_desc_by_name: Dict[str, str] = {}  # ключ: имя порта
+
+        # Состояние вычислений/кеш
         self._is_dirty: bool = True
         self._result_cache: Any = None
         self._rev: int = 0
         self._last_sig: Tuple[Any, Any] | None = None
 
-        # Подсказки: безопасная инициализация после появления scene/view.
+        # Инициализация тултипов (отложенно, пока не появится scene/view)
         self._apply_tooltips_to_node()
         self._deferred_init_tooltips()
 
-    # --- Свойства только в модели (никаких виджетов на ноде) -----------------
-    def add_text_input(self, name: str, label: str, text: str = '', tab: str = 'Properties'):
-        self.model.add_property(name, text, tab=tab)
+    # --------------------------------------------------- режим отображения ----
+    def set_compact(self, compact: bool) -> None:
+        """Скрыть/показать виджеты свойств на самой ноде (панель всегда работает)."""
+        self._compact = bool(compact)
+        for w in self._onnode_widgets:
+            (UIH.hide_widget if self._compact else UIH.show_widget)(w)
+        try:
+            if getattr(self, 'view', None):
+                self.view.update()
+        except Exception:
+            pass
+
+    def toggle_compact(self) -> None:
+        self.set_compact(not self._compact)
+
+    # ----------------------------------------------- добавление свойств UI ----
+
+    def add_text_input(self, name, label, text='', tab='Params', group=None):
+        UIH.register_text(self, self._onnode_widgets, name=name, label=label, text=text,
+                          tab=tab, compact=self._compact)
+        self._prop_meta[name] = {'type': 'line', 'label': label, 'tab': UIH.safe_tab(tab),
+                                 'group': group or UIH.safe_tab(tab), 'items': []}
         return None
 
-    def add_checkbox(self, name: str, label: str, text: str = '', state: bool = False, tab: str = 'Properties'):
-        self.model.add_property(name, bool(state), tab=tab)
+    def add_checkbox(self, name, label, text='', state=False, tab='Params', group=None):
+        UIH.register_checkbox(self, self._onnode_widgets, name=name, label=label, text=text,
+                              state=state, tab=tab, compact=self._compact)
+        self._prop_meta[name] = {'type': 'check', 'label': label, 'tab': UIH.safe_tab(tab),
+                                 'group': group or UIH.safe_tab(tab), 'items': []}
         return None
 
-    def add_combo_menu(self, name: str, label: str, items: List[str] | None = None, tab: str = 'Properties'):
-        items = items or []
-        default_value = items[0] if items else ''
-        self.model.add_property(name, default_value, items=items, tab=tab)
+    def add_combo_menu(self, name, label, items=None, tab='Params', group=None):
+        items = list(items) if items else []
+        UIH.register_combo(self, self._onnode_widgets, name=name, label=label, items=items,
+                           tab=tab, compact=self._compact)
+        self._prop_meta[name] = {'type': 'combo', 'label': label, 'tab': UIH.safe_tab(tab),
+                                 'group': group or UIH.safe_tab(tab), 'items': items}
         return None
 
-    def add_enum_input(self, name: str, label: str, options: List[str] | tuple, *,
-                       tab: str = 'Properties', default: str | None = None):
-        opts = list(options)
-        defval = default if default is not None else (opts[0] if opts else '')
-        self.model.add_property(name, defval, items=opts, tab=tab)
+    def add_enum_input(self, name, label, options, *, tab='Params', group=None, default=None):
+        items = list(options) if options else []
+        UIH.register_combo(self, self._onnode_widgets, name=name, label=label, items=items,
+                           tab=tab, compact=self._compact, default=default)
+        self._prop_meta[name] = {'type': 'combo', 'label': label, 'tab': UIH.safe_tab(tab),
+                                 'group': group or UIH.safe_tab(tab), 'items': items}
         return None
 
-    # --- Унифицированная установка свойств с инвалидацией --------------------
+    # -------------------------------------- установка property + инвалидация --
     def set_property(self, name, value, push_undo: bool = False):
         try:
             if self.get_property(name) != value:
@@ -69,7 +109,6 @@ class GeneratorNode(BaseNode):
         except Exception:
             self.mark_dirty()
 
-        # синхронизируем title ноды с property "name" (если такое свойство есть)
         if name == 'name':
             val = str(value)
             if self.name() != val:
@@ -77,7 +116,7 @@ class GeneratorNode(BaseNode):
 
         super().set_property(name, value, push_undo=push_undo)
 
-    # --- Подсказки (tooltips) -------------------------------------------------
+    # -------------------------------------------------------------- tooltips --
     def _deferred_init_tooltips(self, tries: int = 0, delay_ms: int = 50):
         v = getattr(self, 'view', None)
         if v is None or v.scene() is None:
@@ -112,7 +151,6 @@ class GeneratorNode(BaseNode):
         v = getattr(self, 'view', None)
         if not v or getattr(v, 'scene', lambda: None)() is None:
             return
-        # Используем единый стиль доступа: .inputs()/.outputs() -> dict[name->port]
         for p in list(self.inputs().values()) + list(self.outputs().values()):
             vi = getattr(p, 'view', None)
             if vi and getattr(vi, 'scene', lambda: None)() is not None:
@@ -130,7 +168,7 @@ class GeneratorNode(BaseNode):
         self._port_desc_by_name[str(port_name)] = str(text)
         self._apply_tooltips_to_ports()
 
-    # --- Порты: добавляем и сразу задаём дефолтные тултипы --------------------
+    # --------------------------------------------------------------- порты ----
     def add_input(self, name='input', multi_input=False, display_name=True,
                   color=None, locked=False, painter_func=None):
         p = super().add_input(name, multi_input, display_name, color, locked, painter_func)
@@ -145,7 +183,7 @@ class GeneratorNode(BaseNode):
         self._apply_tooltips_to_ports()
         return p
 
-    # --- Описание ноды --------------------------------------------------------
+    # ----------------------------------------------------------- описание -----
     def set_description(self, text: str):
         self._description_text = textwrap.dedent(str(text)).strip()
         self._apply_tooltips_to_node()
@@ -153,21 +191,21 @@ class GeneratorNode(BaseNode):
     def get_description(self) -> str:
         return self._description_text
 
-    # --- Инвалидация / кеширование -------------------------------------------
+    # --------------------------------------------------------- инвалидация ----
     def mark_dirty(self):
         if self._is_dirty:
             return
         self._is_dirty = True
         self._result_cache = None
         self._rev += 1
-        # проталкиваем грязность вниз по графу
+        # Проталкиваем грязность вниз по графу
         for port in self.outputs().values():
             for conn in port.connected_ports():
                 node = conn.node()
                 if isinstance(node, GeneratorNode):
                     node.mark_dirty()
 
-    # На свежем NodeGraphQt эти хуки вызываются, когда порты соединяются/разрываются
+    # Вызываются в новых версиях при соединении/разрыве
     def on_connected(self, in_port, out_port):
         super().on_connected(in_port, out_port)
         self.mark_dirty()
@@ -176,32 +214,14 @@ class GeneratorNode(BaseNode):
         super().on_disconnected(in_port, out_port)
         self.mark_dirty()
 
-    # --- Сигнатуры для кеша ---------------------------------------------------
-    def _make_context_signature(self, context: dict) -> Tuple[Any, ...]:
-        try:
-            seed = int(context.get('seed'))
-            cell_size = float(context.get('cell_size'))
-            x = context.get('x_coords')
-            grid_shape = getattr(x, 'shape', None)
-            gn = context.get('global_noise')
-            gn_sig = tuple(sorted(gn.items())) if isinstance(gn, dict) else None
-            ctx_rev = context.get('_ctx_rev', None)
-            return ('v2', seed, cell_size, grid_shape, gn_sig, ctx_rev)
-        except Exception:
-            return ('v2_fallback', id(context))
+    # -------------------------------------------------------- сигнатуры кеша ---
+    def _make_context_signature(self, context: dict):
+        return CU.make_context_signature(context)
 
-    def _make_upstream_signature(self) -> Tuple[Any, ...]:
-        sig = []
-        for p in self.inputs().values():
-            conns = p.connected_ports()
-            if not conns:
-                sig.append((p.name(), None))
-            else:
-                ids = tuple(sorted((c.node().id, getattr(c.node(), '_rev', 0)) for c in conns))
-                sig.append((p.name(), ids))
-        return tuple(sig)
+    def _make_upstream_signature(self):
+        return CU.make_upstream_signature(self)
 
-    # --- Основной compute с кешированием -------------------------------------
+    # ------------------------------------------------------------- compute ----
     def compute(self, context: dict):
         ctx_sig = self._make_context_signature(context)
         up_sig = self._make_upstream_signature()
@@ -230,13 +250,13 @@ class GeneratorNode(BaseNode):
 
         return self._result_cache
 
-    # --- Абстрактная реализация узла -----------------------------------------
+    # Абстрактная реализация конкретной ноды
     def _compute(self, context: dict):
         raise NotImplementedError(
             f"Метод '_compute' не реализован в ноде '{self.name()}' (Тип: {self.__class__.__name__})"
         )
 
-    # --- Утилиты для чтения свойств ------------------------------------------
+    # ------------------------------------------------------------- хелперы ----
     def _enum(self, name: str, allowed: List[str], default: str) -> str:
         v = self.get_property(name)
         if isinstance(v, int):

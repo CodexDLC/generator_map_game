@@ -32,6 +32,7 @@ from .ui_panels.project_params_panel import create_project_params_dock
 from .ui_panels.global_noise_panel import create_global_noise_dock
 from .ui_panels.nodes_palette_panel import create_nodes_palette_dock
 from .ui_panels.properties_panel import create_properties_dock
+from .ui_panels.accordion_properties import AccordionProperties
 from .ui_panels.compute_panel import create_compute_dock
 from .ui_panels.region_presets_panel import create_region_presets_dock
 from .ui_panels.shortcuts import install_global_shortcuts
@@ -118,18 +119,35 @@ class MainWindow(QtWidgets.QMainWindow):
         setup_central_graph_ui(self)
 
     # -- Док-панели (оставили как было) --
+
     def _setup_docks(self):
         self.setDockNestingEnabled(True)
+
+        # 1. Создаем все панели, КРОМЕ старой панели свойств
         create_region_presets_dock(self)
         create_project_params_dock(self)
         create_global_noise_dock(self)
         create_compute_dock(self)
         create_nodes_palette_dock(self)
-        create_properties_dock(self)
 
+        # 2. Создаем и добавляем ТОЛЬКО новую панель-аккордеон
+        acc_dock = QtWidgets.QDockWidget("Свойства", self)
+        acc_dock.setObjectName("Панель 'Свойства'")
+        self.acc_props = AccordionProperties(graph=self.graph, parent=acc_dock)
+        acc_dock.setWidget(self.acc_props)
+        self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, acc_dock)
+
+        # 3. Сохраняем ссылку на новую панель в self.dock_props для группировки
+        #    (Это нужно, чтобы tabifyDockWidget работал как раньше)
+        self.dock_props = acc_dock
+
+        # 4. Подписываемся на сигнал выбора ноды, если нужно (например, для вкладки "Описание")
         if self.graph:
+            # AccordionProperties уже сам слушает этот сигнал для обновления,
+            # но этот connect может быть нужен для других кастомных действий.
             self.graph.node_selected.connect(self._on_node_selected)
 
+        # 5. Группируем док-панели во вкладки, как и было
         self.tabifyDockWidget(self.dock_region_presets, self.dock_nodes)
         self.tabifyDockWidget(self.dock_project_params, self.dock_global_noise)
         self.tabifyDockWidget(self.dock_global_noise, self.dock_props)

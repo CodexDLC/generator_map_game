@@ -96,4 +96,54 @@ APP_STYLE_SHEET = f"""
     PropertiesBinWidget QTabBar::tab:selected {{
         background: {PALETTE['window_bg']};
     }}
+        
+    /* Убираем рамку и ставим фон для всей области прокрутки (по objectName) */
+    #AccordionProperties {{
+        background-color: {PALETTE['dock_bg']};
+        border: none;
+    }}
+    /* тело внутри viewport, чтобы фон был сплошной */
+    #AccordionProperties QWidget {{
+        background-color: {PALETTE['dock_bg']};
+    }}
+    
+    /* Сворачиваемые секции: это QGroupBox с objectName=CollapsibleBox */
+    QGroupBox#CollapsibleBox {{
+        border: none;
+        margin-top: 4px;
+    }}
+    QGroupBox#CollapsibleBox::title {{
+        background-color: {PALETTE['window_bg']};
+        border: 1px solid {PALETTE['border_color']};
+        border-radius: 4px;
+        padding: 4px 6px 4px 28px;  /* ← больше место слева под чекбокс */
+        font-weight: bold;
+        text-align: left;
+        subcontrol-origin: margin;
+    }}
+    QGroupBox#CollapsibleBox::indicator {{
+        subcontrol-position: left center;
+        left: 8px;  /* ← чуть правее от края */
+    }}
+    /* Поля ввода внутри аккордеона (ограничены областью #AccordionProperties) */
+    #AccordionProperties QLineEdit,
+    #AccordionProperties QComboBox,
+    #AccordionProperties QDoubleSpinBox,
+    #AccordionProperties QSpinBox {{
+        background-color: {PALETTE['editor_bg']};
+        color: {PALETTE['text_color']};
+        border: 1px solid {PALETTE['border_color']};
+        padding: 2px;
+    }}
+    #AccordionProperties QLabel {{
+        color: {PALETTE['text_color']};
+        padding-top: 4px;
+    }}
+    #AccordionProperties QCheckBox::indicator {{
+        width: 14px;
+        height: 14px;
+    }}
+    /* --- КОНЕЦ: Стили для новой панели-аккордеона --- */
+
+    
 """
