@@ -1,5 +1,8 @@
 # editor/nodes/base_node.py
-# ВЕРСИЯ 5.2 (HOTFIX): Исправлена инициализация виджетов на нодах.
+# ВЕРСЯ 5.3 (HOTFIX): Исправлена обработка цвета для отрисовки.
+# - Метод set_property теперь принудительно преобразует строковое
+#   представление цвета из файла в кортеж (R, G, B), отбрасывая
+#   альфа-канал, чтобы избежать конфликта типов в QColor.
 # ----------------------------------------------------------------------------
 from __future__ import annotations
 
@@ -90,8 +93,7 @@ class GeneratorNode(BaseNode):
                            tab=tab, compact=self._compact, default=default)
         self._prop_meta[name] = {'type': 'combo', 'label': label, 'tab': UIH.safe_tab(tab),
                                  'group': group or UIH.safe_tab(tab), 'items': items}
-        
-        # --- HOTFIX: Принудительно устанавливаем значение по умолчанию, чтобы обновить виджет на ноде ---
+
         if default is not None:
             self.set_property(name, default, push_undo=False)
 
@@ -128,15 +130,36 @@ class GeneratorNode(BaseNode):
             return raw_value
 
     def set_property(self, name, value, push_undo: bool = False):
+        # --- НАЧАЛО ИСПРАВЛЕНИЯ v2 ---
+        # Перехватываем установку свойств цвета и цвета текста
+        if name in ('color', 'text_color') and isinstance(value, str):
+            try:
+                # Преобразуем строку "r, g, b, a" в кортеж чисел
+                clean_value = value.strip('()[] ')
+                parts = [int(float(p.strip())) for p in clean_value.split(',')]
+
+                # ВАЖНО: Принудительно берем только первые 3 компонента (RGB),
+                # чтобы соответствовать ожиданиям функции отрисовки.
+                if len(parts) >= 3:
+                    value = tuple(parts[:3])
+
+            except (ValueError, TypeError):
+                # Если парсинг не удался, ничего не делаем,
+                # пусть родительский метод разбирается с этим значением.
+                pass
+        # --- КОНЕЦ ИСПРАВЛЕНИЯ v2 ---
+
         try:
             if self.get_property(name) != value:
                 self.mark_dirty()
         except Exception:
             self.mark_dirty()
+
         if name == 'name':
             val = str(value)
             if self.name() != val:
                 self.set_name(val)
+
         super().set_property(name, value, push_undo=push_undo)
 
     def _deferred_init_tooltips(self, tries: int = 0, delay_ms: int = 50):

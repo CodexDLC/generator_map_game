@@ -48,7 +48,7 @@ def load_preset_into_graph(main_window, preset_info: dict):
     """
     Загружает граф ЛАНДШАФТА. Если файл пуст/битый — строит дефолтные ноды.
     """
-    project_path = Path(main_window.current_project_path)
+    project_path = Path(main_window.project_manager.current_project_path)
     graph = getattr(main_window, "graph", None)
     graph_path_str = preset_info.get("landscape_graph")
 

@@ -1,8 +1,9 @@
-# editor/ui/project_binding.py
+# editor/ui_panels/project_binding.py
 def apply_project_to_ui(mw, data: dict) -> None:
     mw.seed_input.setValue(int(data.get("seed", 1)))
     mw.chunk_size_input.setValue(int(data.get("chunk_size", 128)))
-    mw.region_size_input.setValue(int(data.get("region_size_in_chunks", 4)))
+    # --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
+    mw.region_size_in_chunks_input.setValue(int(data.get("region_size_in_chunks", 4)))
     mw.cell_size_input.setValue(float(data.get("cell_size", 1.0)))
     mw.global_x_offset_input.setValue(int(data.get("global_x_offset", 0)))
     mw.global_z_offset_input.setValue(int(data.get("global_z_offset", 0)))
@@ -24,7 +25,8 @@ def collect_context_from_ui(mw) -> dict:
         "ridge": mw.gn_ridge_checkbox.isChecked(),
     }
     cs = int(mw.chunk_size_input.value())
-    rs = int(mw.region_size_input.value())
+    # --- И ИЗМЕНЕНИЕ ЗДЕСЬ ---
+    rs = int(mw.region_size_in_chunks_input.value())
     return {
         "cell_size": mw.cell_size_input.value(),
         "seed": mw.seed_input.value(),

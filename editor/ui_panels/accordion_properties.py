@@ -129,16 +129,10 @@ class AccordionProperties(QtWidgets.QScrollArea):
         if not node:
             return
 
-        # --- HOTFIX: Объединяем стандартные и кастомные свойства ---
-        standard_meta = {
-            'name': {'type': 'line', 'label': 'Name', 'group': 'Node'},
-            'color': {'type': 'line', 'label': 'Color', 'group': 'Node'},
-            'text_color': {'type': 'line', 'label': 'Text Color', 'group': 'Node'},
-            'disabled': {'type': 'check', 'label': 'Disabled', 'group': 'Node'},
-        }
-        custom_meta = node.properties_meta()
-        meta = {**standard_meta, **custom_meta}
-        # ----------------------------------------------------------
+        # --- ИЗМЕНЕНИЕ: Убираем объединение со стандартными свойствами ---
+        # Теперь панель работает только с кастомными мета-свойствами ноды
+        meta = node.properties_meta()
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
         if not meta:
             return
@@ -146,14 +140,18 @@ class AccordionProperties(QtWidgets.QScrollArea):
         groups: Dict[str, CollapsibleBox] = {}
         self._vl.takeAt(self._vl.count() - 1) # убираем stretch
 
-        # Сортируем, чтобы группа 'Node' всегда была первой
+        # Сортируем, чтобы группы шли в предсказуемом порядке
         sorted_meta_items = sorted(meta.items(), key=lambda item: (
-            (item[1].get('group') or 'Params') != 'Node',
             item[1].get('group') or 'Params',
             item[0]
         ))
 
         for name, prop_meta in sorted_meta_items:
+            # --- ИЗМЕНЕНИЕ: Пропускаем стандартные свойства, если они случайно попали сюда ---
+            if name in ('name', 'color', 'text_color', 'disabled'):
+                continue
+            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
             group_name = prop_meta.get('group') or 'Params'
 
             if group_name not in groups:
