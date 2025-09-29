@@ -1,8 +1,7 @@
 # ==============================================================================
 # Файл: main_window.py
-# ВЕРСИЯ 4.4 (HOTFIX): Исправлено применение глобального стиля.
-# - Добавлен атрибут WA_StyledBackground для корректного наследования стиля
-#   всеми дочерними виджетами.
+# ВЕРСИЯ 5.4 (РЕФАКТОРИНГ): Уточнена обработка исключений при создании Preview3DWidget.
+# - Заменено общее 'except Exception' на более конкретные исключения.
 # ==============================================================================
 
 from __future__ import annotations
@@ -12,10 +11,13 @@ from typing import Optional
 
 from PySide6 import QtWidgets, QtCore, QtGui
 
+from editor.graph_runner import run_graph
+from editor.nodes.height.io.output_node import OutputNode
+
 from editor.theme import APP_STYLE_SHEET
 from editor.ui_panels.central_graph import create_bottom_work_area_v2
 from editor.ui_panels.menu import build_menus
-from editor.ui_panels.properties_panel import make_properties_widget
+from editor.ui_panels.accordion_properties import create_properties_widget
 from editor.ui_panels.shortcuts import install_shortcuts
 from editor.preview_widget import Preview3DWidget
 from editor.project_manager import ProjectManager
@@ -31,7 +33,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle("Редактор Миров")
         self.resize(1600, 900)
 
-        # --- РЕФАКТОРИНГ: Принудительное применение стилей ко всем дочерним виджетам ---
         self.setAttribute(QtCore.Qt.WA_StyledBackground, True)
 
         self.project_manager = ProjectManager(self)
@@ -66,7 +67,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _build_ui(self) -> None:
         try:
             self.preview_widget = Preview3DWidget(self)
-        except Exception as e:
+        except (ImportError, RuntimeError) as e: # Уточненные исключения
             logger.exception(f"Не удалось создать Preview3DWidget: {e}")
             lbl = QtWidgets.QLabel("Preview widget failed to load")
             lbl.setAlignment(QtCore.Qt.AlignCenter)
@@ -168,7 +169,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _create_right_tabs(self) -> QtWidgets.QTabWidget:
         tabs = QtWidgets.QTabWidget()
         tabs.setDocumentMode(True)
-        self.props_bin = make_properties_widget(self)
+        self.props_bin = create_properties_widget(self)
         tabs.addTab(self.props_bin, "Параметры")
         tabs.addTab(QtWidgets.QWidget(), "Нода")
         return tabs
@@ -215,7 +216,56 @@ class MainWindow(QtWidgets.QMainWindow):
             ev.ignore()
 
     def _on_apply_clicked(self):
-        pass
+        if self.right_outliner:
+            self.right_outliner.set_busy(True)
+        try:
+            # 1. Проверяем наличие графа
+            if not self.graph:
+                raise RuntimeError("Граф не инициализирован.")
+
+            # 2. Находим выходную ноду
+            output_node = None
+            for node in self.graph.all_nodes():
+                if isinstance(node, OutputNode):
+                    output_node = node
+                    break
+            if not output_node:
+                raise RuntimeError("В графе не найдена выходная нода (OutputNode).")
+
+            # 3. Собираем контекст из UI
+            context = {
+                "seed": self.seed_input.value(),
+                "chunk_size": self.chunk_size_input.value(),
+                "region_size_in_chunks": self.region_size_in_chunks_input.value(),
+                "cell_size": self.cell_size_input.value(),
+                "global_x_offset": self.global_x_offset_input.value(),
+                "global_z_offset": self.global_z_offset_input.value(),
+                "global_noise": {
+                    "scale_tiles": self.gn_scale_input.value(),
+                    "octaves": self.gn_octaves_input.value(),
+                    "amp_m": self.gn_amp_input.value(),
+                    "ridge": self.gn_ridge_checkbox.isChecked()
+                }
+            }
+
+            # 4. Запускаем вычисление графа
+            logger.info(f"Запуск вычисления графа от ноды: {output_node.name()}")
+            height_map = run_graph(output_node, context)
+
+            # 5. Обновляем предпросмотр
+            if self.preview_widget:
+                current_cell_size = context.get("cell_size", 1.0)
+                self.preview_widget.update_mesh(height_map, current_cell_size)
+                logger.info("Виджет предпросмотра успешно обновлен.")
+            else:
+                logger.warning("Preview widget недоступен.")
+
+        except Exception as e:
+            logger.exception(f"Ошибка во время генерации мира: {e}")
+            QtWidgets.QMessageBox.critical(self, "Ошибка генерации", f"Произошла ошибка: {e}")
+        finally:
+            if self.right_outliner:
+                self.right_outliner.set_busy(False)
 
     def _trigger_apply(self) -> None:
         if self.right_outliner and self.right_outliner.apply_button:

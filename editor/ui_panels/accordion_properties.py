@@ -1,7 +1,7 @@
 # ==============================================================================
 # editor/ui_panels/accordion_properties.py
-# ВЕРСИЯ 2.1 (РЕФАКТОРИНГ): Использует чистое API графа.
-# - Подключается к единому, чистому сигналу `selection_changed`.
+# ВЕРСИЯ 3.1 (HOTFIX): Восстановлено отображение стандартных свойств ноды.
+# - Панель теперь показывает и стандартные (имя, цвет), и кастомные свойства.
 # ==============================================================================
 
 from __future__ import annotations
@@ -14,6 +14,26 @@ from editor.theme import PALETTE
 from editor.custom_graph import CustomNodeGraph # Используем для аннотации типов
 from editor.nodes.base_node import GeneratorNode
 
+
+# ==============================================================================
+# Фабричная функция (ранее была в properties_panel.py)
+# ==============================================================================
+
+def create_properties_widget(parent: QtWidgets.QWidget) -> AccordionProperties:
+    """
+    Создает, настраивает и возвращает виджет панели свойств.
+    Функция не имеет побочных эффектов (не изменяет parent).
+    """
+    props = AccordionProperties(parent=parent)
+    props.setObjectName("PropertiesAccordion")
+    props.setMinimumWidth(360)
+    props.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Expanding)
+    return props
+
+
+# ==============================================================================
+# Основной класс виджета
+# ==============================================================================
 
 class CollapsibleBox(QtWidgets.QGroupBox):
     def __init__(self, title: str, parent=None):
@@ -58,26 +78,21 @@ class AccordionProperties(QtWidgets.QScrollArea):
         if self._graph is graph:
             return
 
-        # Отписываемся от старого графа, если он был
         if self._graph:
             try:
                 self._graph.selection_changed.disconnect(self._on_graph_selection)
             except (RuntimeError, TypeError):
-                pass # Сигнал мог быть уже отсоединен
+                pass
 
         self._graph = graph
         if self._graph is None:
             return
 
-        # РЕФАКТОРИНГ: Подключаемся к нашему новому, чистому сигналу
         self._graph.selection_changed.connect(self._on_graph_selection)
-
-        # Сразу обновляем состояние на основе текущего выделения
         self._on_graph_selection(self._graph.selected_nodes())
 
     @QtCore.Slot(list)
     def _on_graph_selection(self, selected_nodes: list) -> None:
-        """Слот для чистого сигнала `selection_changed`."""
         node = None
         if selected_nodes and isinstance(selected_nodes[0], GeneratorNode):
             node = selected_nodes[0]
@@ -85,7 +100,6 @@ class AccordionProperties(QtWidgets.QScrollArea):
         self.set_node(node)
 
     def clear_layout(self):
-        """Очищает все виджеты со свойств."""
         while self._vl.count():
             item = self._vl.takeAt(0)
             if item is None: continue
@@ -108,7 +122,6 @@ class AccordionProperties(QtWidgets.QScrollArea):
         self._rebuild()
 
     def _rebuild(self):
-        """Перестраивает панель свойств для текущей выбранной ноды (_node)."""
         self.clear_layout()
         self._vl.addStretch(1)
 
@@ -116,15 +129,32 @@ class AccordionProperties(QtWidgets.QScrollArea):
         if not node:
             return
 
-        meta = node.properties_meta()
+        # --- HOTFIX: Объединяем стандартные и кастомные свойства ---
+        standard_meta = {
+            'name': {'type': 'line', 'label': 'Name', 'group': 'Node'},
+            'color': {'type': 'line', 'label': 'Color', 'group': 'Node'},
+            'text_color': {'type': 'line', 'label': 'Text Color', 'group': 'Node'},
+            'disabled': {'type': 'check', 'label': 'Disabled', 'group': 'Node'},
+        }
+        custom_meta = node.properties_meta()
+        meta = {**standard_meta, **custom_meta}
+        # ----------------------------------------------------------
+
         if not meta:
             return
 
         groups: Dict[str, CollapsibleBox] = {}
-        self._vl.takeAt(self._vl.count() - 1)
+        self._vl.takeAt(self._vl.count() - 1) # убираем stretch
 
-        for name, prop_meta in meta.items():
-            group_name = prop_meta.get('group') or prop_meta.get('tab') or 'Params'
+        # Сортируем, чтобы группа 'Node' всегда была первой
+        sorted_meta_items = sorted(meta.items(), key=lambda item: (
+            (item[1].get('group') or 'Params') != 'Node',
+            item[1].get('group') or 'Params',
+            item[0]
+        ))
+
+        for name, prop_meta in sorted_meta_items:
+            group_name = prop_meta.get('group') or 'Params'
 
             if group_name not in groups:
                 box = CollapsibleBox(group_name, self._root)
@@ -141,12 +171,14 @@ class AccordionProperties(QtWidgets.QScrollArea):
         self._vl.addStretch(1)
 
     def _create_widget_for_property(self, node: GeneratorNode, name: str, meta: dict) -> Optional[QtWidgets.QWidget]:
-        """Фабрика для создания виджета редактирования свойства."""
         kind = meta.get('type')
         value = node.get_property(name)
 
         if kind == 'line':
             w = QtWidgets.QLineEdit()
+            # Для свойства 'name' получаем значение через специальный метод, если get_property вернул None
+            if name == 'name' and value is None:
+                value = node.name()
             w.setText(str(value))
             w.editingFinished.connect(lambda nn=name, ww=w: node.set_property(nn, ww.text()))
             return w
@@ -166,7 +198,7 @@ class AccordionProperties(QtWidgets.QScrollArea):
             w.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
             w.setAlignment(Qt.AlignRight)
             w.setMaximumWidth(meta.get('width', 100))
-            w.setValue(value)
+            w.setValue(value or 0)
             w.valueChanged.connect(lambda val, nn=name: node.set_property(nn, val))
             return w
 
