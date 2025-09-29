@@ -1,120 +1,56 @@
 # ==============================================================================
-# Файл: editor/menu.py
-# Назначение: Построение меню приложения (V2-ready).
-#
-# Меню:
-#   - Файл:      Выход
-#   - Правка:    Отменить/Повторить (заглушки, при желании подвяжешь)
-#   - Вид:       Показать/скрыть Левую палитру (F1), Правый Outliner (F2)
-#   - Пресеты:   Загрузить, Сохранить…, Открыть пресеты региона…
-#
-# Примечания:
-#   - "Открыть пресеты региона…" открывает независимое окно с виджетом пресетов.
-#     Если у MainWindow есть метод open_region_presets_window — используем его.
-#     Иначе падаем на локальную функцию _open_region_presets_window_fallback.
+# Файл: editor/ui_panels/menu.py
+# ВЕРСИЯ 2.0 (РЕФАКТОРИНГ): Явное применение стилей.
+# - Стиль теперь применяется напрямую к QMenuBar, чтобы избежать проблем
+#   с наследованием на разных платформах.
 # ==============================================================================
 
 from __future__ import annotations
-from PySide6 import QtWidgets, QtCore
+from typing import TYPE_CHECKING
 
-# Фабрика виджета пресетов (для запасного варианта)
-try:
-    from editor.ui_panels.region_presets_panel import make_region_presets_widget
-except Exception:
-    make_region_presets_widget = None  # type: ignore
+from PySide6 import QtGui
 
+# РЕФАКТОРИНГ: Импортируем стили, чтобы применить их явно
+from editor.theme import APP_STYLE_SHEET
 
-def _open_region_presets_window_fallback(mw: QtWidgets.QMainWindow) -> None:
-    """
-    Запасной способ открыть окно пресетов региона,
-    если у MainWindow нет метода open_region_presets_window().
-    """
-    if make_region_presets_widget is None:
-        QtWidgets.QMessageBox.warning(mw, "Пресеты региона",
-                                      "Функция пресетов региона недоступна.")
-        return
-
-    # Если окно уже открыто — поднимем его
-    win = getattr(mw, "_region_presets_win", None)
-    if isinstance(win, QtWidgets.QMainWindow) and not win.isHidden():
-        win.show(); win.raise_(); win.activateWindow()
-        return
-
-    win = QtWidgets.QMainWindow(mw)
-    win.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
-    win.setWindowTitle("Пресеты региона")
-    win.setCentralWidget(make_region_presets_widget(win))
-    win.resize(700, 520)
-    mw._region_presets_win = win
-    win.show()
+if TYPE_CHECKING:
+    from editor.main_window import MainWindow
 
 
-def _safe(mw: QtWidgets.QMainWindow, name: str):
-    """Вернёт вызываемый метод mw.name или no-op, если его нет."""
-    fn = getattr(mw, name, None)
-    if callable(fn):
-        return fn
-    return lambda *a, **kw: None
+def build_menus(main_window: "MainWindow") -> None:
+    """Создает и настраивает меню для главного окна."""
 
+    menu_bar = main_window.menuBar()
+    # РЕФАКТОРИНГ: Явно применяем стили к меню-бару
+    menu_bar.setStyleSheet(APP_STYLE_SHEET)
 
-def build_menus(mw: QtWidgets.QMainWindow) -> None:
-    mb = mw.menuBar()
-    mb.clear()
+    # --- Меню "Файл" ---
+    file_menu = menu_bar.addMenu("&Файл")
 
-    # ---------------- Файл
-    m_file = mb.addMenu("Файл")
-    act_exit = m_file.addAction("Выход")
-    act_exit.setShortcut("Ctrl+Q")
-    act_exit.triggered.connect(mw.close)
+    new_action = file_menu.addAction("Новый проект...")
+    new_action.triggered.connect(main_window.new_project)
 
-    # ---------------- Проект
-    m_project = mb.addMenu("Проект")
-    act_change = m_project.addAction("Сменить проект…")
-    act_change.triggered.connect(_safe(mw, "open_project_manager"))
+    open_action = file_menu.addAction("Открыть проект...")
+    open_action.triggered.connect(main_window.open_project)
 
-    # ---------------- Правка (заглушки под Undo/Redo — подвяжешь позже)
-    m_edit = mb.addMenu("Правка")
-    act_undo = m_edit.addAction("Отменить")
-    act_undo.setShortcut("Ctrl+Z")
-    act_undo.triggered.connect(_safe(mw, "action_undo"))
-    act_redo = m_edit.addAction("Повторить")
-    act_redo.setShortcut("Ctrl+Y")
-    act_redo.triggered.connect(_safe(mw, "action_redo"))
+    file_menu.addSeparator()
 
-    # ---------------- Вид
-    m_view = mb.addMenu("Вид")
+    save_action = file_menu.addAction("Сохранить проект")
+    save_action.setShortcut(QtGui.QKeySequence.StandardKey.Save)
+    save_action.triggered.connect(main_window.save_project)
 
-    act_toggle_left = m_view.addAction("Показать/скрыть левую палитру")
-    act_toggle_left.setShortcut("F1")
-    act_toggle_left.triggered.connect(_safe(mw, "toggle_left_palette"))
+    file_menu.addSeparator()
 
-    act_toggle_right = m_view.addAction("Показать/скрыть правый Outliner")
-    act_toggle_right.setShortcut("F2")
-    act_toggle_right.triggered.connect(_safe(mw, "toggle_right_outliner"))
+    exit_action = file_menu.addAction("Выход")
+    exit_action.triggered.connect(main_window.close)
 
-    m_view.addSeparator()
+    # --- Меню "Вид" ---
+    view_menu = menu_bar.addMenu("&Вид")
 
-    # Можно добавить сохранение/восстановление раскладки, если используешь saveState/restoreState
-    act_save_layout = m_view.addAction("Сохранить раскладку")
-    act_save_layout.triggered.connect(_safe(mw, "save_layout_state"))
+    # TODO: Добавить действия для управления панелями
 
-    act_restore_layout = m_view.addAction("Восстановить раскладку")
-    act_restore_layout.triggered.connect(_safe(mw, "restore_layout_state"))
+    # --- Меню "Помощь" ---
+    help_menu = menu_bar.addMenu("&Помощь")
 
-    # ---------------- Пресеты
-    m_presets = mb.addMenu("Пресеты")
-
-    act_load = m_presets.addAction("Загрузить пресет…")
-    act_load.triggered.connect(_safe(mw, "action_load_preset"))
-
-    act_save = m_presets.addAction("Сохранить пресет…")
-    act_save.triggered.connect(_safe(mw, "action_save_preset"))
-
-    m_presets.addSeparator()
-
-    act_open_region = m_presets.addAction("Открыть пресеты региона…")
-    # Если есть прямой метод у MW — используем его; иначе форсим fallback
-    if callable(getattr(mw, "open_region_presets_window", None)):
-        act_open_region.triggered.connect(mw.open_region_presets_window)  # type: ignore
-    else:
-        act_open_region.triggered.connect(lambda: _open_region_presets_window_fallback(mw))
+    about_action = help_menu.addAction("О программе")
+    # TODO: Подключить к диалогу "О программе"

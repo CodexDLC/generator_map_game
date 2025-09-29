@@ -1,7 +1,6 @@
 # ==============================================================================
 # Файл: editor/project_manager.py
-# ВЕРСИЯ 3.2 (РЕФАКТОРИНГ): Восстановлена полная логика сохранения из UI.
-# - Метод save_project теперь напрямую читает данные из виджетов MainWindow.
+# ВЕРСИЯ 3.3 (HOTFIX): Принудительное применение стиля к диалогу.
 # ==============================================================================
 
 from __future__ import annotations
@@ -14,6 +13,8 @@ from typing import TYPE_CHECKING, List
 from PySide6 import QtWidgets, QtCore
 
 from editor.graph_utils import create_default_graph_session
+# РЕФАКТОРИНГ: Импортируем стили для явного применения
+from editor.theme import APP_STYLE_SHEET
 
 if TYPE_CHECKING:
     from editor.main_window import MainWindow
@@ -29,7 +30,6 @@ LAST_PROJECT_DIR_KEY = "last_project_directory"
 # Класс для управления проектом ВНУТРИ MainWindow
 # ==============================================================================
 class ProjectManager:
-    """Инкапсулирует всю логику работы с файлами уже открытого проекта."""
     def __init__(self, main_window: "MainWindow"):
         self._mw = main_window
         self.current_project_path: str | None = None
@@ -44,23 +44,18 @@ class ProjectManager:
         logger.info(f"Loading project from: {project_path}")
         self.current_project_path = project_path
         self._mw.setWindowTitle(f"Редактор Миров - {Path(project_path).name}")
-        # TODO: Загрузка данных из project.json в UI виджеты
         self.mark_dirty(False)
         self._status_msg(f"Проект '{Path(project_path).name}' загружен.")
 
     def save_project(self) -> bool:
-        """РЕФАКТОРИНГ: Восстановлена полная логика сохранения."""
         if not self.current_project_path:
             self._status_msg("Проект не загружен.", 3000)
             return False
         try:
-            # 1. Сохраняем граф
             graph_data = self._mw.graph.serialize_session()
-            # TODO: Определить, в какой файл сохранять граф (зависит от активного пресета)
             graph_file_path = Path(self.current_project_path) / "pipelines/default_landscape.json"
             _atomic_write_json(graph_file_path, graph_data)
 
-            # 2. Собираем данные из UI и сохраняем project.json
             project_file_path = Path(self.current_project_path) / "project.json"
             try:
                 with open(project_file_path, "r", encoding="utf-8") as f:
@@ -68,7 +63,6 @@ class ProjectManager:
             except (FileNotFoundError, json.JSONDecodeError):
                 existing_data = {}
 
-            # Напрямую читаем данные из виджетов MainWindow
             project_data_from_ui = {
                 "seed": self._mw.seed_input.value(),
                 "chunk_size": self._mw.chunk_size_input.value(),
@@ -85,7 +79,6 @@ class ProjectManager:
             }
 
             existing_data.update(project_data_from_ui)
-            # Убедимся, что вложенный словарь тоже обновляется, а не перезаписывается
             if "global_noise" in existing_data and "global_noise" in project_data_from_ui:
                  existing_data["global_noise"].update(project_data_from_ui["global_noise"])
 
@@ -131,6 +124,9 @@ class ProjectDialog(QtWidgets.QDialog):
         self.selected_path: str | None = None
         self.settings = QtCore.QSettings(ORGANIZATION_NAME, APPLICATION_NAME)
 
+        # --- РЕФАКТОРИНГ: Явно применяем стиль к диалогу ---
+        self.setStyleSheet(APP_STYLE_SHEET)
+
         layout = QtWidgets.QVBoxLayout(self)
         
         self.btn_select_folder = QtWidgets.QPushButton("Выбрать папку с проектами...")
@@ -173,9 +169,11 @@ class ProjectDialog(QtWidgets.QDialog):
         self.btn_open.setEnabled(False)
         root = Path(folder_path)
         found_projects = [item for item in root.iterdir() if item.is_dir() and (item / "project.json").exists()]
+
         if not found_projects:
             self.project_list.addItem("Проекты не найдены")
             return
+
         for project_path in sorted(found_projects, key=lambda p: p.name.lower()):
             list_item = QtWidgets.QListWidgetItem(project_path.name)
             list_item.setData(QtCore.Qt.UserRole, str(project_path))

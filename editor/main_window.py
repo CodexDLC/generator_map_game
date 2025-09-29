@@ -1,7 +1,8 @@
 # ==============================================================================
 # Файл: main_window.py
-# ВЕРСИЯ 4.3 (РЕФАКТОРИНГ): Разделены панели параметров.
-# - Настройки глобального шума вынесены на свою собственную вкладку.
+# ВЕРСИЯ 4.4 (HOTFIX): Исправлено применение глобального стиля.
+# - Добавлен атрибут WA_StyledBackground для корректного наследования стиля
+#   всеми дочерними виджетами.
 # ==============================================================================
 
 from __future__ import annotations
@@ -29,6 +30,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.setWindowTitle("Редактор Миров")
         self.resize(1600, 900)
+
+        # --- РЕФАКТОРИНГ: Принудительное применение стилей ко всем дочерним виджетам ---
+        self.setAttribute(QtCore.Qt.WA_StyledBackground, True)
 
         self.project_manager = ProjectManager(self)
 
@@ -89,7 +93,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._connect_components()
 
     def _create_project_params_panel(self) -> QtWidgets.QWidget:
-        """Создает панель с основными параметрами проекта."""
         panel = QtWidgets.QWidget()
         layout = QtWidgets.QFormLayout(panel)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -126,7 +129,6 @@ class MainWindow(QtWidgets.QMainWindow):
         return panel
 
     def _create_global_noise_panel(self) -> QtWidgets.QWidget:
-        """Создает панель с параметрами глобального шума."""
         panel = QtWidgets.QWidget()
         layout = QtWidgets.QFormLayout(panel)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -182,7 +184,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.graph.structure_changed.connect(self._mark_dirty)
             self.graph.property_changed.connect(self._mark_dirty)
 
-        # Подключаем все виджеты к _mark_dirty
         for widget in [self.seed_input, self.chunk_size_input, self.region_size_in_chunks_input, 
                        self.cell_size_input, self.global_x_offset_input, self.global_z_offset_input, 
                        self.gn_scale_input, self.gn_octaves_input, self.gn_amp_input]:

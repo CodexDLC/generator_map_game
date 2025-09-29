@@ -1,21 +1,18 @@
 # editor/theme.py
 # ==============================================================================
 # Файл: editor/theme.py
-# Назначение: Хранит константы цветов и стилей для UI редактора.
-# ВЕРСИЯ 4.3: Исправлены отступы и наложения в панели свойств (#AccordionProperties и CollapsibleBox).
-#             Убран box-shadow из-за несовместимости, добавлены точные margins/paddings.
-#             Цветовая гамма синхронизирована с остальным приложением.
+# ВЕРСИЯ 4.4 (HOTFIX): Исправлена глобальная тема.
+# - Добавлено правило для QWidget, QDialog, чтобы фон по умолчанию был темным.
 # ==============================================================================
 
 PALETTE = {
-    "window_bg": "#3c3c3c",  # Основной фон окна
-    "editor_bg": "#2b2b2b",  # Фон полей ввода и редакторов
-    "dock_bg": "#323232",    # Фон доков и панелей (согласно остальному интерфейсу)
-    "text_color": "#ffffff", # Белый текст для единства с приложением
+    "window_bg": "#3c3c3c",
+    "editor_bg": "#2b2b2b",
+    "dock_bg": "#323232",
+    "text_color": "#ffffff",
     "prop_text_color": "#ffffff",
-    "border_color": "#606060",  # Границы для рамок
+    "border_color": "#606060",
     "item_selected_bg": "#556677",
-    # Цвета категорий нодов
     "cat_pipeline_bg": "rgba(40, 40, 80, 100)",
     "cat_effects_bg": "rgba(90, 50, 30, 100)",
     "cat_math_bg": "rgba(40, 60, 90, 100)",
@@ -37,12 +34,17 @@ APP_STYLE_SHEET = f"""
         color: {PALETTE['text_color']};
     }}
 
-    /* QMainWindow */
+    /* --- РЕФАКТОРИНГ: Базовый фон для всех виджетов --- */
+    QWidget, QDialog {{
+        background-color: {PALETTE['window_bg']};
+    }}
+
+    /* QMainWindow (переопределяет QWidget) */
     QMainWindow {{
         background-color: {PALETTE['window_bg']};
     }}
 
-    /* QDockWidget (для всех панелей) */
+    /* QDockWidget (переопределяет QWidget) */
     QDockWidget {{
         background-color: {PALETTE['dock_bg']};
         color: {PALETTE['text_color']};
@@ -100,7 +102,6 @@ APP_STYLE_SHEET = f"""
         background-color: {PALETTE['dock_bg']};
     }}
 
-/* AccordionProperties и PropertiesBinWidget (панель свойств, фиксированные отступы) */
     #AccordionProperties, PropertiesBinWidget {{
         background-color: {PALETTE['dock_bg']};
         border: none;
@@ -110,57 +111,53 @@ APP_STYLE_SHEET = f"""
         padding: 0px;
     }}
 
-    /* --- СЛИТНЫЙ CollapsibleBox: одна коробка, заголовок внутри padding --- */
     QGroupBox#CollapsibleBox {{
-        background-color: #323232;      /* dock_bg */
+        background-color: #323232;
         border: 1px solid #606060;
         border-radius: 6px;
-        margin: 8px 6px;                /* зазор между секциями и краями дока */
-        padding: 12px 8px 8px 8px;      /* РЕЗЕРВ под заголовок сверху */
-        min-height: 0;                  /* без фикса высоты */
+        margin: 8px 6px;
+        padding: 12px 8px 8px 8px;
+        min-height: 0;
     }}
     
-    /* Заголовок рисуем в области padding — «слит» с боксом */
     QGroupBox#CollapsibleBox::title {{
-        subcontrol-origin: padding;     /* вместо margin */
+        subcontrol-origin: padding;
         subcontrol-position: top left;
-        background: transparent;        /* без отдельной плашки */
-        border: none;                   /* рамку даёт сам бокс */
-        padding: 0 6px 0 28px;          /* место под индикатор слева */
+        background: transparent;
+        border: none;
+        padding: 0 6px 0 28px;
         margin: 0;
         color: #e6e6e6;
         font-weight: bold;
     }}
 
-    /* Индикатор-чекбокс в заголовке */
     QGroupBox#CollapsibleBox::indicator {{
         subcontrol-origin: padding;
         subcontrol-position: top left;
         left: 6px;
-        top: -1px;                      /* подровнять по вертикали */
+        top: -1px;
         width: 16px;
         height: 16px;
         margin: 0;
     }}
     QGroupBox#CollapsibleBox::indicator:unchecked {{
         border: 1px solid #606060;
-        background: #3c3c3c;            /* window_bg */
+        background: #3c3c3c;
         border-radius: 3px;
     }}
     QGroupBox#CollapsibleBox::indicator:checked {{
         border: 1px solid #606060;
-        background: #556677;            /* item_selected_bg */
+        background: #556677;
         border-radius: 3px;
     }}
 
-    /* Поля внутри панели — растягиваемые, без душащего max-width */
     #AccordionProperties QLineEdit,
     #AccordionProperties QComboBox,
     #AccordionProperties QDoubleSpinBox,
     #AccordionProperties QSpinBox {{
         min-height: 20px;
         min-width: 72px;
-        max-width: 110px;   /* компактно для цифр */
+        max-width: 110px;
         padding: 2px 4px;
         background-color: #2b2b2b;
         color: #ffffff;
@@ -174,7 +171,6 @@ APP_STYLE_SHEET = f"""
         background-color: #3f3f3f;
     }}
     
-        /* Кнопки спинбоксов скрываем: поле выглядит как узкий инпут */
     #AccordionProperties QAbstractSpinBox::up-button,
     #AccordionProperties QAbstractSpinBox::down-button {{
         width: 0px;
@@ -187,7 +183,7 @@ APP_STYLE_SHEET = f"""
     #AccordionProperties QLabel {{
         color: {PALETTE['text_color']};
         padding: 2px 0px 0px 0px;
-        min-height: 20px;  /* Фиксированная высота меток */
+        min-height: 20px;
     }}
     #AccordionProperties QLabel:disabled {{
         color: {PALETTE['disabled_text_color']};
@@ -195,13 +191,12 @@ APP_STYLE_SHEET = f"""
     #AccordionProperties QCheckBox {{
         color: {PALETTE['text_color']};
         padding: 2px 0px;
-        min-height: 20px;  /* Фиксированная высота чекбоксов */
+        min-height: 20px;
     }}
     #AccordionProperties QCheckBox:disabled {{
         color: {PALETTE['disabled_text_color']};
     }}
 
-    /* QPushButton (для других панелей) */
     QPushButton {{
         background-color: {PALETTE['button_bg']};
         color: {PALETTE['text_color']};
@@ -220,7 +215,6 @@ APP_STYLE_SHEET = f"""
         color: {PALETTE['disabled_text_color']};
     }}
 
-    /* QListWidget (region_presets_panel.py) */
     QListWidget {{
         background-color: {PALETTE['list_bg']};
         color: {PALETTE['text_color']};
@@ -231,18 +225,16 @@ APP_STYLE_SHEET = f"""
         background-color: {PALETTE['item_selected_bg']};
     }}
 
-    /* QGraphicsView (central_graph.py) */
     QGraphicsView {{
         background-color: {PALETTE['dock_bg']};
         border: none;
     }}
 
-    /* QScrollArea (для всех прокруток) */
     QScrollArea {{
         background-color: {PALETTE['dock_bg']};
         border: none;
     }}
-        /* ВЕРХ: левый таб-контейнер с параметрами/шумом */
+
     #TopTabsLeft QLineEdit,
     #TopTabsLeft QSpinBox,
     #TopTabsLeft QDoubleSpinBox,
@@ -265,7 +257,6 @@ APP_STYLE_SHEET = f"""
         border-color: #555555;
     }}
 
-    /* НИЗ: поиск в правом Outliner */
     #RightOutliner QLineEdit {{
         background-color: #2b2b2b;
         color: #ffffff;
@@ -274,7 +265,7 @@ APP_STYLE_SHEET = f"""
         padding: 2px 4px;
         selection-background-color: #556677;
     }}
-        /* Низ: поиск в левой палитре нодов */
+
     #LeftNodesPalette QLineEdit {{
         background-color: #2b2b2b;
         color: #ffffff;
@@ -283,7 +274,7 @@ APP_STYLE_SHEET = f"""
         padding: 2px 4px;
         selection-background-color: #556677;
     }}
-    /* на всякий — прямой селектор по самому полю */
+
     #NodesPaletteSearch {{
         background-color: #2b2b2b;
         color: #ffffff;
@@ -295,7 +286,7 @@ APP_STYLE_SHEET = f"""
     #NodesPaletteSearch[placeholderText]:!focus {{
         color: #cccccc;
     }}
-        /* Правые табы свойств */
+
     #TopTabsRight::pane {{
         border: 1px solid #3e3e3e;
         border-radius: 4px;
@@ -315,13 +306,11 @@ APP_STYLE_SHEET = f"""
         color: #fff;
     }}
     
-        /* Правые табы со свойствами */
     #TopTabsRight QLineEdit,
     #TopTabsRight QSpinBox,
     #TopTabsRight QDoubleSpinBox,
     #TopTabsRight QComboBox,
     #TopTabsRight QAbstractSpinBox,
-    /* Сам инспектор ноды */
     #NodeInspector QLineEdit,
     #NodeInspector QSpinBox,
     #NodeInspector QDoubleSpinBox,
@@ -335,7 +324,6 @@ APP_STYLE_SHEET = f"""
         selection-background-color: #556677;
     }}
 
-    /* Списки портов в инспекторе */
     #NodeInspector QListWidget {{
         background-color: #2b2b2b;
         color: #ffffff;
