@@ -1,113 +1,46 @@
-# editor/ui/central_graph.py
+# ==============================================================================
+# Файл: editor/ui_panels/central_graph.py
+# ВЕРСИЯ 3.1 (HOTFIX): Исправлено создание NodesPaletteWidget.
+# - В конструктор виджета теперь передается корректный родитель (main_window).
+# ==============================================================================
+
+from __future__ import annotations
 from typing import cast
-import logging
-from PySide6 import QtWidgets, QtCore, QtGui
 
-from ..custom_graph import CustomNodeGraph
-from ..nodes.node_registry import register_all_nodes
+from PySide6 import QtWidgets, QtCore
 
-logger = logging.getLogger(__name__)
+from editor.custom_graph import CustomNodeGraph
+from editor.nodes.node_registry import register_all_nodes
+from editor.ui_panels.nodes_palette_panel import NodesPaletteWidget
+from editor.ui_panels.right_outliner import RightOutlinerWidget
 
-def setup_central_graph_ui(mw) -> None:
+
+def create_bottom_work_area_v2(main_window) -> tuple[QtWidgets.QWidget, CustomNodeGraph, NodesPaletteWidget, RightOutlinerWidget]:
     """
-    Строит центральный UI: превью + граф. Вешает Delete/Backspace на канву графа,
-    фиксирует drag-режим и правильно управляет фокусом.
+    Создает и компонует нижнюю рабочую область: [Палитра] | [Граф] | [Outliner].
+
+    Возвращает кортеж: (контейнер, объект_графа, палитра, аутлайнер),
+    чтобы MainWindow мог сам ими управлять и связывать сигналы.
     """
-    # 0) Граф
-    mw.graph = CustomNodeGraph()
+    # 1. Создаем компоненты
+    graph = CustomNodeGraph()
+    register_all_nodes(graph)
+    graph_widget = graph.widget
+    graph_widget.setObjectName("GraphWidgetMain")
+    graph_widget.setFocusPolicy(QtCore.Qt.StrongFocus)
 
-    # Привязываем граф к панели свойств (если она уже создана)
-    if hasattr(mw, "props_bin") and mw.props_bin is not None:
-        mw.props_bin.set_graph(mw.graph)
+    # РЕФАКТОРИНГ: Передаем корректный родительский виджет в конструктор
+    left_palette = NodesPaletteWidget(parent=main_window)
+    right_outliner = RightOutlinerWidget(main_window)
 
-    # Фокус, чтобы события выделения/клавиши доходили до графа
-    mw.graph.widget.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
-    mw.graph.widget.setFocus()
+    # 2. Компонуем их в сплиттере
+    split_h = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+    split_h.setObjectName("BottomWorkSplitH")
+    split_h.setChildrenCollapsible(False)
+    split_h.addWidget(left_palette)
+    split_h.addWidget(cast(QtWidgets.QWidget, graph_widget))
+    split_h.addWidget(right_outliner)
+    split_h.setSizes([260, 1000, 320])
 
-    register_all_nodes(mw.graph)
-
-    graph_widget = mw.graph.widget
-    graph_widget.setObjectName("Основной граф 'Ландшафт'")
-    graph_widget.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
-
-    # 1) Превью не должно воровать клавиатуру
-    mw.preview_widget.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
-
-    # 2) Сплиттер: превью сверху, граф снизу
-    splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
-    splitter.addWidget(mw.preview_widget)
-    splitter.addWidget(cast(QtWidgets.QWidget, graph_widget))
-    splitter.setSizes([400, 600])
-    mw.setCentralWidget(splitter)
-
-
-
-    # 3) Реальный QGraphicsView внутри graph_widget
-    view = graph_widget.findChild(QtWidgets.QGraphicsView) or graph_widget
-    if isinstance(view, QtWidgets.QGraphicsView):
-        view.setDragMode(QtWidgets.QGraphicsView.RubberBandDrag)
-
-    # 4) Шорткаты удаления на канву (один раз)
-    if not getattr(view, "_delete_shortcuts_installed", False):
-        def _do_delete():
-            sel = [n.name() for n in mw.graph.selected_nodes()]
-            logger.debug("[DELETE] shortcut fired; selected=%s", sel)
-            if sel:
-                mw.graph.delete_nodes(mw.graph.selected_nodes())
-
-        del_sc = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Delete), view)
-        del_sc.setContext(QtCore.Qt.ShortcutContext.WidgetShortcut)
-        del_sc.activated.connect(_do_delete)
-
-        back_sc = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Backspace), view)
-        back_sc.setContext(QtCore.Qt.ShortcutContext.WidgetShortcut)
-        back_sc.activated.connect(_do_delete)
-
-        grp_sc = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+G"), view)
-        grp_sc.setContext(QtCore.Qt.ShortcutContext.WidgetShortcut)
-        grp_sc.activated.connect(lambda: getattr(mw.graph, "_create_backdrop_around_selection", lambda: None)())
-
-
-        # Диагностика клавиш — можно удалить позже
-        class _KeySpy(QtCore.QObject):
-            def eventFilter(self, o, e):
-                if e.type() == QtCore.QEvent.Type.KeyPress:
-                    try:
-                        key_name = QtCore.Qt.Key(e.key()).name
-                    except Exception:
-                        key_name = str(e.key())
-                    logger.debug("[KEY on VIEW] %s (focus=%s)",
-                                 key_name, QtWidgets.QApplication.focusWidget())
-                return super().eventFilter(o, e)
-
-        view.installEventFilter(_KeySpy(view))
-        view._delete_shortcuts_installed = True
-
-    # 5) Фокус на канву — уже после сборки центрального виджета
-    view.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
-    QtCore.QTimer.singleShot(0, lambda: view.setFocus(QtCore.Qt.FocusReason.ActiveWindowFocusReason))
-
-    # 6) Контекстное меню через eventFilter на viewport (железный способ)
-    if isinstance(view, QtWidgets.QGraphicsView):
-        vp = view.viewport()
-
-        class _CtxMenuHook(QtCore.QObject):
-            def __init__(self, graph, src):
-                super().__init__(src)
-                self._graph = graph
-                self._src = src
-            def eventFilter(self, o, e):
-                if e.type() == QtCore.QEvent.Type.ContextMenu:
-                    # показать наше меню и погасить дефолтное
-                    try:
-                        self._graph.show_context_menu_at(e.pos(), self._src)
-                        e.accept()
-                        return True
-                    except Exception as ex:
-                        logger.exception("ContextMenu hook failed: %s", ex)
-                return False
-
-        hook = _CtxMenuHook(mw.graph, vp)
-        vp.installEventFilter(hook)
-        # чтобы объект не собрался GC:
-        view._ctx_menu_hook = hook
+    # 3. Возвращаем все созданные объекты, чтобы вызывающий код мог ими управлять
+    return split_h, graph, left_palette, right_outliner

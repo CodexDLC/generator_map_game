@@ -1,259 +1,123 @@
 # ==============================================================================
 # Файл: editor/ui_panels/nodes_palette_panel.py
-# Кастомная палитра: поиск, скрытие служебных нод, устойчивость к dict/list/str
+# ВЕРСИЯ 3.1 (HOTFIX): Исправлен конструктор в соответствии с API PySide6.
 # ==============================================================================
 
-from typing import cast, Dict, Iterable, Tuple, Type, Any
-from PySide6 import QtWidgets, QtCore
+from __future__ import annotations
 import logging
+from typing import Dict, List, Tuple
+
+from PySide6 import QtWidgets, QtCore, QtGui
+
+from editor.custom_graph import CustomNodeGraph
 
 logger = logging.getLogger(__name__)
 
-# Ремап категорий: что пришло → как показывать. None = скрыть категорию целиком.
-CATEGORY_REMAP: Dict[str, str | None] = {
-    "nodeGraphQt.nodes": None,   # скрыть служебное
-    "Backdrop": None,            # скрыть Backdrop из палитры
-    "generator.noises": "Ландшафт.Шумы",
-    "Noise": "Ландшафт.Шумы",
-    # добавляй свои маппинги при необходимости
-}
 
-# Какие названия нод скрыть целиком
-HIDE_NODE_BY_NAME = {"Backdrop"}
+class _PaletteList(QtWidgets.QTreeWidget):
+    """Дерево нодов в палитре. Поддерживает Drag&Drop."""
+    # Этот класс не требует изменений
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setHeaderHidden(True)
+        self.setDragEnabled(True)
+        self.setObjectName("NodesPaletteTree")
 
-
-def _friendly_category(raw: str) -> str | None:
-    if raw in CATEGORY_REMAP:
-        return CATEGORY_REMAP[raw]
-    return raw
-
-
-def _safe_node_name(node_cls_or_str: Any) -> str:
-    if isinstance(node_cls_or_str, str):
-        # id вида "pkg.Class" → берем хвост для отображения
-        return node_cls_or_str.split(".")[-1] or node_cls_or_str
-    return getattr(node_cls_or_str, "NODE_NAME",
-                   getattr(node_cls_or_str, "__name__", str(node_cls_or_str)))
-
-
-def _safe_identifier(node_cls_or_str: Any) -> str:
-    if isinstance(node_cls_or_str, str):
-        # node_type вида "<identifier>.<ClassName>" -> берём левую часть как категорию
-        return node_cls_or_str.rsplit(".", 1)[0] if "." in node_cls_or_str else "Прочее"
-    return getattr(node_cls_or_str, "__identifier__", "Прочее")
+    def startDrag(self, supportedActions):
+        item = self.currentItem()
+        if not item or item.childCount() > 0: # Нельзя перетаскивать категории
+            return
+        node_id = item.data(0, QtCore.Qt.UserRole)
+        if not node_id:
+            return
+        drag = QtGui.QDrag(self)
+        mime = QtCore.QMimeData()
+        mime.setData("application/x-node-id", str(node_id).encode("utf-8"))
+        drag.setMimeData(mime)
+        drag.exec(QtCore.Qt.CopyAction)
 
 
 class NodesPaletteWidget(QtWidgets.QWidget):
-    def __init__(self, main_window, include_predicate=None):
-        super().__init__(parent=main_window)
-        self.main_window = main_window
-        self._include_predicate = include_predicate or (lambda ident, name, node_id: True)
+    """Встраиваемая палитра нодов, получающая данные от графа."""
 
-        self.search = QtWidgets.QLineEdit(placeholderText="Поиск нод…")
-        self.search.textChanged.connect(self._rebuild)
+    # РЕФАКТОРИНГ: Конструктор теперь принимает только `parent`
+    def __init__(self, parent: QtWidgets.QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("LeftNodesPalette")
 
-        self.tree = QtWidgets.QTreeWidget()
-        self.tree.setHeaderHidden(True)
-        self.tree.setExpandsOnDoubleClick(True)
-        self.tree.itemActivated.connect(self._on_item_activated)
+        self._graph: CustomNodeGraph | None = None
+        self._spawn_guard = False
+        self._node_catalogue: Dict[str, List[Tuple[str, str]]] = {}
 
-        def _toggle_if_category(item: QtWidgets.QTreeWidgetItem, _col: int):
-            # Категории у нас без UserRole-данных
-            if item.data(0, QtCore.Qt.UserRole) is None:
-                item.setExpanded(not item.isExpanded())
+        root = QtWidgets.QVBoxLayout(self)
+        root.setContentsMargins(8, 8, 8, 8)
+        root.setSpacing(6)
 
-        self.tree.itemClicked.connect(_toggle_if_category)
+        self._search = QtWidgets.QLineEdit(self)
+        self._search.setPlaceholderText("Поиск ноды…")
+        self._search.textChanged.connect(self.repaint_list)
+        root.addWidget(self._search)
 
-        lay = QtWidgets.QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.addWidget(self.search)
-        lay.addWidget(self.tree)
+        self._list = _PaletteList(self)
+        self._list.itemActivated.connect(self._on_item_activated)
+        root.addWidget(self._list, 1)
 
-        self._rebuild()
+    def bind_graph(self, graph: CustomNodeGraph):
+        """Получает граф, запрашивает у него каталог нод и строит список."""
+        self._graph = graph
+        self._node_catalogue = self._graph.get_node_catalogue()
+        self.repaint_list()
 
-    # ---------- сборка данных ----------
-    def _iter_registered(self) -> Iterable[Tuple[str | None, Any]]:
-        """
-        Унифицируем разные варианты API:
-        - dict {node_id: class}
-        - list [class, ...]
-        - list [(node_id, class), ...]
-        - list [node_id:str, ...]
-        Возвращаем последовательность пар (node_id|None, class|str).
-        """
-        graph = self.main_window.get_active_graph()
-        if not graph:
-            return []
+    def repaint_list(self):
+        """Перерисовывает дерево на основе каталога и текста в поиске."""
+        self._list.clear()
+        search_text = self._search.text().strip().lower()
 
-        reg = graph.registered_nodes()
+        for category, nodes in self._node_catalogue.items():
+            filtered_nodes = [
+                (name, node_id) for name, node_id in nodes
+                if not search_text or search_text in name.lower()
+            ]
 
-        # dict
-        if isinstance(reg, dict):
-            return list(reg.items())
+            if filtered_nodes:
+                cat_item = QtWidgets.QTreeWidgetItem([category])
+                self._list.addTopLevelItem(cat_item)
+                for name, node_id in filtered_nodes:
+                    node_item = QtWidgets.QTreeWidgetItem([name])
+                    node_item.setData(0, QtCore.Qt.UserRole, node_id)
+                    node_item.setToolTip(0, f"ID: {node_id}")
+                    cat_item.addChild(node_item)
 
-        # list
-        out: list[Tuple[str | None, Any]] = []
-        for el in reg:
-            if isinstance(el, tuple) and len(el) == 2:
-                out.append((el[0], el[1]))
-            elif isinstance(el, str):
-                out.append((el, el))  # id известен, класса нет
-            else:
-                out.append((None, el))  # класс без id
-        return out
+        if search_text:
+            self._list.expandAll()
+        else:
+            self._list.collapseAll()
 
-    def _collect_nodes(self):
-        """
-        Возвращает словарь: {категория: [spec, ...]}
-        где spec = {
-            "name":  отображаемое имя,
-            "by_name": токен создания по NODE_NAME (если есть),
-            "by_id":  токен создания по node_id (если есть),
-            "type":   "<identifier>.<ClassName>" (если можно построить),
-            "ident":  исходный __identifier__ (для поиска/фильтра)
-        }
-        """
-        by_cat: Dict[str, list[dict]] = {}
+    @QtCore.Slot(QtWidgets.QTreeWidgetItem, int)
+    def _on_item_activated(self, item: QtWidgets.QTreeWidgetItem, column: int):
+        node_id = item.data(0, QtCore.Qt.UserRole)
+        if node_id and self._graph:
+            self._spawn_in_graph(node_id)
 
-        for node_id, cls_or_str in self._iter_registered():
-            name = _safe_node_name(cls_or_str)
-            ident = _safe_identifier(cls_or_str)
-
-            # 1) скрываем служебное (nodeGraphQt.*) и явные исключения (Backdrop)
-            if isinstance(ident, str) and ident.startswith("nodeGraphQt"):
-                continue
-            if name in HIDE_NODE_BY_NAME:
-                continue
-
-            # 2) фильтр текущей вкладки (ident, name, node_id:str|None)
-            node_id_str = node_id if isinstance(node_id, str) else None
-            if not self._include_predicate(ident, name, node_id_str):
-                continue
-
-            # 3) человекочитаемая категория (ремап/скрытие)
-            cat = _friendly_category(ident)
-            if cat is None:
-                continue
-
-            # 4) подготовим все возможные «токены» для создания ноды
-            by_name = name if not isinstance(cls_or_str, str) else None
-            by_id = node_id_str
-            type_token = None
-            if not isinstance(cls_or_str, str):
-                ident_attr = getattr(cls_or_str, "__identifier__", None)
-                cls_name = getattr(cls_or_str, "__name__", None)
-                if ident_attr and cls_name:
-                    type_token = f"{ident_attr}.{cls_name}"
-
-            spec = {
-                "name": name,
-                "by_name": by_name,
-                "by_id": by_id,
-                "type": type_token,
-                "ident": ident,
-            }
-            by_cat.setdefault(cat, []).append(spec)
-
-        # 5) сортировки: внутри категорий по имени, категории по алфавиту
-        for cat, items in by_cat.items():
-            items.sort(key=lambda s: s["name"].lower())
-        by_cat_sorted = dict(sorted(by_cat.items(), key=lambda kv: kv[0].lower()))
-        return by_cat_sorted
-
-    def _rebuild(self):
-        self.tree.clear()
-        data = self._collect_nodes()
-        q = self.search.text().strip().lower()
-        total_nodes = 0
-
-        # чтобы были видны стрелки разворота на всех стилях
-        self.tree.setRootIsDecorated(True)
-
-        for cat, items in data.items():
-            # фильтр по поиску
-            filtered = []
-            for s in items:
-                full = f"{s['name']} {s['ident']} {s.get('by_id', '')}".lower()
-                if not q or q in full:
-                    filtered.append(s)
-            if not filtered:
-                continue
-
-            total_nodes += len(filtered)
-            # подпишем количество нод в категории
-            title = f"{cat.replace('.', ' / ')} ({len(filtered)})"
-            cat_item = QtWidgets.QTreeWidgetItem([title])
-            cat_item.setFlags(cat_item.flags() & ~QtCore.Qt.ItemIsSelectable)
-            self.tree.addTopLevelItem(cat_item)
-
-            for s in filtered:
-                item = QtWidgets.QTreeWidgetItem([s["name"]])
-                item.setData(0, QtCore.Qt.UserRole, s)
-                cat_item.addChild(item)
-
-            # РАСКРЫВАЕМ ВСЕГДА
-            cat_item.setExpanded(True)
-
-        # На всякий случай — раскроем всё
-        self.tree.expandAll()
-
-        # Если совсем пусто — добавим мягкую подсказку
-        if total_nodes == 0:
-            hint = QtWidgets.QTreeWidgetItem(["(нет доступных нод)"])
-            hint.setFlags(hint.flags() & ~QtCore.Qt.ItemIsSelectable)
-            self.tree.addTopLevelItem(hint)
-
-    # ---------- действия ----------
-    def _on_item_activated(self, item: QtWidgets.QTreeWidgetItem, _col: int):
-        spec = item.data(0, QtCore.Qt.UserRole)
-        if not spec:
-            return  # клик по заголовку категории
-
-        graph = self.main_window.get_active_graph()
-        if not graph:
+    def _spawn_in_graph(self, node_id: str):
+        if self._spawn_guard or self._graph is None:
             return
+        self._spawn_guard = True
+        try:
+            view = self._graph.widget.findChild(QtWidgets.QGraphicsView)
+            scene_pos = None
+            if view:
+                global_pos = QtGui.QCursor.pos()
+                view_pos = view.mapFromGlobal(global_pos)
+                scene_pos_qpoint = view.mapToScene(view_pos)
+                scene_pos = (scene_pos_qpoint.x(), scene_pos_qpoint.y())
 
-        # Порядок попыток: по имени → по id → по type
-        tried = []
-        for token_key in ("by_name", "by_id", "type"):
-            token = spec.get(token_key)
-            if not token:
-                continue
-            try:
-                node = graph.create_node(token)
-                return  # успех
-            except Exception as e:
-                tried.append(f"{token_key}={token}: {e}")
+            if scene_pos is None and view:
+                r = view.viewport().rect()
+                center_scene_pos = view.mapToScene(r.center())
+                scene_pos = (center_scene_pos.x(), center_scene_pos.y())
 
-        logger.warning("Не удалось создать ноду '%s'. Попытки: %s",
-                       spec.get("name", "?"), " | ".join(tried))
+            self._graph.create_node(node_id, pos=scene_pos)
 
-
-def create_nodes_palette_dock(main_window) -> None:
-    """
-    Док с вкладками палитр:
-      - Все
-      - Высоты (идентификатор начинается с 'Ландшафт')
-      - Климат   (идентификатор начинается с 'Климат')
-      - Биомы    (идентификатор начинается с 'Биомы')
-    Если у тебя другие префиксы — поправь тут один раз.
-    """
-    tabs = QtWidgets.QTabWidget()
-
-    def make_tab(title: str, pred):
-        w = NodesPaletteWidget(main_window, include_predicate=pred)
-        tabs.addTab(w, title)
-
-    # Все ноды
-    make_tab("Все", lambda ident, name, node_id: True)
-    # Высоты / климат / биомы по префиксам идентификатора категории
-    make_tab("Высоты", lambda ident, *_: ident.startswith("Ландшафт"))
-    make_tab("Климат", lambda ident, *_: ident.startswith("Климат"))
-    make_tab("Биомы",  lambda ident, *_: ident.startswith("Биомы"))
-
-    dock = QtWidgets.QDockWidget("Палитра Нодов", main_window)
-    dock.setObjectName("Панель 'Палитра Нодов'")
-    dock.setWidget(tabs)
-
-    main_window.addDockWidget(QtCore.Qt.LeftDockWidgetArea, dock)
-    main_window.dock_nodes = dock
+        finally:
+            QtCore.QTimer.singleShot(0, lambda: setattr(self, "_spawn_guard", False))

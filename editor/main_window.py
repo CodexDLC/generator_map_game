@@ -1,369 +1,272 @@
 # ==============================================================================
-# Файл: editor/main_window.py
-# ВЕРСИЯ 9.0: Распил по модулям (central_graph, menu, shortcuts, signals, binding, queries)
+# Файл: main_window.py
+# ВЕРСИЯ 5.4 (РЕФАКТОРИНГ): Уточнена обработка исключений при создании Preview3DWidget.
+# - Заменено общее 'except Exception' на более конкретные исключения.
 # ==============================================================================
+
+from __future__ import annotations
+
 import logging
+from typing import Optional
 
+from PySide6 import QtWidgets, QtCore, QtGui
 
-from PySide6 import QtWidgets, QtCore
-from NodeGraphQt import NodeGraph
+from editor.graph_runner import run_graph
+from editor.nodes.height.io.output_node import OutputNode
 
-from .actions.close_actions import handle_close_event
-from .compute_manager import ComputeManager
-from .actions.preset_actions import (
-    load_preset_into_graph,
-    handle_new_preset,
-    handle_delete_preset,
-    handle_save_active_preset,
-)
-from .actions.project_actions import on_save_project, load_project_data
-from .actions.generation_actions import on_generate_world
-from .actions.pipeline_actions import on_save_pipeline, on_load_pipeline
-from .graph.queries import require_output_node
-
-# --- UI компоненты ---
-from .nodes.base_node import GeneratorNode
-from .nodes.node_registry import register_all_nodes
-from .preview_widget import Preview3DWidget
-from .ui_panels.central_graph import setup_central_graph_ui
-from .ui_panels.menu import build_menu
-from .ui_panels.project_binding import apply_project_to_ui, collect_context_from_ui
-from .ui_panels.project_params_panel import create_project_params_dock
-from .ui_panels.global_noise_panel import create_global_noise_dock
-from .ui_panels.nodes_palette_panel import create_nodes_palette_dock
-from .ui_panels.properties_panel import create_properties_dock
-from .ui_panels.accordion_properties import AccordionProperties
-from .ui_panels.compute_panel import create_compute_dock
-from .ui_panels.region_presets_panel import create_region_presets_dock
-from .ui_panels.shortcuts import install_global_shortcuts
-
-# --- Новые хелперы ---
+from editor.theme import APP_STYLE_SHEET
+from editor.ui_panels.central_graph import create_bottom_work_area_v2
+from editor.ui_panels.menu import build_menus
+from editor.ui_panels.accordion_properties import create_properties_widget
+from editor.ui_panels.shortcuts import install_shortcuts
+from editor.preview_widget import Preview3DWidget
+from editor.project_manager import ProjectManager
 
 logger = logging.getLogger(__name__)
 
 
 class MainWindow(QtWidgets.QMainWindow):
-    def __init__(self, project_path: str):
-        super().__init__()
-        logger.info("Initializing MainWindow...")
-        self.current_project_path = project_path
+    def __init__(self, *args, **kwargs) -> None:
+        project_path: Optional[str] = kwargs.pop("project_path", None)
+        super().__init__(*args, **kwargs)
 
-        self._init_ui_attributes()
-        project_data = self.get_project_data()
-        if not project_data:
-            QtWidgets.QMessageBox.critical(self, "Ошибка проекта", "Не удалось загрузить данные.")
-            QtCore.QTimer.singleShot(0, self.close)
-            return
-
-        self.compute_manager = ComputeManager(self)
         self.setWindowTitle("Редактор Миров")
         self.resize(1600, 900)
-        self.setTabPosition(
-            QtCore.Qt.DockWidgetArea.AllDockWidgetAreas,
-            QtWidgets.QTabWidget.TabPosition.North,
-        )
 
-        # Центральная часть (граф + превью)
-        self._setup_central_widget()
-        # Док-панели
-        self._setup_docks()
-        # Меню и хоткеи
-        build_menu(self)
-        install_global_shortcuts(self)
+        self.setAttribute(QtCore.Qt.WA_StyledBackground, True)
 
-        self.setStatusBar(QtWidgets.QStatusBar())
+        self.project_manager = ProjectManager(self)
 
-        # Привязка данных проекта к UI
-        apply_project_to_ui(self, project_data)
-        self._load_presets_list()
-        self.statusBar().showMessage(f"Проект загружен: {project_path}", 5000)
-
-        # Сигналы
-        self._connect_signals()
-
-    # -- Инициализация простых атрибутов --
-    def _init_ui_attributes(self):
+        # --- UI-компоненты ---
         self.graph = None
-        self.preview_widget = Preview3DWidget()
-        self.presets_list_widget = None
-        self.dock_region_presets = self.dock_nodes = self.dock_props = None
-        self.dock_project_params = self.dock_global_noise = None
-        self.seed_input = self.global_x_offset_input = self.global_z_offset_input = None
-        self.chunk_size_input = self.region_size_input = self.cell_size_input = None
-        self.total_size_label = None
-        self.gn_scale_input = self.gn_octaves_input = self.gn_amp_input = None
-        self.gn_ridge_checkbox = None
-        self.apply_button = self.apply_tiled_button = None
-        self.wants_restart = False
+        self.preview_widget = None
+        self.props_bin = None
+        self.right_outliner = None
+        self.left_palette = None
 
-    # -- Вспомогательные обёртки для меню (чтобы ui/menu.py не тянул actions) --
-    def _return_to_manager(self):
-        self.wants_restart = True
-        self.close()
+        # --- Виджеты параметров ---
+        self.seed_input: QtWidgets.QSpinBox | None = None
+        self.chunk_size_input: QtWidgets.QSpinBox | None = None
+        self.region_size_in_chunks_input: QtWidgets.QSpinBox | None = None
+        self.cell_size_input: QtWidgets.QDoubleSpinBox | None = None
+        self.global_x_offset_input: QtWidgets.QDoubleSpinBox | None = None
+        self.global_z_offset_input: QtWidgets.QDoubleSpinBox | None = None
+        self.gn_scale_input: QtWidgets.QDoubleSpinBox | None = None
+        self.gn_octaves_input: QtWidgets.QSpinBox | None = None
+        self.gn_amp_input: QtWidgets.QDoubleSpinBox | None = None
+        self.gn_ridge_checkbox: QtWidgets.QCheckBox | None = None
 
-    def on_generate_world_menu(self):
-        on_generate_world(self)
+        self._build_ui()
 
-    def on_load_pipeline_menu(self):
-        on_load_pipeline(self)
+        build_menus(self)
+        install_shortcuts(self)
 
-    def on_save_pipeline_menu(self):
-        on_save_pipeline(self)
+        if project_path:
+            self.project_manager.load_project(project_path)
 
-    # -- Graph getter для PropertiesBinWidget --
-    def get_active_graph(self) -> NodeGraph | None:
-        return self.graph
+    def _build_ui(self) -> None:
+        try:
+            self.preview_widget = Preview3DWidget(self)
+        except (ImportError, RuntimeError) as e: # Уточненные исключения
+            logger.exception(f"Не удалось создать Preview3DWidget: {e}")
+            lbl = QtWidgets.QLabel("Preview widget failed to load")
+            lbl.setAlignment(QtCore.Qt.AlignCenter)
+            self.preview_widget = lbl
 
-    # -- Центральная часть --
-    def _setup_central_widget(self):
-        setup_central_graph_ui(self)
+        bottom_work_area, self.graph, self.left_palette, self.right_outliner = create_bottom_work_area_v2(self)
 
-    # -- Док-панели (оставили как было) --
+        tabs_left = self._create_left_tabs()
+        tabs_right = self._create_right_tabs()
 
-    def _setup_docks(self):
-        self.setDockNestingEnabled(True)
+        top_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal, self)
+        top_splitter.addWidget(tabs_left)
+        top_splitter.addWidget(self.preview_widget)
+        top_splitter.addWidget(tabs_right)
+        top_splitter.setStretchFactor(1, 1)
+        top_splitter.setSizes([360, 900, 420])
 
-        # 1. Создаем все панели, КРОМЕ старой панели свойств
-        create_region_presets_dock(self)
-        create_project_params_dock(self)
-        create_global_noise_dock(self)
-        create_compute_dock(self)
-        create_nodes_palette_dock(self)
+        main_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical, self)
+        main_splitter.addWidget(top_splitter)
+        main_splitter.addWidget(bottom_work_area)
+        main_splitter.setSizes([int(self.height() * 0.55), int(self.height() * 0.45)])
 
-        # 2. Создаем и добавляем ТОЛЬКО новую панель-аккордеон
-        acc_dock = QtWidgets.QDockWidget("Свойства", self)
-        acc_dock.setObjectName("Панель 'Свойства'")
-        self.acc_props = AccordionProperties(graph=self.graph, parent=acc_dock)
-        acc_dock.setWidget(self.acc_props)
-        self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, acc_dock)
+        self.setCentralWidget(main_splitter)
+        self._connect_components()
 
-        # 3. Сохраняем ссылку на новую панель в self.dock_props для группировки
-        #    (Это нужно, чтобы tabifyDockWidget работал как раньше)
-        self.dock_props = acc_dock
+    def _create_project_params_panel(self) -> QtWidgets.QWidget:
+        panel = QtWidgets.QWidget()
+        layout = QtWidgets.QFormLayout(panel)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
 
-        # 4. Подписываемся на сигнал выбора ноды, если нужно (например, для вкладки "Описание")
+        self.seed_input = QtWidgets.QSpinBox()
+        self.seed_input.setRange(0, 999999999)
+        layout.addRow("Seed:", self.seed_input)
+
+        self.chunk_size_input = QtWidgets.QSpinBox()
+        self.chunk_size_input.setRange(16, 2048)
+        self.chunk_size_input.setSingleStep(16)
+        layout.addRow("Размер чанка:", self.chunk_size_input)
+
+        self.region_size_in_chunks_input = QtWidgets.QSpinBox()
+        self.region_size_in_chunks_input.setRange(1, 16)
+        layout.addRow("Регион (в чанках):", self.region_size_in_chunks_input)
+
+        self.cell_size_input = QtWidgets.QDoubleSpinBox()
+        self.cell_size_input.setRange(0.1, 10.0)
+        self.cell_size_input.setSingleStep(0.1)
+        self.cell_size_input.setDecimals(1)
+        layout.addRow("Размер ячейки:", self.cell_size_input)
+
+        self.global_x_offset_input = QtWidgets.QDoubleSpinBox()
+        self.global_x_offset_input.setRange(-1000000.0, 1000000.0)
+        layout.addRow("Смещение X:", self.global_x_offset_input)
+
+        self.global_z_offset_input = QtWidgets.QDoubleSpinBox()
+        self.global_z_offset_input.setRange(-1000000.0, 1000000.0)
+        layout.addRow("Смещение Z:", self.global_z_offset_input)
+
+        layout.addItem(QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding))
+        return panel
+
+    def _create_global_noise_panel(self) -> QtWidgets.QWidget:
+        panel = QtWidgets.QWidget()
+        layout = QtWidgets.QFormLayout(panel)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        self.gn_scale_input = QtWidgets.QDoubleSpinBox()
+        self.gn_scale_input.setRange(1.0, 100000.0)
+        self.gn_scale_input.setSingleStep(100.0)
+        layout.addRow("Масштаб:", self.gn_scale_input)
+
+        self.gn_octaves_input = QtWidgets.QSpinBox()
+        self.gn_octaves_input.setRange(1, 10)
+        layout.addRow("Октавы:", self.gn_octaves_input)
+
+        self.gn_amp_input = QtWidgets.QDoubleSpinBox()
+        self.gn_amp_input.setRange(0.0, 1000.0)
+        layout.addRow("Амплитуда (м):", self.gn_amp_input)
+
+        self.gn_ridge_checkbox = QtWidgets.QCheckBox()
+        layout.addRow("Ridge:", self.gn_ridge_checkbox)
+
+        layout.addItem(QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding))
+        return panel
+
+    def _create_left_tabs(self) -> QtWidgets.QTabWidget:
+        tabs = QtWidgets.QTabWidget()
+        tabs.setDocumentMode(True)
+        
+        project_params_panel = self._create_project_params_panel()
+        tabs.addTab(project_params_panel, "Параметры Проекта")
+
+        global_noise_panel = self._create_global_noise_panel()
+        tabs.addTab(global_noise_panel, "Глобальный Шум")
+        
+        return tabs
+
+    def _create_right_tabs(self) -> QtWidgets.QTabWidget:
+        tabs = QtWidgets.QTabWidget()
+        tabs.setDocumentMode(True)
+        self.props_bin = create_properties_widget(self)
+        tabs.addTab(self.props_bin, "Параметры")
+        tabs.addTab(QtWidgets.QWidget(), "Нода")
+        return tabs
+
+    def _connect_components(self):
         if self.graph:
-            # AccordionProperties уже сам слушает этот сигнал для обновления,
-            # но этот connect может быть нужен для других кастомных действий.
-            self.graph.node_selected.connect(self._on_node_selected)
+            if self.props_bin: self.props_bin.set_graph(self.graph)
+            if self.right_outliner: self.right_outliner.bind_graph(self.graph)
+            if self.left_palette: self.left_palette.bind_graph(self.graph)
 
-        # 5. Группируем док-панели во вкладки, как и было
-        self.tabifyDockWidget(self.dock_region_presets, self.dock_nodes)
-        self.tabifyDockWidget(self.dock_project_params, self.dock_global_noise)
-        self.tabifyDockWidget(self.dock_global_noise, self.dock_props)
+            self.graph.finalize_setup()
+            
+            self.graph.structure_changed.connect(self._mark_dirty)
+            self.graph.property_changed.connect(self._mark_dirty)
 
-    # -- UI busy state --
-    def _set_ui_busy(self, busy: bool):
-        """Включает/выключает состояние занятости без тайловой кнопки."""
-        if getattr(self, "apply_button", None):
-            self.apply_button.setEnabled(not busy)
-        atb = getattr(self, "apply_tiled_button", None)
-        if atb:  # если вдруг живёт где-то в старом лэйауте
-            atb.setEnabled(False)
-            atb.setVisible(False)
+        for widget in [self.seed_input, self.chunk_size_input, self.region_size_in_chunks_input, 
+                       self.cell_size_input, self.global_x_offset_input, self.global_z_offset_input, 
+                       self.gn_scale_input, self.gn_octaves_input, self.gn_amp_input]:
+            if widget and isinstance(widget, (QtWidgets.QSpinBox, QtWidgets.QDoubleSpinBox)):
+                widget.valueChanged.connect(self._mark_dirty)
+        
+        if self.gn_ridge_checkbox:
+            self.gn_ridge_checkbox.toggled.connect(self._mark_dirty)
 
-    # -- Запуски вычислений --
-    def _on_apply_clicked(self):
-        graph = self.get_active_graph()
-        if not graph:
-            return
-        output_node = require_output_node(self, graph)
-        if not output_node:
-            return
-        context = collect_context_from_ui(self)
-        self.compute_manager.start_single_compute(output_node, context)
+        if self.right_outliner:
+            self.right_outliner.apply_clicked.connect(self._on_apply_clicked)
 
-    def _on_apply_tiled_clicked(self):
-        """Совместимость: тайлов больше нет — запускаем обычный расчёт."""
-        self._on_apply_clicked()
+    def new_project(self):
+        self.project_manager.new_project()
 
-    # -- Делегаты из меню --
-    def on_new_preset_clicked(self):
-        handle_new_preset(self)
+    def open_project(self):
+        self.project_manager.open_project()
 
-    def on_delete_preset_clicked(self):
-        handle_delete_preset(self)
+    def save_project(self) -> bool:
+        return self.project_manager.save_project()
 
-    def on_save_active_preset_clicked(self):
-        handle_save_active_preset(self)
+    def _mark_dirty(self, *args, **kwargs):
+        self.project_manager.mark_dirty(True)
 
-    def on_save_project(self):
-        on_save_project(self)
-
-    # -- Проектные данные --
-    def get_project_data(self) -> dict | None:
-        data = load_project_data(self.current_project_path)
-        if data is None:
-            self.statusBar().showMessage("Ошибка чтения файла проекта!", 5000)
-        return data
-
-    # -- Пресеты списка --
-    def _load_presets_list(self):
-        self.presets_list_widget.currentItemChanged.disconnect(self.on_preset_selected)
-        self.presets_list_widget.clear()
-        project_data = self.get_project_data()
-        if not project_data:
-            return
-        presets = project_data.get("region_presets", {})
-        active_preset_name = project_data.get("active_preset_name", "")
-        item_to_select = None
-        for name in presets.keys():
-            item = QtWidgets.QListWidgetItem(name)
-            self.presets_list_widget.addItem(item)
-            if name == active_preset_name:
-                item_to_select = item
-        self.presets_list_widget.currentItemChanged.connect(self.on_preset_selected)
-        if item_to_select:
-            self.presets_list_widget.setCurrentItem(item_to_select)
-        elif self.presets_list_widget.count() > 0:
-            self.presets_list_widget.setCurrentRow(0)
-
-    def _update_preset_list_font(self):
-        project_data = self.get_project_data()
-        if not project_data:
-            return
-        active_preset_name = project_data.get("active_preset_name", "")
-        for i in range(self.presets_list_widget.count()):
-            item = self.presets_list_widget.item(i)
-            font = item.font()
-            font.setBold(item.text() == active_preset_name)
-            item.setFont(font)
-
-    def _connect_signals(self):
-        """
-        Склеивает все сигналы UI/воркеров. Версия без тайловых сигналов.
-        """
-        cm = self.compute_manager
-
-        # --- Compute → Preview/Status ---
-
-        # 1. Временно отключаем старое подключение
-        cm.display_mesh.connect(
-            self.preview_widget.update_mesh,
-            type=QtCore.Qt.ConnectionType.QueuedConnection
-        )
-
-        cm.display_status_message.connect(self.statusBar().showMessage)
-        cm.show_error_dialog.connect(
-            lambda title, msg: QtWidgets.QMessageBox.critical(self, title, msg)
-        )
-        cm.set_busy_mode.connect(self._set_ui_busy)
-
-        # --- Кнопки APPLY ---
-        self.apply_button.clicked.connect(self._on_apply_clicked)
-
-        # если где-то ещё создаётся apply_tiled_button — безопасно игнорируем
-        if getattr(self, "apply_tiled_button", None):
-            try:
-                self.apply_tiled_button.clicked.disconnect()
-            except Exception:
-                pass
-            self.apply_tiled_button.setEnabled(False)
-            self.apply_tiled_button.setVisible(False)
-
-        # --- Список пресетов ---
-        if self.presets_list_widget is not None:
-            self.presets_list_widget.currentItemChanged.connect(self.on_preset_selected)
-
-        # --- Граф: реагируем на изменение свойств, чтобы помечать ноды грязными ---
-        if self.graph is not None:
-            try:
-                self.graph.property_changed.connect(self._on_node_property_changed)
-            except Exception:
-                # На некоторых версиях NodeGraphQt сигнал может называться иначе — не падаем.
-                pass
-
-    def on_preset_selected(self, current_item: QtWidgets.QListWidgetItem):
-        if not current_item:
-            return
-        preset_name = current_item.text()
-        project_data = self.get_project_data()
-        if not project_data:
-            return
-        project_data["active_preset_name"] = preset_name
-        self._update_preset_list_font()
-        preset_info = project_data.get("region_presets", {}).get(preset_name)
-        if not preset_info:
-            logger.error(f"Preset '{preset_name}' not found in project.json")
-            return
-        load_preset_into_graph(self, preset_info)
-        self.statusBar().showMessage(f"Пресет '{preset_name}' загружен", 4000)
-
-    # -- Свойства/описание ноды --
-    def _on_node_selected(self, node):
-        """
-        Вызывается при выборе ноды.
-        Теперь отвечает ТОЛЬКО за кастомную вкладку "Описание".
-        """
-        # Эта проверка остается на всякий случай
-        if not self.dock_props:
-            return
-
-        props_bin = self.dock_props.widget()
-        if not props_bin:
-            return
-
-        # Наша кастомная логика для вкладки "Описание"
-        # Она не мешает работе виджета
-        tab_widget = props_bin.findChild(QtWidgets.QTabWidget)
-        if not tab_widget:
-            return
-        # Сначала удаляем старую вкладку "Описание", если она есть
-        for i in range(tab_widget.count()):
-            if tab_widget.tabText(i) == "Описание":
-                tab_widget.removeTab(i)
-                break
-
-        # Если выбрана наша нода, добавляем для нее "Описание"
-        if isinstance(node, GeneratorNode):
-            desc_widget = QtWidgets.QWidget()
-            layout = QtWidgets.QVBoxLayout(desc_widget)
-            text_label = QtWidgets.QLabel(node.get_description())
-            text_label.setWordWrap(True)
-            text_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignTop)
-            layout.addWidget(text_label)
-            tab_widget.addTab(desc_widget, "Описание")
-
-    def _on_node_property_changed(self, node, prop_name, prop_value):
-        if isinstance(node, GeneratorNode):
-            node.mark_dirty()
-
-    # -- Закрытие --
-    def closeEvent(self, event):
-        """Перехватывает закрытие и передает управление в close_actions."""
-        # Вся сложная логика теперь в отдельном файле
-        handle_close_event(self, event)
-
-        # Если событие было принято (не отменено), корректно завершаем фоновые процессы
-        if event.isAccepted():
-            try:
-                if hasattr(self, "compute_manager") and self.compute_manager:
-                    self.compute_manager.shutdown()
-            finally:
-                super().closeEvent(event)
+    def closeEvent(self, ev: QtGui.QCloseEvent):
+        if self.project_manager.close_project_with_confirmation():
+            ev.accept()
         else:
-            # Если пользователь нажал "Отмена", просто игнорируем событие
-            super().closeEvent(event)
+            ev.ignore()
 
-    def set_sun(self, azimuth_deg=315.0, altitude_deg=45.0):
-        # переводим в вектор
-        import math
-        az = math.radians(azimuth_deg)
-        alt = math.radians(altitude_deg)
-        lx = math.cos(alt) * math.cos(az)
-        ly = math.sin(alt)
-        lz = math.cos(alt) * math.sin(az)
-        for vis in self._tiles.values():
-            if hasattr(vis, "_hm_light"):
-                vis._hm_light.set_light_dir((lx, ly, lz))
-        self.canvas.update()
-        
-        
-    # def _on_display_impostor(self, height_map, cell_size, *rest):
-    # # можно подкрутить параметры тут
-    #     self.preview_widget.update_impostor(
-    #         height_map,
-    #         cell_size,
-    #         z_scale=1.0,
-    #         light_dir=(0.4, 0.8, 0.4),
-    #     )
+    def _on_apply_clicked(self):
+        if self.right_outliner:
+            self.right_outliner.set_busy(True)
+        try:
+            # 1. Проверяем наличие графа
+            if not self.graph:
+                raise RuntimeError("Граф не инициализирован.")
+
+            # 2. Находим выходную ноду
+            output_node = None
+            for node in self.graph.all_nodes():
+                if isinstance(node, OutputNode):
+                    output_node = node
+                    break
+            if not output_node:
+                raise RuntimeError("В графе не найдена выходная нода (OutputNode).")
+
+            # 3. Собираем контекст из UI
+            context = {
+                "seed": self.seed_input.value(),
+                "chunk_size": self.chunk_size_input.value(),
+                "region_size_in_chunks": self.region_size_in_chunks_input.value(),
+                "cell_size": self.cell_size_input.value(),
+                "global_x_offset": self.global_x_offset_input.value(),
+                "global_z_offset": self.global_z_offset_input.value(),
+                "global_noise": {
+                    "scale_tiles": self.gn_scale_input.value(),
+                    "octaves": self.gn_octaves_input.value(),
+                    "amp_m": self.gn_amp_input.value(),
+                    "ridge": self.gn_ridge_checkbox.isChecked()
+                }
+            }
+
+            # 4. Запускаем вычисление графа
+            logger.info(f"Запуск вычисления графа от ноды: {output_node.name()}")
+            height_map = run_graph(output_node, context)
+
+            # 5. Обновляем предпросмотр
+            if self.preview_widget:
+                current_cell_size = context.get("cell_size", 1.0)
+                self.preview_widget.update_mesh(height_map, current_cell_size)
+                logger.info("Виджет предпросмотра успешно обновлен.")
+            else:
+                logger.warning("Preview widget недоступен.")
+
+        except Exception as e:
+            logger.exception(f"Ошибка во время генерации мира: {e}")
+            QtWidgets.QMessageBox.critical(self, "Ошибка генерации", f"Произошла ошибка: {e}")
+        finally:
+            if self.right_outliner:
+                self.right_outliner.set_busy(False)
+
+    def _trigger_apply(self) -> None:
+        if self.right_outliner and self.right_outliner.apply_button:
+            self.right_outliner.apply_button.animateClick(10)

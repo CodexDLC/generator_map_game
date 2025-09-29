@@ -1,6 +1,6 @@
 # editor/nodes/base_node.py
-# ВЕРСИЯ 5.1: Базовая нода с compact/expanded режимом и хелперами UI/кеша.
-# -----------------------------------------------------------------------------
+# ВЕРСИЯ 5.2 (HOTFIX): Исправлена инициализация виджетов на нодах.
+# ----------------------------------------------------------------------------
 from __future__ import annotations
 
 import time
@@ -29,34 +29,27 @@ class GeneratorNode(BaseNode):
     """
     __identifier__ = 'generator.nodes'
 
-    # ------------------------------------------------------------------ ctor --
     def __init__(self):
         super().__init__()
 
         self._prop_meta: Dict[
             str, dict] = {}  # {name: {'type': 'line'|'check'|'combo', 'label': str, 'tab': str, 'items': list}}
 
-        # UI/режим
-        self._onnode_widgets: List[Any] = []   # виджеты, созданные на самой ноде
-        self._compact: bool = True             # по умолчанию — компактный режим
+        self._onnode_widgets: List[Any] = []
+        self._compact: bool = True
 
-        # Текст/подсказки
         self._description_text: str = "Описание для этой ноды не задано."
-        self._port_desc_by_name: Dict[str, str] = {}  # ключ: имя порта
+        self._port_desc_by_name: Dict[str, str] = {}
 
-        # Состояние вычислений/кеш
         self._is_dirty: bool = True
         self._result_cache: Any = None
         self._rev: int = 0
         self._last_sig: Tuple[Any, Any] | None = None
 
-        # Инициализация тултипов (отложенно, пока не появится scene/view)
         self._apply_tooltips_to_node()
         self._deferred_init_tooltips()
 
-    # --------------------------------------------------- режим отображения ----
     def set_compact(self, compact: bool) -> None:
-        """Скрыть/показать виджеты свойств на самой ноде (панель всегда работает)."""
         self._compact = bool(compact)
         for w in self._onnode_widgets:
             (UIH.hide_widget if self._compact else UIH.show_widget)(w)
@@ -68,8 +61,6 @@ class GeneratorNode(BaseNode):
 
     def toggle_compact(self) -> None:
         self.set_compact(not self._compact)
-
-    # ----------------------------------------------- добавление свойств UI ----
 
     def add_text_input(self, name, label, text='', tab='Params', group=None):
         UIH.register_text(self, self._onnode_widgets, name=name, label=label, text=text,
@@ -99,24 +90,55 @@ class GeneratorNode(BaseNode):
                            tab=tab, compact=self._compact, default=default)
         self._prop_meta[name] = {'type': 'combo', 'label': label, 'tab': UIH.safe_tab(tab),
                                  'group': group or UIH.safe_tab(tab), 'items': items}
+        
+        # --- HOTFIX: Принудительно устанавливаем значение по умолчанию, чтобы обновить виджет на ноде ---
+        if default is not None:
+            self.set_property(name, default, push_undo=False)
+
         return None
 
-    # -------------------------------------- установка property + инвалидация --
+    def properties_meta(self) -> Dict[str, dict]:
+        return self._prop_meta
+
+    def get_property(self, name: str) -> Any:
+        raw_value = super().get_property(name)
+        if name not in self._prop_meta:
+            return raw_value
+        meta = self._prop_meta[name]
+        kind = meta.get('type')
+        if raw_value is None or raw_value == '':
+            if kind in ('int', 'i'): return 0
+            if kind in ('float', 'double', 'f'): return 0.0
+            if kind == 'check': return False
+            return raw_value
+        try:
+            if kind in ('int', 'i'):
+                return int(float(str(raw_value).replace(',', '.')))
+            elif kind in ('float', 'double', 'f'):
+                return float(str(raw_value).replace(',', '.'))
+            elif kind == 'check':
+                if isinstance(raw_value, str):
+                    return raw_value.lower() in ('true', '1', 't', 'y', 'yes')
+                return bool(raw_value)
+            return str(raw_value)
+        except (ValueError, TypeError):
+            if kind in ('int', 'i'): return 0
+            if kind in ('float', 'double', 'f'): return 0.0
+            if kind == 'check': return False
+            return raw_value
+
     def set_property(self, name, value, push_undo: bool = False):
         try:
             if self.get_property(name) != value:
                 self.mark_dirty()
         except Exception:
             self.mark_dirty()
-
         if name == 'name':
             val = str(value)
             if self.name() != val:
                 self.set_name(val)
-
         super().set_property(name, value, push_undo=push_undo)
 
-    # -------------------------------------------------------------- tooltips --
     def _deferred_init_tooltips(self, tries: int = 0, delay_ms: int = 50):
         v = getattr(self, 'view', None)
         if v is None or v.scene() is None:
@@ -168,7 +190,6 @@ class GeneratorNode(BaseNode):
         self._port_desc_by_name[str(port_name)] = str(text)
         self._apply_tooltips_to_ports()
 
-    # --------------------------------------------------------------- порты ----
     def add_input(self, name='input', multi_input=False, display_name=True,
                   color=None, locked=False, painter_func=None):
         p = super().add_input(name, multi_input, display_name, color, locked, painter_func)
@@ -183,7 +204,6 @@ class GeneratorNode(BaseNode):
         self._apply_tooltips_to_ports()
         return p
 
-    # ----------------------------------------------------------- описание -----
     def set_description(self, text: str):
         self._description_text = textwrap.dedent(str(text)).strip()
         self._apply_tooltips_to_node()
@@ -191,21 +211,18 @@ class GeneratorNode(BaseNode):
     def get_description(self) -> str:
         return self._description_text
 
-    # --------------------------------------------------------- инвалидация ----
     def mark_dirty(self):
         if self._is_dirty:
             return
         self._is_dirty = True
         self._result_cache = None
         self._rev += 1
-        # Проталкиваем грязность вниз по графу
         for port in self.outputs().values():
             for conn in port.connected_ports():
                 node = conn.node()
                 if isinstance(node, GeneratorNode):
                     node.mark_dirty()
 
-    # Вызываются в новых версиях при соединении/разрыве
     def on_connected(self, in_port, out_port):
         super().on_connected(in_port, out_port)
         self.mark_dirty()
@@ -214,14 +231,12 @@ class GeneratorNode(BaseNode):
         super().on_disconnected(in_port, out_port)
         self.mark_dirty()
 
-    # -------------------------------------------------------- сигнатуры кеша ---
     def _make_context_signature(self, context: dict):
         return CU.make_context_signature(context)
 
     def _make_upstream_signature(self):
         return CU.make_upstream_signature(self)
 
-    # ------------------------------------------------------------- compute ----
     def compute(self, context: dict):
         ctx_sig = self._make_context_signature(context)
         up_sig = self._make_upstream_signature()
@@ -250,13 +265,11 @@ class GeneratorNode(BaseNode):
 
         return self._result_cache
 
-    # Абстрактная реализация конкретной ноды
     def _compute(self, context: dict):
         raise NotImplementedError(
             f"Метод '_compute' не реализован в ноде '{self.name()}' (Тип: {self.__class__.__name__})"
         )
 
-    # ------------------------------------------------------------- хелперы ----
     def _enum(self, name: str, allowed: List[str], default: str) -> str:
         v = self.get_property(name)
         if isinstance(v, int):

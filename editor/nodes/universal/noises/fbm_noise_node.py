@@ -1,7 +1,6 @@
 # ==============================================================================
 # editor/nodes/universal/noises/fbm_noise_node.py
-# ВЕРСИЯ 2.0: Без внутреннего варпа. Чистый источник FBM → packet [0..1].
-# Поддержка scale_mode: tiles|meters.
+# ВЕРСИЯ 2.1 (РЕФАКТОРИНГ): Использует get_property из базового класса.
 # ==============================================================================
 
 from __future__ import annotations
@@ -34,35 +33,29 @@ class FBMNoiseNode(GeneratorNode):
         super().__init__()
         self.add_output("height")
         self.add_enum_input("scale_mode", "Scale Mode", ["tiles", "meters"], tab="Params", default="tiles")
+        # РЕФАКТОРИНГ: Указываем тип 'float' и 'int' для авто-преобразования
+        self._prop_meta["scale"] = {'type': 'float', 'label': "Scale value", 'tab': "Params", 'group': "Params"}
         self.add_text_input("scale", "Scale value", tab="Params", text="2000")
+
+        self._prop_meta["octaves"] = {'type': 'int', 'label': "Octaves", 'tab': "Params", 'group': "Params"}
         self.add_text_input("octaves", "Octaves", tab="Params", text="4")
+
+        self._prop_meta["gain"] = {'type': 'float', 'label': "Gain (0..1)", 'tab': "Params", 'group': "Params"}
         self.add_text_input("gain", "Gain (0..1)", tab="Params", text="0.5")
+
+        self._prop_meta["lacunarity"] = {'type': 'float', 'label': "Lacunarity", 'tab': "Params", 'group': "Params"}
         self.add_text_input("lacunarity", "Lacunarity", tab="Params", text="2.0")
+
         self.add_checkbox("ridge", "Ridge", tab="Params", state=False)
+
+        self._prop_meta["seed_offset"] = {'type': 'int', 'label': "Seed Offset", 'tab': "Params", 'group': "Params"}
         self.add_text_input("seed_offset", "Seed Offset", tab="Params", text="0")
+
         self.set_color(70, 50, 20)
         self.set_description(DESCRIPTION_TEXT)
 
-    # ---------- helpers ----------
-    def _f(self, name: str, default: float) -> float:
-        v = self.get_property(name)
-        try:
-            if v in ("", None):
-                return float(default)
-            x = float(v)
-            return x if np.isfinite(x) else float(default)
-        except Exception:
-            return float(default)
-
-    def _i(self, name: str, default: int, mn: int | None = None) -> int:
-        v = self.get_property(name)
-        try:
-            x = int(float(v))
-            if mn is not None:
-                x = max(x, mn)
-            return x
-        except Exception:
-            return default
+    # РЕФАКТОРИНГ: Вспомогательные методы _f и _i больше не нужны,
+    # так как get_property() теперь возвращает правильные типы.
 
     # ---------- compute ----------
     def _compute(self, context):
@@ -77,11 +70,12 @@ class FBMNoiseNode(GeneratorNode):
 
         H, W     = x.shape
         seed     = int(context.get("seed", 0))
-        so       = self._i("seed_offset", 0)
-        layer_sd = (seed + int(self.id, 0) + so) & 0xFFFFFFFF
+        # РЕФАКТОРИНГ: Прямое использование get_property()
+        so       = self.get_property("seed_offset")
+        layer_sd = (seed + so + int(self.id, 0)) & 0xFFFFFFFF
 
-        scale_mode = self._enum("scale_mode", ["tiles", "meters"], "tiles")
-        scale      = max(self._f("scale", 2000.0), 1e-6)
+        scale_mode = self.get_property("scale_mode")
+        scale      = max(self.get_property("scale"), 1e-6)
 
         if scale_mode == "tiles":
             cell_size = float(context.get("cell_size", 1.0))
@@ -89,10 +83,10 @@ class FBMNoiseNode(GeneratorNode):
         else:  # "meters"
             freq0 = 1.0 / (scale + 1e-6)
 
-        octaves    = self._i("octaves", 4, mn=1)
-        gain       = float(np.clip(self._f("gain", 0.5), 0.0, 1.0))
-        lacunarity = max(self._f("lacunarity", 2.0), 1.0)
-        ridge      = bool(self.get_property("ridge"))
+        octaves    = max(self.get_property("octaves"), 1)
+        gain       = float(np.clip(self.get_property("gain"), 0.0, 1.0))
+        lacunarity = max(self.get_property("lacunarity"), 1.0)
+        ridge      = self.get_property("ridge") # bool
 
         # fbm в диапазоне примерно [-max_amp..max_amp], но реализация отдаёт уже «биполярный» шум
         raw = fbm_grid_bipolar(seed=layer_sd,

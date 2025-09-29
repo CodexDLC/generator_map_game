@@ -65,6 +65,7 @@ def register_all_nodes(graph: Any) -> None:
         ("editor.nodes.universal.module.domain_warp_apply_node", "DomainWarpApplyNode"),
         ("editor.nodes.universal.module.warp_field_node", "WarpFieldNode"),
 
+        ("editor.nodes.backdrop_node", "CustomBackdropNode"),
 
     ]
 

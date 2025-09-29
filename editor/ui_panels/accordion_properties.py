@@ -1,12 +1,39 @@
-from __future__ import annotations
-from typing import Dict, Optional
+# ==============================================================================
+# editor/ui_panels/accordion_properties.py
+# ВЕРСИЯ 3.1 (HOTFIX): Восстановлено отображение стандартных свойств ноды.
+# - Панель теперь показывает и стандартные (имя, цвет), и кастомные свойства.
+# ==============================================================================
 
-from NodeGraphQt import NodeGraph, BaseNode
+from __future__ import annotations
+from typing import Dict, Optional, Any
+
 from PySide6 import QtWidgets, QtCore
 from PySide6.QtCore import Qt
 
 from editor.theme import PALETTE
+from editor.custom_graph import CustomNodeGraph # Используем для аннотации типов
+from editor.nodes.base_node import GeneratorNode
 
+
+# ==============================================================================
+# Фабричная функция (ранее была в properties_panel.py)
+# ==============================================================================
+
+def create_properties_widget(parent: QtWidgets.QWidget) -> AccordionProperties:
+    """
+    Создает, настраивает и возвращает виджет панели свойств.
+    Функция не имеет побочных эффектов (не изменяет parent).
+    """
+    props = AccordionProperties(parent=parent)
+    props.setObjectName("PropertiesAccordion")
+    props.setMinimumWidth(360)
+    props.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Expanding)
+    return props
+
+
+# ==============================================================================
+# Основной класс виджета
+# ==============================================================================
 
 class CollapsibleBox(QtWidgets.QGroupBox):
     def __init__(self, title: str, parent=None):
@@ -15,8 +42,6 @@ class CollapsibleBox(QtWidgets.QGroupBox):
         self.setCheckable(True)
         self.setChecked(True)
 
-        # Лэйаут: оставим небольшие внутренние поля,
-        # контент пойдёт под заголовком, не заезжая на него
         lay = QtWidgets.QVBoxLayout(self)
         lay.setContentsMargins(8, 6, 8, 8)
         lay.setSpacing(6)
@@ -28,19 +53,18 @@ class CollapsibleBox(QtWidgets.QGroupBox):
         self.body.setContentsMargins(4, 4, 4, 4)
         self.body.setSpacing(6)
 
-        # Раскрытие/скрытие — ок
         self.toggled.connect(self._content.setVisible)
 
-    def set_content_enabled(self, enabled: bool):
-        self._content.setEnabled(bool(enabled))
 
 class AccordionProperties(QtWidgets.QScrollArea):
-    def __init__(self, graph: NodeGraph, parent: Optional[QtWidgets.QWidget] = None):
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent)
         self.setObjectName("AccordionProperties")
         self.setWidgetResizable(True)
-        self._graph = graph
-        self._node: Optional[BaseNode] = None
+
+        self._graph: Optional[CustomNodeGraph] = None
+        self._node: Optional[GeneratorNode] = None
+
         self._root = QtWidgets.QWidget()
         self._root.setStyleSheet(f"background-color: {PALETTE['dock_bg']};")
         self._vl = QtWidgets.QVBoxLayout(self._root)
@@ -49,31 +73,48 @@ class AccordionProperties(QtWidgets.QScrollArea):
         self._vl.addStretch(1)
         self.setWidget(self._root)
         self.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
-        # В твоем коде используется node_selection_changed, но в NodeGraphQt
-        # более распространен сигнал node_selected. Проверяем оба.
-        if hasattr(self._graph, 'node_selection_changed'):
-            self._graph.node_selection_changed.connect(self.set_node)
-        elif hasattr(self._graph, 'node_selected'):
-            self._graph.node_selected.connect(self.set_node)
 
-    def clear(self):
+    def set_graph(self, graph: Optional[CustomNodeGraph]) -> None:
+        if self._graph is graph:
+            return
+
+        if self._graph:
+            try:
+                self._graph.selection_changed.disconnect(self._on_graph_selection)
+            except (RuntimeError, TypeError):
+                pass
+
+        self._graph = graph
+        if self._graph is None:
+            return
+
+        self._graph.selection_changed.connect(self._on_graph_selection)
+        self._on_graph_selection(self._graph.selected_nodes())
+
+    @QtCore.Slot(list)
+    def _on_graph_selection(self, selected_nodes: list) -> None:
+        node = None
+        if selected_nodes and isinstance(selected_nodes[0], GeneratorNode):
+            node = selected_nodes[0]
+        
+        self.set_node(node)
+
+    def clear_layout(self):
         while self._vl.count():
             item = self._vl.takeAt(0)
+            if item is None: continue
             w = item.widget()
             if w:
                 w.deleteLater()
+            layout = item.layout()
+            if layout:
+                while layout.count():
+                    child = layout.takeAt(0)
+                    if child.widget():
+                        child.widget().deleteLater()
 
     @QtCore.Slot(object)
-    def set_node(self, node):
-        # граф иногда шлёт список; берём первый
-        if isinstance(node, (list, tuple)):
-            node = node[0] if node else None
-
-        # если пришло пусто — не очищаем, оставляем предыдущую ноду
-        if node is None:
-            return
-
-        # если это та же нода — не перестраиваем
+    def set_node(self, node: Optional[GeneratorNode]):
         if self._node is node:
             return
 
@@ -81,130 +122,99 @@ class AccordionProperties(QtWidgets.QScrollArea):
         self._rebuild()
 
     def _rebuild(self):
-        self.clear()
-        n = self._node
-        if not n:
-            self._vl.addStretch(1)
+        self.clear_layout()
+        self._vl.addStretch(1)
+
+        node = self._node
+        if not node:
+            return
+
+        # --- HOTFIX: Объединяем стандартные и кастомные свойства ---
+        standard_meta = {
+            'name': {'type': 'line', 'label': 'Name', 'group': 'Node'},
+            'color': {'type': 'line', 'label': 'Color', 'group': 'Node'},
+            'text_color': {'type': 'line', 'label': 'Text Color', 'group': 'Node'},
+            'disabled': {'type': 'check', 'label': 'Disabled', 'group': 'Node'},
+        }
+        custom_meta = node.properties_meta()
+        meta = {**standard_meta, **custom_meta}
+        # ----------------------------------------------------------
+
+        if not meta:
             return
 
         groups: Dict[str, CollapsibleBox] = {}
-        meta = getattr(n, "_prop_meta", {}) or {}
-        ui_state = getattr(n, "_ui_state", {}) if hasattr(n, "_ui_state") else {}
+        self._vl.takeAt(self._vl.count() - 1) # убираем stretch
 
-        def group(key: str) -> CollapsibleBox:
-            if key not in groups:
-                box = CollapsibleBox(key, self._root)
-                groups[key] = box
+        # Сортируем, чтобы группа 'Node' всегда была первой
+        sorted_meta_items = sorted(meta.items(), key=lambda item: (
+            (item[1].get('group') or 'Params') != 'Node',
+            item[1].get('group') or 'Params',
+            item[0]
+        ))
+
+        for name, prop_meta in sorted_meta_items:
+            group_name = prop_meta.get('group') or 'Params'
+
+            if group_name not in groups:
+                box = CollapsibleBox(group_name, self._root)
+                groups[group_name] = box
                 self._vl.addWidget(box)
 
-                prop_enable = f"grp_{key}__enabled"
+            box = groups[group_name]
 
-                # гарантируем, что свойство есть в модели (но не видно в стандартной панели)
-                try:
-                    n.get_property(prop_enable)
-                except Exception:
-                    try:
-                        n.model.add_property(prop_enable, True, tab='__ui__')
-                    except Exception:
-                        pass
-
-                try:
-                    enabled_val = bool(n.get_property(prop_enable))
-                except Exception:
-                    enabled_val = True
-
-                box.setChecked(enabled_val)
-                box.set_content_enabled(enabled_val)
-
-                def _on_toggled(state, prop=prop_enable, b=box, node=n):
-                    try:
-                        node.set_property(prop, bool(state))
-                    except Exception:
-                        try:
-                            node.model.add_property(prop, bool(state), tab='__ui__')
-                            node.set_property(prop, bool(state))
-                        except Exception:
-                            pass
-                    b.set_content_enabled(bool(state))
-
-                box.toggled.connect(_on_toggled)
-
-                # восстановим «раскрытость» секции (опционально)
-                expanded = ui_state.get(key, {}).get("expanded", True)
-                box._content.setVisible(bool(expanded))
-                box.toggled.connect(lambda st, k=key: ui_state.setdefault(k, {}).update(expanded=bool(st)))
-
-            return groups[key]
-
-        for name, m in meta.items():
-            grp = m.get('group') or m.get('tab') or 'Params'
-            box = group(str(grp))
-            label = m.get('label', name)
-            kind = m.get('type', 'line')
-            items = m.get('items', [])
-
-            if kind == 'line':
-                w = QtWidgets.QLineEdit()
-                v = n.get_property(name)
-                w.setText("" if v is None else str(v))
-                w.setAlignment(Qt.AlignLeft)
-                w.editingFinished.connect(lambda nn=name, ww=w: n.set_property(nn, ww.text()))
-                box.body.addRow(label, w)
-
-            elif kind in ('int', 'i'):
-                w = QtWidgets.QSpinBox()
-                # метаданные для диапазона/шага/ширины
-                lo, hi = m.get('range', (-(10 ** 9), 10 ** 9))
-                step = m.get('step', 1)
-                width = m.get('width', 96)
-                w.setRange(int(lo), int(hi))
-                w.setSingleStep(int(step))
-                w.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
-                w.setAlignment(Qt.AlignRight)
-                w.setMaximumWidth(int(width))
-                try:
-                    w.setValue(int(n.get_property(name)))
-                except Exception:
-                    pass
-                w.valueChanged.connect(lambda val, nn=name: n.set_property(nn, int(val)))
-                box.body.addRow(label, w)
-
-            elif kind in ('float', 'double', 'f'):
-                w = QtWidgets.QDoubleSpinBox()
-                lo, hi = m.get('range', (-1e12, 1e12))
-                step = m.get('step', 0.1)
-                decimals = m.get('decimals', 2)
-                width = m.get('width', 100)
-                w.setDecimals(int(decimals))
-                w.setRange(float(lo), float(hi))
-                w.setSingleStep(float(step))
-                w.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
-                w.setAlignment(Qt.AlignRight)
-                w.setMaximumWidth(int(width))
-                try:
-                    w.setValue(float(n.get_property(name)))
-                except Exception:
-                    pass
-                w.valueChanged.connect(lambda val, nn=name: n.set_property(nn, float(val)))
-                box.body.addRow(label, w)
-
-            elif kind == 'check':
-                w = QtWidgets.QCheckBox()
-                w.setChecked(bool(n.get_property(name)))
-                w.toggled.connect(lambda state, nn=name: n.set_property(nn, bool(state)))
-                box.body.addRow(label, w)
-
-            elif kind == 'combo':
-                w = QtWidgets.QComboBox()
-                w.addItems([str(x) for x in items])
-                cur = str(n.get_property(name))
-                li = [str(x) for x in items]
-                if cur in li:
-                    w.setCurrentIndex(li.index(cur))
-                w.currentTextChanged.connect(lambda text, nn=name: n.set_property(nn, text))
-                box.body.addRow(label, w)
-
-            else:
-                box.body.addRow(label, QtWidgets.QLabel("(unsupported)"))
+            widget = self._create_widget_for_property(node, name, prop_meta)
+            if widget:
+                label = prop_meta.get('label', name)
+                box.body.addRow(label, widget)
 
         self._vl.addStretch(1)
+
+    def _create_widget_for_property(self, node: GeneratorNode, name: str, meta: dict) -> Optional[QtWidgets.QWidget]:
+        kind = meta.get('type')
+        value = node.get_property(name)
+
+        if kind == 'line':
+            w = QtWidgets.QLineEdit()
+            # Для свойства 'name' получаем значение через специальный метод, если get_property вернул None
+            if name == 'name' and value is None:
+                value = node.name()
+            w.setText(str(value))
+            w.editingFinished.connect(lambda nn=name, ww=w: node.set_property(nn, ww.text()))
+            return w
+
+        elif kind in ('int', 'i', 'float', 'double', 'f'):
+            is_float = kind in ('float', 'double', 'f')
+            w = QtWidgets.QDoubleSpinBox() if is_float else QtWidgets.QSpinBox()
+
+            if is_float:
+                w.setDecimals(meta.get('decimals', 2))
+                w.setSingleStep(meta.get('step', 0.1))
+                w.setRange(meta.get('range', (-1e12, 1e12))[0], meta.get('range', (-1e12, 1e12))[1])
+            else: # int
+                w.setSingleStep(meta.get('step', 1))
+                w.setRange(meta.get('range', (-(10**9), 10**9))[0], meta.get('range', (-(10**9), 10**9))[1])
+
+            w.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
+            w.setAlignment(Qt.AlignRight)
+            w.setMaximumWidth(meta.get('width', 100))
+            w.setValue(value or 0)
+            w.valueChanged.connect(lambda val, nn=name: node.set_property(nn, val))
+            return w
+
+        elif kind == 'check':
+            w = QtWidgets.QCheckBox()
+            w.setChecked(bool(value))
+            w.toggled.connect(lambda state, nn=name: node.set_property(nn, state))
+            return w
+
+        elif kind == 'combo':
+            w = QtWidgets.QComboBox()
+            items = [str(x) for x in meta.get('items', [])]
+            w.addItems(items)
+            if str(value) in items:
+                w.setCurrentText(str(value))
+            w.currentTextChanged.connect(lambda text, nn=name: node.set_property(nn, text))
+            return w
+
+        return None
