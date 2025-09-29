@@ -1,6 +1,6 @@
 # ==============================================================================
 # Файл: editor/nodes/universal/noises/simplex_noise_node.py
-# Назначение: Simplex noise. Диапазон [-1, 1].
+# ВЕРСИЯ 2.0 (РЕФАКТОРИНГ): Использует get_property из базового класса.
 # ==============================================================================
 
 import numpy as np
@@ -31,26 +31,22 @@ class SimplexNoiseNode(GeneratorNode):
         super().__init__()
         self.add_output('height')
 
+        # РЕФАКТОРИНГ: Указываем типы для авто-преобразования
+        self._prop_meta["seed_offset"] = {'type': 'int', 'label': LBL_SEED_OFFSET, 'tab': TAB_NOISE, 'group': TAB_NOISE}
         self.add_text_input('seed_offset', LBL_SEED_OFFSET, tab=TAB_NOISE, text='0')
+
+        self._prop_meta["scale_tiles"] = {'type': 'float', 'label': LBL_SCALE, 'tab': TAB_NOISE, 'group': TAB_NOISE}
         self.add_text_input('scale_tiles', LBL_SCALE,      tab=TAB_NOISE, text='2000')
 
         self.set_color(90, 30, 90)
         self.set_description(DESCRIPTION_TEXT)
 
-    def _as_float(self, name, default):
-        try: return float(self.get_property(name))
-        except (TypeError, ValueError): return default
-
-    def _as_int(self, name, default, min_value=None):
-        try:
-            v = int(float(self.get_property(name)))
-            return max(v, min_value) if min_value is not None else v
-        except (TypeError, ValueError):
-            return default
+    # РЕФАКТОРИНГ: Вспомогательные методы _as_float и _as_int больше не нужны
 
     def _compute(self, context):
-        seed_offset = self._as_int('seed_offset', 0)
-        scale = max(self._as_float('scale_tiles', 2000.0), 1e-6)
+        # РЕФАКТОРИНГ: Прямое использование get_property()
+        seed_offset = self.get_property('seed_offset')
+        scale = max(self.get_property('scale_tiles'), 1e-6)
 
         layer_seed = int(context.get('seed', 0)) + int(self.id, 0) + seed_offset
         noise_generator = OpenSimplex(seed=layer_seed)

@@ -242,4 +242,106 @@ APP_STYLE_SHEET = f"""
         background-color: {PALETTE['dock_bg']};
         border: none;
     }}
+        /* ВЕРХ: левый таб-контейнер с параметрами/шумом */
+    #TopTabsLeft QLineEdit,
+    #TopTabsLeft QSpinBox,
+    #TopTabsLeft QDoubleSpinBox,
+    #TopTabsLeft QComboBox,
+    #TopTabsLeft QAbstractSpinBox {{
+        background-color: #2b2b2b;
+        color: #ffffff;
+        border: 1px solid #606060;
+        border-radius: 4px;
+        padding: 2px 4px;
+        selection-background-color: #556677;
+    }}
+    #TopTabsLeft QLineEdit:disabled,
+    #TopTabsLeft QSpinBox:disabled,
+    #TopTabsLeft QDoubleSpinBox:disabled,
+    #TopTabsLeft QComboBox:disabled,
+    #TopTabsLeft QAbstractSpinBox:disabled {{
+        color: #b3b3b3;
+        background-color: #3f3f3f;
+        border-color: #555555;
+    }}
+
+    /* НИЗ: поиск в правом Outliner */
+    #RightOutliner QLineEdit {{
+        background-color: #2b2b2b;
+        color: #ffffff;
+        border: 1px solid #606060;
+        border-radius: 4px;
+        padding: 2px 4px;
+        selection-background-color: #556677;
+    }}
+        /* Низ: поиск в левой палитре нодов */
+    #LeftNodesPalette QLineEdit {{
+        background-color: #2b2b2b;
+        color: #ffffff;
+        border: 1px solid #606060;
+        border-radius: 4px;
+        padding: 2px 4px;
+        selection-background-color: #556677;
+    }}
+    /* на всякий — прямой селектор по самому полю */
+    #NodesPaletteSearch {{
+        background-color: #2b2b2b;
+        color: #ffffff;
+        border: 1px solid #606060;
+        border-radius: 4px;
+        padding: 2px 4px;
+        selection-background-color: #556677;
+    }}
+    #NodesPaletteSearch[placeholderText]:!focus {{
+        color: #cccccc;
+    }}
+        /* Правые табы свойств */
+    #TopTabsRight::pane {{
+        border: 1px solid #3e3e3e;
+        border-radius: 4px;
+    }}
+    #TopTabsRight QTabBar::tab {{
+        padding: 5px 10px;
+        background: #2b2b2b;
+        border: 1px solid #3e3e3e;
+        border-bottom: none;
+        border-top-left-radius: 4px;
+        border-top-right-radius: 4px;
+        color: #ddd;
+        margin-right: 2px;
+    }}
+    #TopTabsRight QTabBar::tab:selected {{
+        background: #3a3a3a;
+        color: #fff;
+    }}
+    
+        /* Правые табы со свойствами */
+    #TopTabsRight QLineEdit,
+    #TopTabsRight QSpinBox,
+    #TopTabsRight QDoubleSpinBox,
+    #TopTabsRight QComboBox,
+    #TopTabsRight QAbstractSpinBox,
+    /* Сам инспектор ноды */
+    #NodeInspector QLineEdit,
+    #NodeInspector QSpinBox,
+    #NodeInspector QDoubleSpinBox,
+    #NodeInspector QComboBox,
+    #NodeInspector QAbstractSpinBox {{
+        background-color: #2b2b2b;
+        color: #ffffff;
+        border: 1px solid #606060;
+        border-radius: 4px;
+        padding: 2px 4px;
+        selection-background-color: #556677;
+    }}
+
+    /* Списки портов в инспекторе */
+    #NodeInspector QListWidget {{
+        background-color: #2b2b2b;
+        color: #ffffff;
+        border: 1px solid #404040;
+    }}
+    #NodeInspector QListWidget::item:selected {{
+        background: #3a3a3a;
+    }}
 """
