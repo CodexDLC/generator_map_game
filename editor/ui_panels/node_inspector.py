@@ -169,7 +169,7 @@ class NodeInspectorWidget(QtWidgets.QWidget):
         self._apply_color_btn(new_color_obj.name())
 
     def _fill_ports(self, n):
-        self._inputs.clear();
+        self._inputs.clear()
         self._outputs.clear()
 
         def _make_item(p, is_input):
@@ -182,8 +182,16 @@ class NodeInspectorWidget(QtWidgets.QWidget):
                 it.setToolTip("\n".join(tips))
             return it
 
-        for p in n.inputs().values(): self._inputs.addItem(_make_item(p, True))
-        for p in n.outputs().values(): self._outputs.addItem(_make_item(p, False))
+        # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+        inputs = n.inputs()
+        if inputs:
+            for p in inputs.values():
+                self._inputs.addItem(_make_item(p, True))
+
+        outputs = n.outputs()
+        if outputs:
+            for p in outputs.values():
+                self._outputs.addItem(_make_item(p, False))
 
 
 def make_node_inspector_widget(main_window: QtWidgets.QMainWindow) -> QtWidgets.QWidget:

@@ -138,15 +138,24 @@ def _status_msg(main_window, text: str, msec: int = 4000) -> None:
         # В крайнем случае — просто алёрт, но не падаем.
         QtWidgets.QMessageBox.information(main_window, "Статус", text)
 
+
 def on_save_project(main_window, data_to_write: dict = None) -> None:
     logger.info("Action triggered: on_save_project.")
-    if not main_window.current_project_path:
+
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+    # Проверяем путь к проекту через менеджер, а не напрямую у окна
+    if not main_window.project_manager.current_project_path:
+        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
         logger.warning("Project save skipped: No project loaded.")
         _status_msg(main_window, "Проект не загружен.", 3000)
         return
 
     try:
-        project_file_path = Path(main_window.current_project_path) / "project.json"
+        # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+        # Формируем путь к файлу проекта через менеджер
+        project_file_path = Path(main_window.project_manager.current_project_path) / "project.json"
+        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
         final_data = {}
 
         if data_to_write:
@@ -160,7 +169,7 @@ def on_save_project(main_window, data_to_write: dict = None) -> None:
             project_data_from_ui = {
                 "seed": main_window.seed_input.value(),
                 "chunk_size": main_window.chunk_size_input.value(),
-                "region_size_in_chunks": main_window.region_size_input.value(),
+                "region_size_in_chunks": main_window.region_size_in_chunks_input.value(),
                 "cell_size": main_window.cell_size_input.value(),
                 "global_x_offset": main_window.global_x_offset_input.value(),
                 "global_z_offset": main_window.global_z_offset_input.value(),

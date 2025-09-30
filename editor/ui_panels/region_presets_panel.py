@@ -77,9 +77,9 @@ class RegionPresetsWidget(QtWidgets.QWidget):
         self.save_as_btn.clicked.connect(self._on_click_save_as)
         btns.addWidget(self.save_as_btn)
 
-        self.create_from_current_btn = QtWidgets.QPushButton("Создать из текущего", self)
-        self.create_from_current_btn.clicked.connect(self._on_click_create_from_current)
-        btns.addWidget(self.create_from_current_btn)
+        self.create_btn = QtWidgets.QPushButton("Создать...", self)  # Переименовали переменную и текст
+        self.create_btn.clicked.connect(self._on_click_create_from_current)  # Сигнал тот же
+        btns.addWidget(self.create_btn)  # Добавляем новую кнопку
 
         self.delete_btn = QtWidgets.QPushButton("Удалить", self)
         self.delete_btn.clicked.connect(self._on_click_delete)

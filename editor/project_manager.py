@@ -207,6 +207,30 @@ class ProjectDialog(QtWidgets.QDialog):
             self.selected_path = path
             self.accept()
 
+
+    def collect_ui_context(self) -> dict:
+        """
+        Собирает все параметры из UI в единый словарь-контекст для генератора.
+        """
+        # Эта логика полностью повторяет то, что раньше было в project_binding.py
+        return {
+            "cell_size": self._mw.cell_size_input.value(),
+            "seed": self._mw.seed_input.value(),
+            "global_x_offset": self._mw.global_x_offset_input.value(),
+            "global_z_offset": self._mw.global_z_offset_input.value(),
+            "chunk_size": self._mw.chunk_size_input.value(),
+            "region_size_in_chunks": self._mw.region_size_input.value(),
+            "global_noise": {
+                "scale_tiles": self._mw.gn_scale_input.value(),
+                "octaves": self._mw.gn_octaves_input.value(),
+                "amp_m": self._mw.gn_amp_input.value(),
+                "ridge": self._mw.gn_ridge_checkbox.isChecked(),
+            },
+            # Добавляем данные о проекте, которые могут понадобиться нодам
+            "project": self.current_project_data
+        }
+
+
 def show_project_manager() -> str | None:
     dialog = ProjectDialog()
     if dialog.exec() == QtWidgets.QDialog.Accepted:
@@ -251,3 +275,4 @@ def _create_new_project(parent) -> str | None:
     except Exception as e:
         QtWidgets.QMessageBox.critical(parent, "Ошибка", f"Ошибка создания проекта: {e}")
         return None
+

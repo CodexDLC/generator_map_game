@@ -216,8 +216,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
             QtCore.QTimer.singleShot(0, self.graph.finalize_setup)
 
-            self.graph.structure_changed.connect(self._mark_dirty)
-            self.graph.property_changed.connect(self._mark_dirty)
+
 
         for widget in [self.seed_input, self.chunk_size_input, self.region_size_in_chunks_input,
                        self.cell_size_input, self.global_x_offset_input, self.global_z_offset_input,
@@ -230,12 +229,19 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.right_outliner:
             self.right_outliner.apply_clicked.connect(self._on_apply_clicked)
 
-        # --- ИЗМЕНЕНИЕ: Подключаем сигналы от панели пресетов к обработчикам ---
         if self.presets_widget:
+            # Загрузить выбранный пресет
             self.presets_widget.load_requested.connect(self.action_load_region_preset)
             self.presets_widget.create_from_current_requested.connect(self.action_create_preset)
+            # Создать новый пустой пресет (имя спросит в диалоге)
+            # Кнопка "Создать из текущего" на самом деле создает новый, а не копирует.
+            # Давайте пока оставим так, но подключим к правильной функции.
+            self.presets_widget.create_from_current_requested.connect(self.action_create_preset_from_dialog)
+
+            # Удалить выбранный пресет
             self.presets_widget.delete_requested.connect(self.action_delete_preset)
-            # Сигнал save_as_requested используется для сохранения графа, привязываем его к действию сохранения
+
+            # Сохранить текущий граф в активный пресет
             self.presets_widget.save_as_requested.connect(self.action_save_active_preset)
 
     # --- ИЗМЕНЕНИЕ: Реализуем недостающий метод ---
@@ -271,10 +277,11 @@ class MainWindow(QtWidgets.QMainWindow):
             project_data["active_preset_name"] = preset_name
             preset_actions.load_preset_into_graph(self, preset_info)
             self.presets_widget.select_preset(preset_name)
-            self.mark_dirty()  # Смена пресета - это изменение проекта
+            self._mark_dirty()  # Смена пресета - это изменение проекта
 
-    def action_create_preset(self):
-        """Создает новый пресет."""
+    def action_create_preset(self, preset_name_from_field: str):
+        """Обработчик для кнопки 'Создать...'. Вызывает диалог создания нового пресета."""
+        # Мы игнорируем имя из поля, так как `handle_new_preset` сам его спросит
         preset_actions.handle_new_preset(self)
 
     def action_delete_preset(self):
@@ -340,3 +347,20 @@ class MainWindow(QtWidgets.QMainWindow):
     def _trigger_apply(self) -> None:
         if self.right_outliner and self.right_outliner.apply_button:
             self.right_outliner.apply_button.animateClick(10)
+
+    def action_delete_preset_by_name(self, preset_name: str):
+        """Слот для удаления пресета по имени из виджета."""
+        # Устанавливаем текущий элемент в списке, чтобы `handle_delete_preset` знал, что удалять
+        items = self.presets_widget.list.findItems(preset_name, QtCore.Qt.MatchExactly)
+        if items:
+            self.presets_widget.list.setCurrentItem(items[0])
+            preset_actions.handle_delete_preset(self)
+
+
+    def action_create_preset_from_dialog(self, preset_name_from_field: str):
+        """
+        Обработчик для кнопки 'Создать'.
+        Игнорирует имя из поля и вызывает диалог создания.
+        """
+        preset_actions.handle_new_preset(self)
+

@@ -122,7 +122,7 @@ def handle_delete_preset(main_window):
     """
     Удаляет выбранный пресет, если он не последний.
     """
-    selected_items = main_window.presets_list_widget.selectedItems()
+    selected_items = main_window.presets_widget.list.selectedItems()
     if not selected_items:
         _show_status(main_window, "Сначала выберите пресет для удаления.", 3000)
         return
@@ -151,9 +151,9 @@ def handle_delete_preset(main_window):
         graph_rel_path = preset_to_delete.get("landscape_graph")
         if graph_rel_path:
             try:
-                (Path(main_window.current_project_path) / graph_rel_path).unlink(missing_ok=True)
+                (Path(main_window.project_manager.current_project_path) / graph_rel_path).unlink(missing_ok=True)
             except Exception as e:
-                logger.error("Не удалось удалить файл графа: %s", e)
+                logger.error(f"Не удалось удалить файл графа: {e}")
 
     if project_data.get("active_preset_name") == preset_name:
         # Если удалили активный, делаем активным первый из оставшихся
