@@ -2,140 +2,177 @@
 from __future__ import annotations
 import numpy as np
 from numba import njit, prange
-from game_engine_restructured.numerics.fast_noise import (
-    _hash2, _rand01, _fade, _lerp, value_noise_2d, fbm_amplitude
-)
+from game_engine_restructured.numerics.fast_noise import value_noise_2d, fbm_amplitude, _hash2
 
-# --- Общая логика для Warp (искажения) ---
-@njit(cache=True, fastmath=True)
-def apply_warp(coords_x, coords_z, warp_params: dict):
-    warp_type = warp_params.get('type', 'none')
-    if warp_type == 'none':
-        return coords_x, coords_z
 
-    amp = warp_params.get('amplitude', 0.5) * 200 # Примерный перевод 0..1 в масштаб
-    freq = warp_params.get('frequency', 0.05) / 20 # Примерный перевод 0..1 в частоту
-    octaves = warp_params.get('octaves', 4)
-    seed = warp_params.get('seed', 0)
-
-    offset_x = np.zeros_like(coords_x)
-    offset_z = np.zeros_like(coords_z)
-
-    # Простой варп - одна октава
-    if warp_type == 'simple':
-        offset_x = (value_noise_2d(coords_x * freq, coords_z * freq, seed) * 2.0 - 1.0) * amp
-        offset_z = (value_noise_2d(coords_x * freq, coords_z * freq, seed + 1) * 2.0 - 1.0) * amp
-
-    # Комплексный варп - FBM
-    elif warp_type == 'complex':
-        current_amp = amp
-        current_freq = freq
-        for o in range(octaves):
-            offset_x += (value_noise_2d(coords_x * current_freq, coords_z * current_freq, seed + o) * 2.0 - 1.0) * current_amp
-            offset_z += (value_noise_2d(coords_x * current_freq, coords_z * current_freq, seed + o + 100) * 2.0 - 1.0) * current_amp
-            current_freq *= 2.0
-            current_amp *= 0.5
-
-    return coords_x + offset_x, coords_z + offset_z
-
-# --- Логика для Perlin/FBM ноды ---
 @njit(cache=True, fastmath=True, parallel=True)
-def generate_fbm_noise(coords_x, coords_z, noise_params: dict, warp_params: dict):
-    warped_x, warped_z = apply_warp(coords_x, coords_z, warp_params)
-
-    noise_type = noise_params.get('type', 'fbm')
-    octaves = noise_params.get('octaves', 8)
-    gain = noise_params.get('gain', 0.5)
-    height = noise_params.get('height', 1.0)
-    seed = noise_params.get('seed', 0)
-
-    H, W = warped_x.shape
+def generate_fbm_noise(
+        coords_x, coords_z,
+        # Noise params
+        noise_type_is_ridged, noise_type_is_billowy, octaves, gain, amplitude, seed, base_freq,
+        # Warp params
+        warp_type_is_simple, warp_type_is_complex, warp_freq, warp_amp, warp_octaves, warp_seed
+):
+    H, W = coords_x.shape
     output = np.empty((H, W), dtype=np.float32)
 
     for j in prange(H):
         for i in range(W):
-            cx, cz = warped_x[j, i], warped_z[j, i]
-            amp, freq, total = 1.0, 1.0, 0.0
+            cx, cz = coords_x[j, i], coords_z[j, i]
 
+            # Warp logic inside the loop
+            if warp_type_is_simple or warp_type_is_complex:
+                offset_x, offset_z = np.float32(0.0), np.float32(0.0)
+                if warp_type_is_simple:
+                    offset_x = (value_noise_2d(cx * warp_freq, cz * warp_freq, warp_seed) * np.float32(
+                        2.0) - np.float32(1.0)) * warp_amp
+                    offset_z = (value_noise_2d(cx * warp_freq, cz * warp_freq, warp_seed + 1) * np.float32(
+                        2.0) - np.float32(1.0)) * warp_amp
+                elif warp_type_is_complex:
+                    amp_w, freq_w = np.float32(warp_amp), np.float32(warp_freq)
+                    for o in range(warp_octaves):
+                        offset_x += (value_noise_2d(cx * freq_w, cz * freq_w, warp_seed + o) * np.float32(
+                            2.0) - np.float32(1.0)) * amp_w
+                        offset_z += (value_noise_2d(cx * freq_w, cz * freq_w, warp_seed + o + 100) * np.float32(
+                            2.0) - np.float32(1.0)) * amp_w
+                        freq_w *= np.float32(2.0);
+                        amp_w *= np.float32(0.5)
+                cx += offset_x
+                cz += offset_z
+
+            # FBM logic
+            amp, freq, total = np.float32(1.0), np.float32(base_freq), np.float32(0.0)
             for o in range(octaves):
-                n = value_noise_2d(cx * freq, cz * freq, seed + o) * 2.0 - 1.0 # -> [-1, 1]
-
-                if noise_type == 'ridged':
-                    n = 1.0 - np.abs(n)
-                elif noise_type == 'billowy':
+                n = value_noise_2d(cx * freq, cz * freq, seed + o) * np.float32(2.0) - np.float32(1.0)
+                if noise_type_is_ridged:
+                    n = np.float32(1.0) - np.abs(n)
+                elif noise_type_is_billowy:
                     n = np.abs(n)
-
                 total += n * amp
-                freq *= 2.0 # Lacunarity = 2
+                freq *= np.float32(2.0)
                 amp *= gain
-
             output[j, i] = total
 
     max_amp = fbm_amplitude(gain, octaves)
-    if max_amp > 1e-6: output /= max_amp
+    if max_amp > 1e-6: output /= np.float32(max_amp)
 
-    # FBM/Billowy в [0,1], Ridged остается в [0,1]
-    if noise_type != 'ridged':
-        output = (output + 1.0) * 0.5
+    if not noise_type_is_ridged:
+        output = (output + np.float32(1.0)) * np.float32(0.5)
 
-    return np.clip(output * height, 0.0, 1.0)
+    return np.clip(output * amplitude, np.float32(0.0), np.float32(1.0))
 
-# --- Логика для Voronoi ноды (новая, быстрая) ---
+
 @njit(cache=True, fastmath=True, parallel=True)
-def generate_voronoi_noise(coords_x, coords_z, noise_params: dict, warp_params: dict):
-    warped_x, warped_z = apply_warp(coords_x, coords_z, warp_params)
-
-    jitter = noise_params.get('jitter', 0.45)
-    func = noise_params.get('function', 'f1')
-    gain = noise_params.get('gain', 0.5)
-    clamp_val = noise_params.get('clamp', 0.5)
-    seed = noise_params.get('seed', 0)
-
-    H, W = warped_x.shape
+def generate_voronoi_noise(
+        coords_x, coords_z,
+        jitter, func_is_f1, func_is_f2, func_is_f2f1, gain, clamp_val, seed,
+        warp_type_is_simple, warp_type_is_complex, warp_freq, warp_amp, warp_octaves, warp_seed
+):
+    H, W = coords_x.shape
     output = np.empty((H, W), dtype=np.float32)
 
     for j in prange(H):
         for i in range(W):
-            cx, cz = warped_x[j, i], warped_z[j, i]
+            cx, cz = coords_x[j, i], coords_z[j, i]
+
+            if warp_type_is_simple or warp_type_is_complex:
+                offset_x, offset_z = np.float32(0.0), np.float32(0.0)
+                if warp_type_is_simple:
+                    offset_x = (value_noise_2d(cx * warp_freq, cz * warp_freq, warp_seed) * np.float32(
+                        2.0) - np.float32(1.0)) * warp_amp
+                    offset_z = (value_noise_2d(cx * warp_freq, cz * warp_freq, warp_seed + 1) * np.float32(
+                        2.0) - np.float32(1.0)) * warp_amp
+                elif warp_type_is_complex:
+                    amp_w, freq_w = np.float32(warp_amp), np.float32(warp_freq)
+                    for o in range(warp_octaves):
+                        offset_x += (value_noise_2d(cx * freq_w, cz * freq_w, warp_seed + o) * np.float32(
+                            2.0) - np.float32(1.0)) * amp_w
+                        offset_z += (value_noise_2d(cx * freq_w, cz * freq_w, warp_seed + o + 100) * np.float32(
+                            2.0) - np.float32(1.0)) * amp_w
+                        freq_w *= np.float32(2.0);
+                        amp_w *= np.float32(0.5)
+                cx += offset_x
+                cz += offset_z
 
             cell_x, cell_z = int(np.floor(cx)), int(np.floor(cz))
-
-            min_dist1 = 1e6
-            min_dist2 = 1e6
+            min_dist1, min_dist2 = np.float32(1e6), np.float32(1e6)
 
             for oz in range(-1, 2):
                 for ox in range(-1, 2):
                     test_cell_x, test_cell_z = cell_x + ox, cell_z + oz
-
                     point_hash = _hash2(test_cell_x, test_cell_z, seed)
-                    rand_x = (point_hash & 0xFFFF) / 0xFFFF * jitter
-                    rand_z = (point_hash >> 16) / 0xFFFF * jitter
-
+                    rand_x = (point_hash & 0xFFFF) / 65535.0 * jitter
+                    rand_z = (point_hash >> 16) / 65535.0 * jitter
                     point_x = test_cell_x + rand_x
                     point_z = test_cell_z + rand_z
-
-                    dist = np.sqrt((point_x - cx)**2 + (point_z - cz)**2)
+                    dist = np.sqrt((point_x - cx) ** 2 + (point_z - cz) ** 2)
 
                     if dist < min_dist1:
-                        min_dist2 = min_dist1
-                        min_dist1 = dist
+                        min_dist2, min_dist1 = min_dist1, dist
                     elif dist < min_dist2:
                         min_dist2 = dist
 
-            if func == 'f1':
+            if func_is_f1:
                 val = min_dist1
-            elif func == 'f2':
+            elif func_is_f2:
                 val = min_dist2
-            elif func == 'f2-f1':
+            elif func_is_f2f1:
                 val = min_dist2 - min_dist1
-            else: # fallback to f1
+            else:
                 val = min_dist1
 
             output[j, i] = val
 
-    # Постобработка
-    output = 1.0 - np.clip(output * (1.0 / (gain + 1e-9)), 0.0, 1.0)
+    output = np.float32(1.0) - np.clip(output * (np.float32(1.0) / (gain + np.float32(1e-9))), np.float32(0.0),
+                                       np.float32(1.0))
     if clamp_val > 0:
-        output = np.where(output < clamp_val, 0.0, output)
+        output = np.where(output < clamp_val, np.float32(0.0), output)
 
     return output
+
+
+def fbm_noise_wrapper(context: dict, noise_params: dict, warp_params: dict):
+    noise_type = noise_params.get('type', 'fbm')
+    warp_type = warp_params.get('type', 'none')
+
+    return generate_fbm_noise(
+        context['x_coords'].astype(np.float32), context['z_coords'].astype(np.float32),
+        noise_type_is_ridged=noise_type == 'ridged',
+        noise_type_is_billowy=noise_type == 'billowy',
+        octaves=int(noise_params.get('octaves', 8)),
+        gain=np.float32(noise_params.get('gain', 0.5)),
+        amplitude=np.float32(noise_params.get('amplitude', 1.0)),  # <--- ИСПРАВЛЕНИЕ ЗДЕСЬ
+        seed=int(noise_params.get('seed', 0)),
+        base_freq=np.float32(1.0 / (noise_params.get('scale', 0.5) + 1e-9)),
+        warp_type_is_simple=warp_type == 'simple',
+        warp_type_is_complex=warp_type == 'complex',
+        warp_freq=np.float32(warp_params.get('frequency', 0.05)),
+        warp_amp=np.float32(warp_params.get('amplitude', 0.5)),
+        warp_octaves=int(warp_params.get('octaves', 4)),
+        warp_seed=int(warp_params.get('seed', 0)) + 12345
+    )
+
+
+def voronoi_noise_wrapper(context: dict, noise_params: dict, warp_params: dict):
+    func_type = noise_params.get('function', 'f1')
+    warp_type = warp_params.get('type', 'none')
+
+    coords_x = context['x_coords'] * np.float32(noise_params.get('scale', 0.5) * 100)
+    coords_z = context['z_coords'] * np.float32(noise_params.get('scale', 0.5) * 100)
+
+    return generate_voronoi_noise(
+        coords_x.astype(np.float32), coords_z.astype(np.float32),
+        jitter=np.float32(noise_params.get('jitter', 0.45)),
+        func_is_f1=func_type == 'f1',
+        func_is_f2=func_type == 'f2',
+        func_is_f2f1=func_type == 'f2-f1',
+        gain=np.float32(noise_params.get('gain', 0.5)),
+        clamp_val=np.float32(noise_params.get('clamp', 0.5)),
+        seed=int(noise_params.get('seed', 0)),
+        warp_type_is_simple=warp_type == 'simple',
+        warp_type_is_complex=warp_type == 'complex',
+        warp_freq=np.float32(warp_params.get('frequency', 0.05)),
+        warp_amp=np.float32(warp_params.get('amplitude', 0.5)),
+        warp_octaves=int(warp_params.get('octaves', 4)),
+        warp_seed=int(warp_params.get('seed', 0)) + 12345
+    )

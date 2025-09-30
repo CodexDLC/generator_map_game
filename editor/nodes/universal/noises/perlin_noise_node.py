@@ -1,6 +1,6 @@
 # editor/nodes/universal/noises/perlin_noise_node.py
 from editor.nodes.base_node import GeneratorNode
-from generator_logic.terrain.noises import generate_fbm_noise
+from generator_logic.terrain.noises import fbm_noise_wrapper
 
 class PerlinNoiseNode(GeneratorNode):
     __identifier__ = "Универсальные.Шумы"
@@ -15,7 +15,7 @@ class PerlinNoiseNode(GeneratorNode):
         self.add_text_input("scale", "Scale", tab="Params", group="Noise", text="0.5")
         self.add_text_input("octaves", "Octaves", tab="Params", group="Noise", text="10")
         self.add_text_input("gain", "Gain", tab="Params", group="Noise", text="0.5")
-        self.add_text_input("height", "Height", tab="Params", group="Noise", text="1.0")
+        self.add_text_input("amplitude", "Amplitude", tab="Params", group="Noise", text="1.0")
         self.add_seed_input("seed", "Seed", tab="Params", group="Noise")
 
         # Group "Warp"
@@ -26,25 +26,34 @@ class PerlinNoiseNode(GeneratorNode):
 
         self.set_color(90, 30, 90)
 
+    def _get_float_param(self, name: str, default: float) -> float:
+        try:
+            return float(self.get_property(name))
+        except (ValueError, TypeError):
+            return default
+
+    def _get_int_param(self, name: str, default: int) -> int:
+        try:
+            return int(self.get_property(name))
+        except (ValueError, TypeError):
+            return default
+
     def _compute(self, context):
         noise_params = {
             'type': self.get_property('noise_type').lower(),
-            'octaves': self.get_property('octaves'),
-            'gain': self.get_property('gain'),
-            'height': self.get_property('height'),
+            'scale': self._get_float_param('scale', 0.5),
+            'octaves': self._get_int_param('octaves', 10),
+            'gain': self._get_float_param('gain', 0.5),
+            'amplitude': self.get_property('amplitude'),
             'seed': self.get_property('seed'),
         }
         warp_params = {
             'type': self.get_property('warp_type').lower(),
-            'frequency': self.get_property('warp_freq'),
-            'amplitude': self.get_property('warp_amp'),
-            'octaves': self.get_property('warp_octaves'),
-            'seed': self.get_property('seed') + 12345, # Separate seed for warp
+            'frequency': self._get_float_param('warp_freq', 0.05),
+            'amplitude': self._get_float_param('warp_amp', 0.5),
+            'octaves': self._get_int_param('warp_octaves', 10),
         }
 
-        coords_x = context['x_coords'] * self.get_property('scale')
-        coords_z = context['z_coords'] * self.get_property('scale')
-
-        result = generate_fbm_noise(coords_x, coords_z, noise_params, warp_params)
+        result = fbm_noise_wrapper(context, noise_params, warp_params)
         self._result_cache = result
         return result

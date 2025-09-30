@@ -46,28 +46,26 @@ def make_world_settings_widget(main_window) -> QtWidgets.QWidget:
 
     layout.addWidget(preview_box)
 
-    # --- ИЗМЕНЕНИЕ: Секция 3 теперь "Мировой Фрактал" ---
-    variation_box = _create_group_box("3. Мировой Фрактал")
+    # --- Секция 3: Глобальный Шум ---
+    variation_box = _create_group_box("3. Глобальный Шум")
     form3 = variation_box.layout()
 
     main_window.gv_scale_input = QtWidgets.QDoubleSpinBox()
-    main_window.gv_scale_input.setRange(0.001, 10.0); main_window.gv_scale_input.setDecimals(3)
+    main_window.gv_scale_input.setRange(0.001, 10.0);
+    main_window.gv_scale_input.setDecimals(3)
     main_window.gv_scale_input.setValue(0.5)
     form3.addRow("Масштаб:", main_window.gv_scale_input)
 
     main_window.gv_octaves_input = QtWidgets.QSpinBox()
-    main_window.gv_octaves_input.setRange(1, 16); main_window.gv_octaves_input.setValue(8)
+    main_window.gv_octaves_input.setRange(1, 16);
+    main_window.gv_octaves_input.setValue(4)
     form3.addRow("Октавы:", main_window.gv_octaves_input)
 
-    main_window.gv_roughness_input = QtWidgets.QDoubleSpinBox()
-    main_window.gv_roughness_input.setRange(0.0, 1.0); main_window.gv_roughness_input.setDecimals(2)
-    main_window.gv_roughness_input.setValue(0.5)
-    form3.addRow("Шершавость:", main_window.gv_roughness_input)
-
-    main_window.gv_variation_input = QtWidgets.QDoubleSpinBox()
-    main_window.gv_variation_input.setRange(0.0, 10.0); main_window.gv_variation_input.setDecimals(2)
-    main_window.gv_variation_input.setValue(2.0)
-    form3.addRow("Сила вариации:", main_window.gv_variation_input)
+    main_window.gv_strength_input = QtWidgets.QDoubleSpinBox()
+    main_window.gv_strength_input.setRange(0.0, 1.0);
+    main_window.gv_strength_input.setDecimals(2)
+    main_window.gv_strength_input.setValue(1.0)
+    form3.addRow("Сила (0-1):", main_window.gv_strength_input)
 
     layout.addWidget(variation_box)
     layout.addStretch()

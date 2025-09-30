@@ -1,12 +1,14 @@
 # ==============================================================================
 # Файл: main_window.py
-# ВЕРСИЯ 8.1 (HOTFIX): Исправлен поиск ноды по типу.
-# - Заменен ошибочный вызов get_nodes_by_class_name на get_nodes_by_type.
+# ВЕРСИЯ 9.0 (АРХИТЕКТУРА): Внедрение интерактивного превью.
+# - Превью теперь рендерит последнюю выбранную ноду.
+# - Добавлено отслеживание выбора ноды.
 # ==============================================================================
 
 from __future__ import annotations
 
 import logging
+import traceback # <-- Добавлен импорт для детальных ошибок
 from typing import Optional, Dict, Any
 
 from PySide6 import QtWidgets, QtCore, QtGui
@@ -50,6 +52,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.left_palette = None
         self.node_inspector = None
         self.presets_widget = None
+        self._last_selected_node = None # <-- Добавлено для хранения последней выбранной ноды
 
         # --- Атрибуты для новых виджетов настроек ---
         self.ws_max_height_input = None
@@ -124,6 +127,8 @@ class MainWindow(QtWidgets.QMainWindow):
             if self.right_outliner: self.right_outliner.bind_graph(self.graph)
             if self.left_palette: self.left_palette.bind_graph(self.graph)
             QtCore.QTimer.singleShot(0, self.graph.finalize_setup)
+            # --- ИЗМЕНЕНИЕ: Подключаем отслеживание выбора ноды ---
+            self.graph.selection_changed.connect(self._on_node_selection_changed)
 
         if self.right_outliner:
             self.right_outliner.apply_clicked.connect(self._on_apply_clicked)
@@ -133,6 +138,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self.presets_widget.create_from_current_requested.connect(self.action_create_preset_from_dialog)
             self.presets_widget.delete_requested.connect(self.action_delete_preset_by_name)
             self.presets_widget.save_as_requested.connect(self.action_save_active_preset)
+
+    # --- ИЗМЕНЕНИЕ: Новый метод для отслеживания выбора ноды ---
+    @QtCore.Slot(list)
+    def _on_node_selection_changed(self, selected_nodes):
+        if selected_nodes:
+            self._last_selected_node = selected_nodes[0]
 
     def _load_presets_list(self):
         if not self.presets_widget or not self.project_manager.current_project_data: return
@@ -187,64 +198,39 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             ev.ignore()
 
+    # --- ИЗМЕНЕНИЕ: Полностью переписанный метод генерации ---
     def _on_apply_clicked(self):
-        if self.right_outliner:
-            self.right_outliner.set_busy(True)
+        if self.right_outliner: self.right_outliner.set_busy(True)
         try:
-            # 1. Находим финальную ноду (или ту, что в фокусе)
-            # --- ИЗМЕНЕНИЕ: Используем правильный метод get_nodes_by_type ---
-            output_nodes = self.graph.get_nodes_by_type('OutputNode')
-            output_node = self.graph.selected_nodes()[0] if self.graph.selected_nodes() else (output_nodes[0] if output_nodes else None)
-            if not output_node:
-                raise RuntimeError("В графе не найдена выходная нода и ни одна нода не выбрана.")
+            target_node = self.graph.selected_nodes()[0] if self.graph.selected_nodes() else self._last_selected_node
+            if not target_node:
+                logger.warning("Нет выбранной ноды для превью.")
+                return
 
-            # 2. Собираем контекст из UI
+            logger.info(f"Рендеринг превью для ноды: '{target_node.name()}'")
+            
             context = self.project_manager.collect_ui_context()
-
-            # 3. Генерируем Мировой Фрактал для WorldInputNode
-            from generator_logic.terrain.fractals import generate_multifractal
-
-            fractal_params = {
-                'type': 'fbm',
-                'octaves': self.gv_octaves_input.value(),
-                'roughness': self.gv_roughness_input.value(),
-                'seed': context['seed'],
-            }
-            variation_params = {
-                'variation': self.gv_variation_input.value(),
-                'smoothness': 0.0, # Глобально вариация всегда плавная
-            }
-            position_params = {}
-            warp_params = {'type': 'none'}
-
-            scale = self.gv_scale_input.value()
-            coords_x = context['x_coords'] * scale
-            coords_z = context['z_coords'] * scale
-
-            world_fractal_noise = generate_multifractal(
-                coords_x, coords_z, fractal_params, variation_params, position_params, warp_params
-            )
-
+            
+            from generator_logic.terrain.fractals import multifractal_wrapper
+            fractal_params = {'type': 'fbm', 'octaves': self.gv_octaves_input.value(), 'roughness': self.gv_roughness_input.value(), 'seed': context['seed'], 'scale': self.gv_scale_input.value()}
+            variation_params = {'variation': self.gv_variation_input.value(), 'smoothness': 0.0}
+            world_fractal_noise = multifractal_wrapper(context, fractal_params, variation_params, {}, {'type': 'none'})
             context["world_input_noise"] = world_fractal_noise
 
-            # 4. Запускаем вычисление графа
-            final_map_01 = run_graph(output_node, context)
-
-            # 5. Применяем финальное масштабирование в метры для превью
+            final_map_01 = run_graph(target_node, context)
+            
             max_height_m = self.ws_max_height_input.value()
+            vertex_spacing = self.ws_vertex_spacing_input.value()
             final_map_meters = final_map_01 * max_height_m
-
-            # 6. Отправляем результат в 3D-вьюпорт
+            
             if self.preview_widget:
-                cell_size = self.ws_vertex_spacing_input.value()
-                self.preview_widget.update_mesh(final_map_meters, cell_size)
-
+                self.preview_widget.update_mesh(final_map_meters, vertex_spacing)
+                
         except Exception as e:
             logger.exception(f"Ошибка во время генерации: {e}")
-            QtWidgets.QMessageBox.critical(self, "Ошибка генерации", f"Произошла ошибка: {e}")
+            QtWidgets.QMessageBox.critical(self, "Ошибка генерации", f"Произошла ошибка: {e}\n\n{traceback.format_exc()}")
         finally:
-            if self.right_outliner:
-                self.right_outliner.set_busy(False)
+            if self.right_outliner: self.right_outliner.set_busy(False)
 
     def _trigger_apply(self) -> None:
         if self.right_outliner and self.right_outliner.apply_button:
