@@ -1,8 +1,8 @@
 # ==============================================================================
 # Файл: editor/project_manager.py
-# ВЕРСИЯ 4.0 (РЕФАКТОРИНГ): Логика перенесена в actions.
-# - Класс теперь делегирует создание/открытие/сохранение проекто
-#   функциям из модуля project_actions, чтобы избежать дублирования кода.
+# ВЕРСИЯ 4.1 (РЕФАКТОРИНГ): Добавлен метод для сбора UI-контекста.
+# - Добавлен метод collect_ui_context() для централизованного доступа к параметрам UI.
+# - Удален ошибочный дубликат метода из класса ProjectDialog.
 # ==============================================================================
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from PySide6 import QtWidgets, QtCore
 
 # --- ИЗМЕНЕНИЕ: Импортируем централизованную логику ---
 from editor.actions.project_actions import (
-    on_new_project, on_open_project, on_save_project
+    on_new_project, on_open_project, on_save_project, load_project_data
 )
 from editor.graph_utils import create_default_graph_session
 from editor.theme import APP_STYLE_SHEET
@@ -54,7 +54,6 @@ class ProjectManager:
 
     def load_project(self, project_path: str):
         logger.info(f"Loading project from: {project_path}")
-        from editor.actions.project_actions import load_project_data
         project_data = load_project_data(project_path)
         if not project_data:
             QtWidgets.QMessageBox.critical(self._mw, "Ошибка", f"Не удалось загрузить данные проекта из {project_path}")
@@ -76,7 +75,13 @@ class ProjectManager:
         self.mark_dirty(False)
         self._status_msg(f"Проект '{Path(project_path).name}' загружен.")
 
-    # --- ИЗМЕНЕНИЕ: Методы теперь вызывают функции из actions ---
+    def collect_ui_context(self) -> dict:
+        """
+        Собирает все параметры из UI в единый словарь-контекст для генератора.
+        """
+        context = collect_context_from_ui(self._mw)
+        context['project'] = self.current_project_data
+        return context
 
     def new_project(self):
         new_path = on_new_project(self._mw)
@@ -94,13 +99,12 @@ class ProjectManager:
             self._status_msg("Проект не загружен, сохранение отменено.", 3000)
             return False
 
-        # Сначала собираем текущие данные из UI
-        project_data_from_ui = collect_context_from_ui(self._mw)
+        project_data_from_ui = self.collect_ui_context()
+        if self.current_project_data:
+            self.current_project_data.update(project_data_from_ui)
+        else:
+            self.current_project_data = project_data_from_ui
 
-        # Обновляем наш кэш данных проекта
-        self.current_project_data.update(project_data_from_ui)
-
-        # Передаем полный, обновленный словарь в функцию сохранения
         on_save_project(self._mw, self.current_project_data)
 
         self.mark_dirty(False)
@@ -139,7 +143,6 @@ class ProjectDialog(QtWidgets.QDialog):
         self.selected_path: str | None = None
         self.settings = QtCore.QSettings(ORGANIZATION_NAME, APPLICATION_NAME)
 
-        # --- РЕФАКТОРИНГ: Явно применяем стиль к диалогу ---
         self.setStyleSheet(APP_STYLE_SHEET)
 
         layout = QtWidgets.QVBoxLayout(self)
@@ -208,29 +211,6 @@ class ProjectDialog(QtWidgets.QDialog):
             self.accept()
 
 
-    def collect_ui_context(self) -> dict:
-        """
-        Собирает все параметры из UI в единый словарь-контекст для генератора.
-        """
-        # Эта логика полностью повторяет то, что раньше было в project_binding.py
-        return {
-            "cell_size": self._mw.cell_size_input.value(),
-            "seed": self._mw.seed_input.value(),
-            "global_x_offset": self._mw.global_x_offset_input.value(),
-            "global_z_offset": self._mw.global_z_offset_input.value(),
-            "chunk_size": self._mw.chunk_size_input.value(),
-            "region_size_in_chunks": self._mw.region_size_input.value(),
-            "global_noise": {
-                "scale_tiles": self._mw.gn_scale_input.value(),
-                "octaves": self._mw.gn_octaves_input.value(),
-                "amp_m": self._mw.gn_amp_input.value(),
-                "ridge": self._mw.gn_ridge_checkbox.isChecked(),
-            },
-            # Добавляем данные о проекте, которые могут понадобиться нодам
-            "project": self.current_project_data
-        }
-
-
 def show_project_manager() -> str | None:
     dialog = ProjectDialog()
     if dialog.exec() == QtWidgets.QDialog.Accepted:
@@ -275,4 +255,3 @@ def _create_new_project(parent) -> str | None:
     except Exception as e:
         QtWidgets.QMessageBox.critical(parent, "Ошибка", f"Ошибка создания проекта: {e}")
         return None
-

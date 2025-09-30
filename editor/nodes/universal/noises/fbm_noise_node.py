@@ -1,6 +1,7 @@
 # ==============================================================================
 # editor/nodes/universal/noises/fbm_noise_node.py
-# ВЕРСИЯ 2.1 (РЕФАКТОРИНГ): Использует get_property из базового класса.
+# ВЕРСИЯ 3.0 (АРХИТЕКТУРА): Используется новая система управления сидами.
+# - Заменен add_text_input на add_seed_input для свойства seed_offset.
 # ==============================================================================
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ class FBMNoiseNode(GeneratorNode):
         super().__init__()
         self.add_output("height")
         self.add_enum_input("scale_mode", "Scale Mode", ["tiles", "meters"], tab="Params", default="tiles")
-        # РЕФАКТОРИНГ: Указываем тип 'float' и 'int' для авто-преобразования
+        
         self._prop_meta["scale"] = {'type': 'float', 'label': "Scale value", 'tab': "Params", 'group': "Params"}
         self.add_text_input("scale", "Scale value", tab="Params", text="2000")
 
@@ -48,18 +49,15 @@ class FBMNoiseNode(GeneratorNode):
 
         self.add_checkbox("ridge", "Ridge", tab="Params", state=False)
 
-        self._prop_meta["seed_offset"] = {'type': 'int', 'label': "Seed Offset", 'tab': "Params", 'group': "Params"}
-        self.add_text_input("seed_offset", "Seed Offset", tab="Params", text="0")
+        # --- ИСПОЛЬЗУЕМ НОВЫЙ МЕТОД ДЛЯ СИДА ---
+        self.add_seed_input("seed_offset", "Seed Offset", tab="Params", group="Params")
+        # -------------------------------------
 
         self.set_color(70, 50, 20)
         self.set_description(DESCRIPTION_TEXT)
 
-    # РЕФАКТОРИНГ: Вспомогательные методы _f и _i больше не нужны,
-    # так как get_property() теперь возвращает правильные типы.
-
     # ---------- compute ----------
     def _compute(self, context):
-        # sanity: координаты
         x = context.get("x_coords"); z = context.get("z_coords")
         if not (isinstance(x, np.ndarray) and isinstance(z, np.ndarray) and x.ndim == 2 and x.shape == z.shape):
             logger.error("FBMNoiseNode: некорректные координаты в контексте; отдаю нули 256x256.")
@@ -70,8 +68,10 @@ class FBMNoiseNode(GeneratorNode):
 
         H, W     = x.shape
         seed     = int(context.get("seed", 0))
-        # РЕФАКТОРИНГ: Прямое использование get_property()
+        
+        # Теперь get_property вернет int, так как мы использовали add_seed_input
         so       = self.get_property("seed_offset")
+        
         layer_sd = (seed + so + int(self.id, 0)) & 0xFFFFFFFF
 
         scale_mode = self.get_property("scale_mode")
@@ -88,7 +88,6 @@ class FBMNoiseNode(GeneratorNode):
         lacunarity = max(self.get_property("lacunarity"), 1.0)
         ridge      = self.get_property("ridge") # bool
 
-        # fbm в диапазоне примерно [-max_amp..max_amp], но реализация отдаёт уже «биполярный» шум
         raw = fbm_grid_bipolar(seed=layer_sd,
                                coords_x=x, coords_z=z,
                                freq0=freq0,
@@ -104,10 +103,9 @@ class FBMNoiseNode(GeneratorNode):
             self._result_cache = pkt
             return pkt
 
-        # нормируем по суммарной амплитуде
         max_amp = fbm_amplitude(gain, octaves)
         nrm = raw / max_amp if max_amp > 1e-6 else raw
-        # в [0..1]
+        
         n01 = (np.clip(nrm, -1.0, 1.0) + 1.0) * 0.5
         n01 = n01.astype(np.float32, copy=False)
 

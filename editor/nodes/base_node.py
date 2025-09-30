@@ -1,11 +1,11 @@
 # editor/nodes/base_node.py
-# ВЕРСЯ 5.3 (HOTFIX): Исправлена обработка цвета для отрисовки.
-# - Метод set_property теперь принудительно преобразует строковое
-#   представление цвета из файла в кортеж (R, G, B), отбрасывая
-#   альфа-канал, чтобы избежать конфликта типов в QColor.
+# ВЕРСИЯ 6.1 (РЕФАКТОРИНГ): Исправлена реализация add_seed_input.
+# - Убран ошибочный вызов set_default_text.
+# - Начальное значение сида теперь корректно передается в register_text.
 # ----------------------------------------------------------------------------
 from __future__ import annotations
 
+import random
 import time
 import logging
 import textwrap
@@ -15,7 +15,6 @@ import numpy as np
 from PySide6 import QtCore
 from NodeGraphQt import BaseNode
 
-# Хелперы UI и кеш-сигнатур
 from editor.nodes._helpers import node_ui as UIH
 from editor.nodes._helpers import cache_utils as CU
 
@@ -23,36 +22,47 @@ logger = logging.getLogger(__name__)
 
 
 class GeneratorNode(BaseNode):
-    """
-    Базовый узел:
-      - Свойства регистрируются нативным API NodeGraphQt (панель свойств их видит).
-      - На самой ноде виджеты можно скрывать (compact=True) или показывать (compact=False).
-      - Кеш вычислений с инвалидацией по контексту и апстриму.
-      - Тултипы для ноды и портов.
-    """
     __identifier__ = 'generator.nodes'
 
     def __init__(self):
         super().__init__()
-
-        self._prop_meta: Dict[
-            str, dict] = {}  # {name: {'type': 'line'|'check'|'combo', 'label': str, 'tab': str, 'items': list}}
-
+        self._prop_meta: Dict[str, dict] = {}
         self._onnode_widgets: List[Any] = []
         self._compact: bool = True
-
         self._description_text: str = "Описание для этой ноды не задано."
         self._port_desc_by_name: Dict[str, str] = {}
-
         self._is_dirty: bool = True
         self._result_cache: Any = None
         self._rev: int = 0
         self._last_sig: Tuple[Any, Any] | None = None
-
         self._apply_tooltips_to_node()
         self._deferred_init_tooltips()
 
-    def set_compact(self, compact: bool) -> None:
+    def add_seed_input(self, name, label, tab='Params', group=None):
+        """
+        Добавляет специализированный целочисленный ввод для сидов.
+        При создании генерирует случайное начальное значение.
+        """
+        try:
+            initial_seed = (int(self.id, 16) ^ int(time.time() * 1000)) & 0xFFFFFFFF
+        except (ValueError, TypeError):
+            initial_seed = random.randint(0, 0xFFFFFFFF)
+
+        self._prop_meta[name] = {
+            'type': 'int',
+            'label': label,
+            'tab': UIH.safe_tab(tab),
+            'group': group or UIH.safe_tab(tab)
+        }
+
+        # Передаем начальное значение напрямую в функцию-хелпер.
+        # Это правильный способ, который не требует возврата виджета.
+        UIH.register_text(self, self._onnode_widgets, name=name, label=label, text=str(initial_seed),
+                          tab=tab, compact=self._compact)
+
+        self.set_property(name, initial_seed, push_undo=False)
+
+    def set_compact(self, compact: bool):
         self._compact = bool(compact)
         for w in self._onnode_widgets:
             (UIH.hide_widget if self._compact else UIH.show_widget)(w)
@@ -130,24 +140,14 @@ class GeneratorNode(BaseNode):
             return raw_value
 
     def set_property(self, name, value, push_undo: bool = False):
-        # --- НАЧАЛО ИСПРАВЛЕНИЯ v2 ---
-        # Перехватываем установку свойств цвета и цвета текста
         if name in ('color', 'text_color') and isinstance(value, str):
             try:
-                # Преобразуем строку "r, g, b, a" в кортеж чисел
                 clean_value = value.strip('()[] ')
                 parts = [int(float(p.strip())) for p in clean_value.split(',')]
-
-                # ВАЖНО: Принудительно берем только первые 3 компонента (RGB),
-                # чтобы соответствовать ожиданиям функции отрисовки.
                 if len(parts) >= 3:
                     value = tuple(parts[:3])
-
             except (ValueError, TypeError):
-                # Если парсинг не удался, ничего не делаем,
-                # пусть родительский метод разбирается с этим значением.
                 pass
-        # --- КОНЕЦ ИСПРАВЛЕНИЯ v2 ---
 
         try:
             if self.get_property(name) != value:

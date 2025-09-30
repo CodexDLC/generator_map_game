@@ -1,8 +1,9 @@
 # editor/ui_panels/project_binding.py
+import numpy as np
+
 def apply_project_to_ui(mw, data: dict) -> None:
     mw.seed_input.setValue(int(data.get("seed", 1)))
     mw.chunk_size_input.setValue(int(data.get("chunk_size", 128)))
-    # --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
     mw.region_size_in_chunks_input.setValue(int(data.get("region_size_in_chunks", 4)))
     mw.cell_size_input.setValue(float(data.get("cell_size", 1.0)))
     mw.global_x_offset_input.setValue(int(data.get("global_x_offset", 0)))
@@ -18,6 +19,9 @@ def apply_project_to_ui(mw, data: dict) -> None:
     mw.setWindowTitle(f"Редактор Миров — [{project_name}]")
 
 def collect_context_from_ui(mw) -> dict:
+    """
+    Собирает параметры из UI и создает на их основе координатную сетку.
+    """
     global_noise_params = {
         "scale_tiles": mw.gn_scale_input.value(),
         "octaves": mw.gn_octaves_input.value(),
@@ -25,8 +29,16 @@ def collect_context_from_ui(mw) -> dict:
         "ridge": mw.gn_ridge_checkbox.isChecked(),
     }
     cs = int(mw.chunk_size_input.value())
-    # --- И ИЗМЕНЕНИЕ ЗДЕСЬ ---
     rs = int(mw.region_size_in_chunks_input.value())
+
+    world_size_in_cells = cs * rs
+    x = np.linspace(-1.0, 1.0, world_size_in_cells, dtype=np.float32)
+    y = np.linspace(-1.0, 1.0, world_size_in_cells, dtype=np.float32)
+    x_coords, y_coords = np.meshgrid(x, y)
+    # --- РЕШЕНИЕ: Добавляем z_coords для совместимости с 3D-шумом ---
+    z_coords = np.zeros_like(x_coords, dtype=np.float32)
+    # ----------------------------------------------------------------
+
     return {
         "cell_size": mw.cell_size_input.value(),
         "seed": mw.seed_input.value(),
@@ -35,4 +47,8 @@ def collect_context_from_ui(mw) -> dict:
         "chunk_size": cs,
         "region_size_in_chunks": rs,
         "global_noise": global_noise_params,
+        "x_coords": x_coords,
+        "y_coords": y_coords,
+        # --- РЕШЕНИЕ: Добавляем z_coords в контекст ---
+        "z_coords": z_coords,
     }

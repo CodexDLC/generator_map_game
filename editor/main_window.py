@@ -1,9 +1,8 @@
 # ==============================================================================
 # Файл: main_window.py
-# ВЕРСИЯ 5.5 (ИНТЕГРАЦИЯ): Полная интеграция управления пресетами.
-# - Добавлена панель пресетов.
-# - Реализованы методы для загрузки, сохранения и управления пресетами.
-# - Все действия с пресетами теперь вызывают функции из preset_actions.py.
+# ВЕРСИЯ 5.6 (ДИАГНОСТИКА): Добавлено логирование контекста.
+# - Перед вызовом run_graph в лог выводится список ключей в словаре context
+#   для отладки проблемы с отсутствующими x_coords.
 # ==============================================================================
 
 from __future__ import annotations
@@ -21,13 +20,11 @@ from editor.ui_panels.accordion_properties import create_properties_widget
 from editor.ui_panels.central_graph import create_bottom_work_area_v2
 from editor.ui_panels.menu import build_menus
 from editor.ui_panels.node_inspector import make_node_inspector_widget
-# --- ИЗМЕНЕНИЕ: Импортируем панель пресетов ---
 from editor.ui_panels.region_presets_panel import make_region_presets_widget
 from editor.ui_panels.shortcuts import install_shortcuts
 from editor.preview_widget import Preview3DWidget
 from editor.project_manager import ProjectManager
 
-# --- ИЗМЕНЕНИЕ: Импортируем действия для пресетов ---
 from editor.actions import preset_actions
 
 logger = logging.getLogger(__name__)
@@ -52,7 +49,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.right_outliner = None
         self.left_palette = None
         self.node_inspector = None
-        # --- ИЗМЕНЕНИЕ: Добавляем атрибут для виджета пресетов ---
         self.presets_widget = None
 
         # --- Виджеты параметров ---
@@ -87,16 +83,8 @@ class MainWindow(QtWidgets.QMainWindow):
         bottom_work_area, self.graph, self.left_palette, self.right_outliner = create_bottom_work_area_v2(self)
 
         tabs_left = self._create_left_tabs()
-
-        # --- ИЗМЕНЕНИЕ: Панель свойств теперь создается отдельно ---
-        from editor.ui_panels.accordion_properties import create_properties_widget
-        self.props_bin = create_properties_widget(self)
-
-        tabs_right = QtWidgets.QTabWidget()
-        tabs_right.setDocumentMode(True)
-        tabs_right.addTab(self.props_bin, "Свойства")
-
         tabs_right = self._create_right_tabs()
+
         top_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal, self)
         top_splitter.addWidget(tabs_left)
         top_splitter.addWidget(self.preview_widget)
@@ -113,16 +101,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._connect_components()
 
     def _create_right_tabs(self) -> QtWidgets.QTabWidget:
-        """Создает правую панель с вкладками 'Параметры' и 'Инспектор'."""
         tabs = QtWidgets.QTabWidget()
         tabs.setObjectName("TopTabsRight")
         tabs.setDocumentMode(True)
 
-        # Вкладка 1: Параметры генерации (Аккордеон)
         self.props_bin = create_properties_widget(self)
         tabs.addTab(self.props_bin, "Параметры")
 
-        # Вкладка 2: Инспектор ноды (Имя, цвет, порты)
         self.node_inspector = make_node_inspector_widget(self)
         tabs.addTab(self.node_inspector, "Инспектор")
 
@@ -199,7 +184,6 @@ class MainWindow(QtWidgets.QMainWindow):
         global_noise_panel = self._create_global_noise_panel()
         tabs.addTab(global_noise_panel, "Глобальный Шум")
 
-        # --- ИЗМЕНЕНИЕ: Создаем и добавляем панель пресетов ---
         self.presets_widget = make_region_presets_widget(self)
         tabs.addTab(self.presets_widget, "Пресеты")
 
@@ -207,16 +191,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _connect_components(self):
         if self.graph:
-            if self.props_bin:
-                self.props_bin.set_graph(self.graph)
-            if self.node_inspector:
-                self.node_inspector.bind_graph(self.graph)
+            if self.props_bin: self.props_bin.set_graph(self.graph)
+            if self.node_inspector: self.node_inspector.bind_graph(self.graph)
             if self.right_outliner: self.right_outliner.bind_graph(self.graph)
             if self.left_palette: self.left_palette.bind_graph(self.graph)
 
             QtCore.QTimer.singleShot(0, self.graph.finalize_setup)
-
-
 
         for widget in [self.seed_input, self.chunk_size_input, self.region_size_in_chunks_input,
                        self.cell_size_input, self.global_x_offset_input, self.global_z_offset_input,
@@ -230,70 +210,49 @@ class MainWindow(QtWidgets.QMainWindow):
             self.right_outliner.apply_clicked.connect(self._on_apply_clicked)
 
         if self.presets_widget:
-            # Загрузить выбранный пресет
             self.presets_widget.load_requested.connect(self.action_load_region_preset)
-            self.presets_widget.create_from_current_requested.connect(self.action_create_preset)
-            # Создать новый пустой пресет (имя спросит в диалоге)
-            # Кнопка "Создать из текущего" на самом деле создает новый, а не копирует.
-            # Давайте пока оставим так, но подключим к правильной функции.
             self.presets_widget.create_from_current_requested.connect(self.action_create_preset_from_dialog)
-
-            # Удалить выбранный пресет
-            self.presets_widget.delete_requested.connect(self.action_delete_preset)
-
-            # Сохранить текущий граф в активный пресет
+            self.presets_widget.delete_requested.connect(self.action_delete_preset_by_name)
             self.presets_widget.save_as_requested.connect(self.action_save_active_preset)
 
-    # --- ИЗМЕНЕНИЕ: Реализуем недостающий метод ---
     def _load_presets_list(self):
-        """Загружает список пресетов из данных проекта и обновляет UI."""
         if not self.presets_widget or not self.project_manager.current_project_data:
             return
-
         presets_data = self.project_manager.current_project_data.get("region_presets", {})
         preset_names = list(presets_data.keys())
         self.presets_widget.set_presets(preset_names)
-
         active_preset = self.project_manager.current_project_data.get("active_preset_name")
         if active_preset:
             self.presets_widget.select_preset(active_preset)
 
-    # --- ИЗМЕНЕНИЕ: Добавляем методы-обработчики для действий с пресетами ---
     def get_project_data(self) -> Dict[str, Any] | None:
-        """Безопасный способ получить данные текущего проекта."""
         return self.project_manager.current_project_data
 
     def get_active_graph(self):
-        """Возвращает текущий активный граф."""
         return self.graph
 
     def action_load_region_preset(self, preset_name: str):
-        """Загружает выбранный пресет."""
         project_data = self.get_project_data()
         if not project_data: return
-
         preset_info = project_data.get("region_presets", {}).get(preset_name)
         if preset_info:
             project_data["active_preset_name"] = preset_name
             preset_actions.load_preset_into_graph(self, preset_info)
             self.presets_widget.select_preset(preset_name)
-            self._mark_dirty()  # Смена пресета - это изменение проекта
+            self._mark_dirty()
 
-    def action_create_preset(self, preset_name_from_field: str):
-        """Обработчик для кнопки 'Создать...'. Вызывает диалог создания нового пресета."""
-        # Мы игнорируем имя из поля, так как `handle_new_preset` сам его спросит
+    def action_create_preset_from_dialog(self, preset_name_from_field: str):
         preset_actions.handle_new_preset(self)
 
-    def action_delete_preset(self):
-        """Удаляет выбранный пресет."""
-        preset_actions.handle_delete_preset(self)
+    def action_delete_preset_by_name(self, preset_name: str):
+        items = self.presets_widget.list.findItems(preset_name, QtCore.Qt.MatchExactly)
+        if items:
+            self.presets_widget.list.setCurrentItem(items[0])
+            preset_actions.handle_delete_preset(self)
 
     def action_save_active_preset(self):
-        """Сохраняет текущее состояние графа в активный пресет."""
         preset_actions.handle_save_active_preset(self)
 
-    # ... остальные методы (new_project, open_project, save_project, _mark_dirty, closeEvent, _on_apply_clicked, _trigger_apply) ...
-    # ... остаются практически без изменений, за исключением того, что save_project теперь вызывается через ProjectManager ...
     def new_project(self):
         self.project_manager.new_project()
 
@@ -326,7 +285,11 @@ class MainWindow(QtWidgets.QMainWindow):
             if not output_node:
                 raise RuntimeError("В графе не найдена выходная нода (OutputNode).")
 
-            context = self.project_manager.collect_ui_context()  # Используем метод менеджера
+            context = self.project_manager.collect_ui_context()
+
+            # --- ДИАГНОСТИКА: Логируем ключи контекста перед запуском ---
+            logger.debug(f"Контекст перед запуском графа. Ключи: {list(context.keys())}")
+            # ---------------------------------------------------------
 
             logger.info(f"Запуск вычисления графа от ноды: {output_node.name()}")
             height_map = run_graph(output_node, context)
@@ -347,20 +310,3 @@ class MainWindow(QtWidgets.QMainWindow):
     def _trigger_apply(self) -> None:
         if self.right_outliner and self.right_outliner.apply_button:
             self.right_outliner.apply_button.animateClick(10)
-
-    def action_delete_preset_by_name(self, preset_name: str):
-        """Слот для удаления пресета по имени из виджета."""
-        # Устанавливаем текущий элемент в списке, чтобы `handle_delete_preset` знал, что удалять
-        items = self.presets_widget.list.findItems(preset_name, QtCore.Qt.MatchExactly)
-        if items:
-            self.presets_widget.list.setCurrentItem(items[0])
-            preset_actions.handle_delete_preset(self)
-
-
-    def action_create_preset_from_dialog(self, preset_name_from_field: str):
-        """
-        Обработчик для кнопки 'Создать'.
-        Игнорирует имя из поля и вызывает диалог создания.
-        """
-        preset_actions.handle_new_preset(self)
-
