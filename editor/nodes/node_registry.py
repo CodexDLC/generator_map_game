@@ -16,26 +16,29 @@ def register_all_nodes(graph):
 
         # Ландшафт.Композиция
         ("editor.nodes.height.composition.combiner_node", "CombinerNode"),
-        #("editor.nodes.height.composition.masked_delta_node", "MaskedDeltaNode"),
+        ("editor.nodes.height.composition.masked_delta_node", "MaskedDeltaNode"),
         ("editor.nodes.height.composition.slope_mask_node", "SlopeMaskNode"),
 
         # Ландшафт.Эффекты
-        #("editor.nodes.height.effects.anti_ripple_node", "AntiRippleNode"),
-        #("editor.nodes.height.effects.terracer_node", "TerracerNode"),
+        ("editor.nodes.height.effects.anti_ripple_node", "AntiRippleNode"),
+        ("editor.nodes.height.effects.terracer_node", "TerracerNode"),
 
         # Универсальные.Шумы
         ("editor.nodes.universal.noises.perlin_noise_node", "PerlinNoiseNode"),
         ("editor.nodes.universal.noises.voronoi_noise_node", "VoronoiNoiseNode"),
+        ("editor.nodes.universal.noises.multifractal_node", "MultiFractalNode"), # <--- Эта тоже была пропущена
 
         # Универсальные.Математика
         ("editor.nodes.universal.math.normalize01_node", "Normalize01Node"),
+        ("editor.nodes.universal.math.math_ops_node", "MathOpsNode"),
+        ("editor.nodes.universal.math.to_meters_node", "ToMetersNode"),
 
         # Универсальные.Маски
         ("editor.nodes.universal.masks.mask_node", "MaskNode"),
 
         # Универсальные.Модули
-        #("editor.nodes.universal.module.domain_warp_apply_node", "DomainWarpApplyNode"),
-        #("editor.nodes.universal.module.warp_field_node", "WarpFieldNode"),
+        ("editor.nodes.universal.module.domain_warp_apply_node", "DomainWarpApplyNode"),
+        ("editor.nodes.universal.module.warp_field_node", "WarpFieldNode"),
 
         # UI
         ("editor.nodes.backdrop_node", "CustomBackdropNode"),

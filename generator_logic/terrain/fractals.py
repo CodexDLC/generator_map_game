@@ -6,8 +6,8 @@ from game_engine_restructured.numerics.fast_noise import _hash2, fbm_amplitude
 
 F32 = np.float32
 
-# --- Внутренние helper-функции, переписанные для float32 -- -
-
+# --- (весь Numba-код остается без изменений) ---
+# ... value_noise_2d_f32, _generate_multifractal_numba и т.д. ...
 @njit(inline='always', cache=True)
 def _rand01_f32(ix: int, iz: int, seed: int) -> F32:
     return F32(_hash2(ix, iz, seed)) / F32(4294967296.0)
@@ -95,7 +95,20 @@ def _generate_multifractal_numba(
 # --- Python-обертка ---
 def multifractal_wrapper(context: dict, fractal_params: dict, variation_params: dict, position_params: dict,
                          warp_params: dict):
-    base_freq = 1.0 / (fractal_params.get('scale', 0.5) + 1e-9)
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+    # Получаем размер мира из контекста
+    world_size = context.get('WORLD_SIZE_METERS', 5000.0)
+
+    # Scale - это множитель от размера мира (например, 0.58)
+    relative_scale = float(fractal_params.get('scale', 0.5))
+
+    # Вычисляем итоговый масштаб в метрах
+    scale_in_meters = relative_scale * world_size
+
+    # Рассчитываем базовую частоту
+    base_freq = 1.0 / (scale_in_meters + 1e-9)
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
     noise_type_str = fractal_params.get('type', 'fbm')
     warp_type_str = warp_params.get('type', 'none')
 

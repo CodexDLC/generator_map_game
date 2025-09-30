@@ -1,21 +1,11 @@
-# ==============================================================================
-# Файл: main_window.py
-# ВЕРСИЯ 9.0 (АРХИТЕКТУРА): Внедрение интерактивного превью.
-# - Превью теперь рендерит последнюю выбранную ноду.
-# - Добавлено отслеживание выбора ноды.
-# ==============================================================================
-
+# editor/main_window.py
 from __future__ import annotations
-
 import logging
-import traceback # <-- Добавлен импорт для детальных ошибок
+import traceback
 from typing import Optional, Dict, Any
 
 from PySide6 import QtWidgets, QtCore, QtGui
-
 from editor.graph_runner import run_graph
-from editor.nodes.height.io.output_node import OutputNode
-
 from editor.theme import APP_STYLE_SHEET
 from editor.ui_panels.accordion_properties import create_properties_widget
 from editor.ui_panels.central_graph import create_bottom_work_area_v2
@@ -25,7 +15,6 @@ from editor.ui_panels.region_presets_panel import make_region_presets_widget
 from editor.ui_panels.shortcuts import install_shortcuts
 from editor.preview_widget import Preview3DWidget
 from editor.project_manager import ProjectManager
-
 from editor.actions import preset_actions
 from editor.ui_panels.world_settings_panel import make_world_settings_widget
 
@@ -39,12 +28,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.setWindowTitle("Редактор Миров")
         self.resize(1600, 900)
-
         self.setAttribute(QtCore.Qt.WA_StyledBackground, True)
-
         self.project_manager = ProjectManager(self)
 
-        # --- UI-компоненты ---
+        # UI-компоненты
         self.graph = None
         self.preview_widget = None
         self.props_bin = None
@@ -52,22 +39,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.left_palette = None
         self.node_inspector = None
         self.presets_widget = None
-        self._last_selected_node = None # <-- Добавлено для хранения последней выбранной ноды
+        self._last_selected_node = None
 
-        # --- Атрибуты для новых виджетов настроек ---
-        self.ws_max_height_input = None
-        self.ws_vertex_spacing_input = None
-        self.pv_resolution_input = None
-        self.pv_realtime_checkbox = None
-        self.gv_scale_input = None
-        self.gv_octaves_input = None
-        self.gv_strength_input = None
+        # --- ИЗМЕНЕНИЕ: Удаляем предварительную инициализацию ---
+        # self.ws_max_height_input и другие атрибуты теперь создаются динамически
 
         self._build_ui()
-
         build_menus(self)
         install_shortcuts(self)
-
         if project_path:
             self.project_manager.load_project(project_path)
 
@@ -76,12 +55,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.preview_widget = Preview3DWidget(self)
         except (ImportError, RuntimeError) as e:
             logger.exception(f"Не удалось создать Preview3DWidget: {e}")
-            lbl = QtWidgets.QLabel("Preview widget failed to load")
-            lbl.setAlignment(QtCore.Qt.AlignCenter)
-            self.preview_widget = lbl
+            self.preview_widget = QtWidgets.QLabel("Preview widget failed to load")
+            self.preview_widget.setAlignment(QtCore.Qt.AlignCenter)
 
         bottom_work_area, self.graph, self.left_palette, self.right_outliner = create_bottom_work_area_v2(self)
-
         tabs_left = self._create_left_tabs()
         tabs_right = self._create_right_tabs()
 
@@ -96,7 +73,6 @@ class MainWindow(QtWidgets.QMainWindow):
         main_splitter.addWidget(top_splitter)
         main_splitter.addWidget(bottom_work_area)
         main_splitter.setSizes([int(self.height() * 0.55), int(self.height() * 0.45)])
-
         self.setCentralWidget(main_splitter)
         self._connect_components()
 
@@ -113,7 +89,18 @@ class MainWindow(QtWidgets.QMainWindow):
     def _create_left_tabs(self) -> QtWidgets.QTabWidget:
         tabs = QtWidgets.QTabWidget()
         tabs.setDocumentMode(True)
-        world_settings_panel = make_world_settings_widget(self)
+
+        # --- ИЗМЕНЕНИЕ: Принимаем виджеты и сохраняем ссылки на них ---
+        world_settings_panel, ws_widgets = make_world_settings_widget(self)
+        self.ws_world_size_input = ws_widgets["world_size_input"]
+        self.ws_max_height_input = ws_widgets["max_height_input"]
+        self.ws_vertex_spacing_input = ws_widgets["vertex_spacing_input"]
+        self.pv_resolution_input = ws_widgets["resolution_input"]
+        self.pv_realtime_checkbox = ws_widgets["realtime_checkbox"]
+        self.gv_scale_input = ws_widgets["gv_scale_input"]
+        self.gv_octaves_input = ws_widgets["gv_octaves_input"]
+        self.gv_strength_input = ws_widgets["gv_strength_input"]
+
         tabs.addTab(world_settings_panel, "Настройки Мира")
         self.presets_widget = make_region_presets_widget(self)
         tabs.addTab(self.presets_widget, "Пресеты")
@@ -126,23 +113,21 @@ class MainWindow(QtWidgets.QMainWindow):
             if self.right_outliner: self.right_outliner.bind_graph(self.graph)
             if self.left_palette: self.left_palette.bind_graph(self.graph)
             QtCore.QTimer.singleShot(0, self.graph.finalize_setup)
-            # --- ИЗМЕНЕНИЕ: Подключаем отслеживание выбора ноды ---
             self.graph.selection_changed.connect(self._on_node_selection_changed)
-
         if self.right_outliner:
             self.right_outliner.apply_clicked.connect(self._on_apply_clicked)
-
         if self.presets_widget:
             self.presets_widget.load_requested.connect(self.action_load_region_preset)
             self.presets_widget.create_from_current_requested.connect(self.action_create_preset_from_dialog)
             self.presets_widget.delete_requested.connect(self.action_delete_preset_by_name)
             self.presets_widget.save_as_requested.connect(self.action_save_active_preset)
 
-    # --- ИЗМЕНЕНИЕ: Новый метод для отслеживания выбора ноды ---
     @QtCore.Slot(list)
     def _on_node_selection_changed(self, selected_nodes):
         if selected_nodes:
             self._last_selected_node = selected_nodes[0]
+            if self.pv_realtime_checkbox and self.pv_realtime_checkbox.isChecked():
+                self._on_apply_clicked()
 
     def _load_presets_list(self):
         if not self.presets_widget or not self.project_manager.current_project_data: return
@@ -197,7 +182,6 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             ev.ignore()
 
-    # --- ИЗМЕНЕНИЕ: Полностью переписанный метод генерации ---
     def _on_apply_clicked(self):
         if self.right_outliner: self.right_outliner.set_busy(True)
         try:
@@ -207,27 +191,38 @@ class MainWindow(QtWidgets.QMainWindow):
                 return
 
             logger.info(f"Рендеринг превью для ноды: '{target_node.name()}'")
-            
             context = self.project_manager.collect_ui_context()
-            
+
             from generator_logic.terrain.fractals import multifractal_wrapper
-            fractal_params = {'type': 'fbm', 'octaves': self.gv_octaves_input.value(), 'roughness': self.gv_strength_input.value(), 'seed': context['seed'], 'scale': self.gv_scale_input.value()}
+            fractal_params = {
+                'type': 'fbm',
+                'octaves': self.gv_octaves_input.value(),
+                'roughness': self.gv_strength_input.value(),
+                'seed': context['seed'],
+                'scale': self.gv_scale_input.value()
+            }
             variation_params = {'variation': 0.0, 'smoothness': 0.0}
             world_fractal_noise = multifractal_wrapper(context, fractal_params, variation_params, {}, {'type': 'none'})
             context["world_input_noise"] = world_fractal_noise
 
             final_map_01 = run_graph(target_node, context)
-            
+
             max_height_m = self.ws_max_height_input.value()
-            vertex_spacing = self.ws_vertex_spacing_input.value()
             final_map_meters = final_map_01 * max_height_m
-            
+
             if self.preview_widget:
-                self.preview_widget.update_mesh(final_map_meters, vertex_spacing)
-                
+                resolution_str = self.pv_resolution_input.currentText()
+                preview_res = int(resolution_str.split('x')[0])
+
+                world_size = context.get("WORLD_SIZE_METERS", 5000.0)
+                preview_vertex_spacing = world_size / preview_res
+
+                self.preview_widget.update_mesh(final_map_meters, preview_vertex_spacing)
+
         except Exception as e:
             logger.exception(f"Ошибка во время генерации: {e}")
-            QtWidgets.QMessageBox.critical(self, "Ошибка генерации", f"Произошла ошибка: {e}\n\n{traceback.format_exc()}")
+            QtWidgets.QMessageBox.critical(self, "Ошибка генерации",
+                                           f"Произошла ошибка: {e}\n\n{traceback.format_exc()}")
         finally:
             if self.right_outliner: self.right_outliner.set_busy(False)
 

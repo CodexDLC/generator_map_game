@@ -12,7 +12,7 @@ class PerlinNoiseNode(GeneratorNode):
 
         # Group "Noise"
         self.add_enum_input("noise_type", "Type", ["FBM", "Ridged", "Billowy"], tab="Params", group="Noise", default="FBM")
-        self.add_text_input("scale", "Scale", tab="Params", group="Noise", text="0.5")
+        self.add_text_input("scale", "Scale (%)", tab="Params", group="Noise", text="0.1") # По умолчанию 10%
         self.add_text_input("octaves", "Octaves", tab="Params", group="Noise", text="10")
         self.add_text_input("gain", "Gain", tab="Params", group="Noise", text="0.5")
         self.add_text_input("amplitude", "Amplitude", tab="Params", group="Noise", text="1.0")
@@ -39,9 +39,17 @@ class PerlinNoiseNode(GeneratorNode):
             return default
 
     def _compute(self, context):
+        # --- НАЧАЛО ИЗМЕНЕНИЯ ---
+        base_scale = context.get('BASE_WORLD_SCALE', 16000.0)
+        relative_scale = self._get_float_param('scale', 0.1)  # Берем 0.1 (10%) из UI
+
+        # Рассчитываем абсолютный масштаб в метрах
+        absolute_scale_in_meters = relative_scale * base_scale
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
         noise_params = {
             'type': self.get_property('noise_type').lower(),
-            'scale': self._get_float_param('scale', 0.5),
+            'scale': absolute_scale_in_meters,  # <--- Передаем рассчитанное значение
             'octaves': self._get_int_param('octaves', 10),
             'gain': self._get_float_param('gain', 0.5),
             'amplitude': self.get_property('amplitude'),
