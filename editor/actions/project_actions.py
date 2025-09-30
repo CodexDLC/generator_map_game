@@ -1,10 +1,11 @@
 # ==============================================================================
 # Файл: editor/actions/project_actions.py
-# ВЕРСИЯ 2.1: Добавлена поддержка блока global_noise.
+# ВЕРСИЯ 3.0: Добавлена функция удаления проекта.
 # ==============================================================================
 import logging
 import json
 import os
+import shutil # <-- ИЗМЕНЕНИЕ: Импортируем shutil для удаления директорий
 from pathlib import Path
 from PySide6 import QtWidgets
 
@@ -39,7 +40,7 @@ def _atomic_write_json(path: Path, data: dict) -> None:
 def _default_project_dict(project_name: str) -> dict:
     """Единый формат project.json, теперь с поддержкой пресетов регионов."""
     return {
-        "version": 3, # <-- Повышаем версию
+        "version": 3,
         "project_name": project_name,
         "seed": 1,
         "chunk_size": 128,
@@ -53,7 +54,6 @@ def _default_project_dict(project_name: str) -> dict:
             "amp_m": 400.0,
             "ridge": False
         },
-        # --- НОВЫЙ БЛОК ДЛЯ ПРЕСЕТОВ ---
         "active_preset_name": "default",
         "region_presets": {
             "default": {
@@ -84,11 +84,9 @@ def on_new_project(parent_widget) -> str | None:
         _ensure_dir(pipelines_dir)
         _ensure_dir(project_path / "output")
 
-        # 1. Создаем структуру project.json
         project_data = _default_project_dict(project_name)
         _atomic_write_json(project_path / "project.json", project_data)
 
-        # 2. Создаем корректные файлы для пресета 'default'
         default_graph_data = create_default_graph_session()
 
         default_preset_info = project_data["region_presets"]["default"]
@@ -132,29 +130,20 @@ def _status_msg(main_window, text: str, msec: int = 4000) -> None:
     """Безопасно показывает сообщение в статус-баре."""
     try:
         bar = main_window.statusBar()
-        # QMainWindow.statusBar() создаст бар, если его ещё нет.
         bar.showMessage(text, msec)
     except Exception:
-        # В крайнем случае — просто алёрт, но не падаем.
         QtWidgets.QMessageBox.information(main_window, "Статус", text)
-
 
 def on_save_project(main_window, data_to_write: dict = None) -> None:
     logger.info("Action triggered: on_save_project.")
 
-    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
-    # Проверяем путь к проекту через менеджер, а не напрямую у окна
     if not main_window.project_manager.current_project_path:
-        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
         logger.warning("Project save skipped: No project loaded.")
         _status_msg(main_window, "Проект не загружен.", 3000)
         return
 
     try:
-        # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
-        # Формируем путь к файлу проекта через менеджер
         project_file_path = Path(main_window.project_manager.current_project_path) / "project.json"
-        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
         final_data = {}
 
@@ -166,24 +155,11 @@ def on_save_project(main_window, data_to_write: dict = None) -> None:
             with open(project_file_path, "r", encoding="utf-8") as f:
                 existing_data = json.load(f)
 
-            project_data_from_ui = {
-                "seed": main_window.seed_input.value(),
-                "chunk_size": main_window.chunk_size_input.value(),
-                "region_size_in_chunks": main_window.region_size_in_chunks_input.value(),
-                "cell_size": main_window.cell_size_input.value(),
-                "global_x_offset": main_window.global_x_offset_input.value(),
-                "global_z_offset": main_window.global_z_offset_input.value(),
-                "global_noise": {
-                    "scale_tiles": main_window.gn_scale_input.value(),
-                    "octaves": main_window.gn_octaves_input.value(),
-                    "amp_m": main_window.gn_amp_input.value(),
-                    "ridge": main_window.gn_ridge_checkbox.isChecked()
-                }
-            }
+            project_data_from_ui = main_window.project_manager.collect_ui_context()
 
             existing_data.update(project_data_from_ui)
-            if "global_noise" in existing_data:
-                existing_data["global_noise"].update(project_data_from_ui["global_noise"])
+            if "global_noise" in existing_data and "global_noise" in project_data_from_ui:
+                 existing_data["global_noise"].update(project_data_from_ui["global_noise"])
 
             final_data = existing_data
 
@@ -197,3 +173,48 @@ def on_save_project(main_window, data_to_write: dict = None) -> None:
         _status_msg(main_window, msg, 6000)
         QtWidgets.QMessageBox.critical(main_window, "Ошибка сохранения", msg)
         logger.exception("Failed to save project.")
+
+# --- ИЗМЕНЕНИЕ: Новая функция для удаления проекта ---
+def on_delete_project(main_window) -> None:
+    logger.info("Action triggered: on_delete_project.")
+    pm = main_window.project_manager
+    if not pm.current_project_path:
+        _status_msg(main_window, "Нет загруженного проекта для удаления.", 3000)
+        return
+
+    project_path = Path(pm.current_project_path)
+    project_name = project_path.name
+
+    reply = QtWidgets.QMessageBox.warning(
+        main_window,
+        "Подтверждение удаления",
+        f"Вы уверены, что хотите удалить проект '{project_name}'?\n\nЭто действие необратимо и удалит всю папку проекта с диска:\n{project_path}",
+        QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.Cancel,
+        QtWidgets.QMessageBox.StandardButton.Cancel
+    )
+
+    if reply == QtWidgets.QMessageBox.StandardButton.Yes:
+        logger.warning(f"Deleting project: {project_path}")
+        try:
+            # Сначала сбрасываем состояние в UI, чтобы избежать проблем с доступом к файлам
+            pm.current_project_path = None
+            pm.current_project_data = None
+            main_window.setWindowTitle("Редактор Миров")
+            if main_window.graph:
+                main_window.graph.clear_session()
+
+            # Физически удаляем папку
+            shutil.rmtree(project_path)
+
+            _status_msg(main_window, f"Проект '{project_name}' успешно удален.", 5000)
+            logger.info(f"Project '{project_name}' deleted successfully.")
+
+            # Предлагаем создать новый проект, чтобы не оставаться в пустоте
+            main_window.new_project()
+
+        except Exception as e:
+            msg = f"Не удалось удалить проект: {e}"
+            logger.exception(f"Failed to delete project directory: {project_path}")
+            QtWidgets.QMessageBox.critical(main_window, "Ошибка удаления", msg)
+            # Попытаемся восстановить путь, если удаление не удалось
+            pm.current_project_path = str(project_path)

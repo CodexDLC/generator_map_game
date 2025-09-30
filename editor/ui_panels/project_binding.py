@@ -1,54 +1,34 @@
 # editor/ui_panels/project_binding.py
 import numpy as np
 
+# Старая функция apply_project_to_ui больше не актуальна,
+# так как все UI элементы изменились. Оставляем ее пустой.
 def apply_project_to_ui(mw, data: dict) -> None:
-    mw.seed_input.setValue(int(data.get("seed", 1)))
-    mw.chunk_size_input.setValue(int(data.get("chunk_size", 128)))
-    mw.region_size_in_chunks_input.setValue(int(data.get("region_size_in_chunks", 4)))
-    mw.cell_size_input.setValue(float(data.get("cell_size", 1.0)))
-    mw.global_x_offset_input.setValue(int(data.get("global_x_offset", 0)))
-    mw.global_z_offset_input.setValue(int(data.get("global_z_offset", 0)))
-
-    noise_data = data.get("global_noise", {})
-    mw.gn_scale_input.setValue(float(noise_data.get("scale_tiles", 6000.0)))
-    mw.gn_octaves_input.setValue(int(noise_data.get("octaves", 3)))
-    mw.gn_amp_input.setValue(float(noise_data.get("amp_m", 400.0)))
-    mw.gn_ridge_checkbox.setChecked(bool(noise_data.get("ridge", False)))
-
-    project_name = data.get("project_name", "Безымянный проект")
-    mw.setWindowTitle(f"Редактор Миров — [{project_name}]")
+    pass
 
 def collect_context_from_ui(mw) -> dict:
     """
-    Собирает параметры из UI и создает на их основе координатную сетку.
+    Собирает базовый контекст и создает координатную сетку для превью.
     """
-    global_noise_params = {
-        "scale_tiles": mw.gn_scale_input.value(),
-        "octaves": mw.gn_octaves_input.value(),
-        "amp_m": mw.gn_amp_input.value(),
-        "ridge": mw.gn_ridge_checkbox.isChecked(),
-    }
-    cs = int(mw.chunk_size_input.value())
-    rs = int(mw.region_size_in_chunks_input.value())
+    try:
+        resolution_str = mw.pv_resolution_input.currentText()
+        preview_res = int(resolution_str.split('x')[0])
+    except (AttributeError, ValueError, IndexError):
+        preview_res = 1024 # Fallback
 
-    world_size_in_cells = cs * rs
-    x = np.linspace(-1.0, 1.0, world_size_in_cells, dtype=np.float32)
-    y = np.linspace(-1.0, 1.0, world_size_in_cells, dtype=np.float32)
+    # Создаем координатную сетку от -1 до 1
+    x = np.linspace(-1.0, 1.0, preview_res, dtype=np.float32)
+    y = np.linspace(-1.0, 1.0, preview_res, dtype=np.float32)
     x_coords, y_coords = np.meshgrid(x, y)
-    # --- РЕШЕНИЕ: Добавляем z_coords для совместимости с 3D-шумом ---
     z_coords = np.zeros_like(x_coords, dtype=np.float32)
-    # ----------------------------------------------------------------
+
+    # ВАЖНО: В новом UI отсутствует поле для ввода глобального сида.
+    # Временно используем константу, чтобы избежать падения.
+    seed = 1337
 
     return {
-        "cell_size": mw.cell_size_input.value(),
-        "seed": mw.seed_input.value(),
-        "global_x_offset": mw.global_x_offset_input.value(),
-        "global_z_offset": mw.global_z_offset_input.value(),
-        "chunk_size": cs,
-        "region_size_in_chunks": rs,
-        "global_noise": global_noise_params,
+        "seed": seed,
         "x_coords": x_coords,
         "y_coords": y_coords,
-        # --- РЕШЕНИЕ: Добавляем z_coords в контекст ---
         "z_coords": z_coords,
     }

@@ -1,7 +1,8 @@
 # ==============================================================================
 # editor/ui_panels/accordion_properties.py
-# ВЕРСИЯ 3.1 (HOTFIX): Восстановлено отображение стандартных свойств ноды.
-# - Панель теперь показывает и стандартные (имя, цвет), и кастомные свойства.
+# ВЕРСИЯ 3.2 (HOTFIX): Исправлена ошибка OverflowError для больших сидов.
+# - Для целочисленных свойств теперь используется QDoubleSpinBox без десятичных знаков
+#   и с расширенным диапазоном, чтобы вмещать 32-битные сиды.
 # ==============================================================================
 
 from __future__ import annotations
@@ -129,10 +130,7 @@ class AccordionProperties(QtWidgets.QScrollArea):
         if not node:
             return
 
-        # --- ИЗМЕНЕНИЕ: Убираем объединение со стандартными свойствами ---
-        # Теперь панель работает только с кастомными мета-свойствами ноды
         meta = node.properties_meta()
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
         if not meta:
             return
@@ -140,17 +138,14 @@ class AccordionProperties(QtWidgets.QScrollArea):
         groups: Dict[str, CollapsibleBox] = {}
         self._vl.takeAt(self._vl.count() - 1) # убираем stretch
 
-        # Сортируем, чтобы группы шли в предсказуемом порядке
         sorted_meta_items = sorted(meta.items(), key=lambda item: (
             item[1].get('group') or 'Params',
             item[0]
         ))
 
         for name, prop_meta in sorted_meta_items:
-            # --- ИЗМЕНЕНИЕ: Пропускаем стандартные свойства, если они случайно попали сюда ---
             if name in ('name', 'color', 'text_color', 'disabled'):
                 continue
-            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
             group_name = prop_meta.get('group') or 'Params'
 
@@ -174,31 +169,34 @@ class AccordionProperties(QtWidgets.QScrollArea):
 
         if kind == 'line':
             w = QtWidgets.QLineEdit()
-            # Для свойства 'name' получаем значение через специальный метод, если get_property вернул None
             if name == 'name' and value is None:
                 value = node.name()
             w.setText(str(value))
             w.editingFinished.connect(lambda nn=name, ww=w: node.set_property(nn, ww.text()))
             return w
 
+        # --- ИЗМЕНЕНИЕ: Используем QDoubleSpinBox для всех числовых типов ---
         elif kind in ('int', 'i', 'float', 'double', 'f'):
             is_float = kind in ('float', 'double', 'f')
-            w = QtWidgets.QDoubleSpinBox() if is_float else QtWidgets.QSpinBox()
+            w = QtWidgets.QDoubleSpinBox()
 
             if is_float:
                 w.setDecimals(meta.get('decimals', 2))
                 w.setSingleStep(meta.get('step', 0.1))
                 w.setRange(meta.get('range', (-1e12, 1e12))[0], meta.get('range', (-1e12, 1e12))[1])
             else: # int
+                w.setDecimals(0) # Без десятичных знаков
                 w.setSingleStep(meta.get('step', 1))
-                w.setRange(meta.get('range', (-(10**9), 10**9))[0], meta.get('range', (-(10**9), 10**9))[1])
+                # Расширяем диапазон для поддержки 32-битных сидов
+                w.setRange(meta.get('range', (-4294967295, 4294967295))[0], meta.get('range', (-4294967295, 4294967295))[1])
 
             w.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
             w.setAlignment(Qt.AlignRight)
             w.setMaximumWidth(meta.get('width', 100))
-            w.setValue(value or 0)
+            w.setValue(float(value or 0)) # Приводим к float для QDoubleSpinBox
             w.valueChanged.connect(lambda val, nn=name: node.set_property(nn, val))
             return w
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
         elif kind == 'check':
             w = QtWidgets.QCheckBox()

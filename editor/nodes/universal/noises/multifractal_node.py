@@ -1,0 +1,70 @@
+# editor/nodes/universal/noises/multifractal_node.py
+from editor.nodes.base_node import GeneratorNode
+from generator_logic.terrain.fractals import generate_multifractal
+
+class MultiFractalNode(GeneratorNode):
+    __identifier__ = "Универсальные.Шумы"
+    NODE_NAME = "MultiFractal"
+
+    def __init__(self):
+        super().__init__()
+        self.add_output('Out')
+
+        # Group "Fractal"
+        self.add_enum_input("noise_type", "Noise Type", ["FBM", "Ridged", "Billowy"], group="Fractal", default="FBM")
+        self.add_text_input("scale", "Scale", group="Fractal", text="0.5")
+        # Auto Octaves пока не реализуем, делаем просто
+        self.add_text_input("octaves", "Octaves", group="Fractal", text="8")
+        self.add_text_input("roughness", "Roughness", group="Fractal", text="0.5")
+        self.add_seed_input("seed", "Seed", group="Fractal")
+
+        # Group "Variation"
+        self.add_text_input("variation", "Variation", group="Variation", text="2.0")
+        self.add_text_input("smoothness", "Smoothness", group="Variation", text="0.0")
+
+        # Group "Position"
+        self.add_text_input("offset_x", "Offset X", group="Position", text="0.0")
+        self.add_text_input("offset_y", "Offset Y", group="Position", text="0.0")
+        self.add_text_input("scale_x", "Scale X", group="Position", text="1.0")
+        self.add_text_input("scale_y", "Scale Y", group="Position", text="1.0")
+
+        # Group "Warp"
+        self.add_enum_input("warp_type", "Perturb", ["None", "Simple", "Complex"], group="Warp", default="None")
+        self.add_text_input("warp_freq", "Frequency", group="Warp", text="0.05")
+        self.add_text_input("warp_amp", "Amplitude", group="Warp", text="0.5")
+        self.add_text_input("warp_octaves", "Octaves", group="Warp", text="4")
+
+        self.set_color(80, 25, 30)
+
+    def _compute(self, context):
+        fractal_params = {
+            'type': self.get_property('noise_type').lower(),
+            'octaves': self.get_property('octaves'),
+            'roughness': self.get_property('roughness'),
+            'seed': self.get_property('seed'),
+        }
+        variation_params = {
+            'variation': self.get_property('variation'),
+            'smoothness': self.get_property('smoothness'),
+        }
+        position_params = {
+            'offset_x': self.get_property('offset_x'),
+            'offset_y': self.get_property('offset_y'),
+            'scale_x': self.get_property('scale_x'),
+            'scale_y': self.get_property('scale_y'),
+        }
+        warp_params = {
+            'type': self.get_property('warp_type').lower(),
+            'frequency': self.get_property('warp_freq'),
+            'amplitude': self.get_property('warp_amp'),
+            'octaves': self.get_property('warp_octaves'),
+            'seed': self.get_property('seed') + 12345,
+        }
+
+        scale = self.get_property('scale')
+        coords_x = context['x_coords'] * scale
+        coords_z = context['z_coords'] * scale
+
+        result = generate_multifractal(coords_x, coords_z, fractal_params, variation_params, position_params, warp_params)
+        self._result_cache = result
+        return result

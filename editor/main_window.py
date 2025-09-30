@@ -1,8 +1,7 @@
 # ==============================================================================
 # Файл: main_window.py
-# ВЕРСИЯ 5.6 (ДИАГНОСТИКА): Добавлено логирование контекста.
-# - Перед вызовом run_graph в лог выводится список ключей в словаре context
-#   для отладки проблемы с отсутствующими x_coords.
+# ВЕРСИЯ 8.1 (HOTFIX): Исправлен поиск ноды по типу.
+# - Заменен ошибочный вызов get_nodes_by_class_name на get_nodes_by_type.
 # ==============================================================================
 
 from __future__ import annotations
@@ -26,6 +25,7 @@ from editor.preview_widget import Preview3DWidget
 from editor.project_manager import ProjectManager
 
 from editor.actions import preset_actions
+from editor.ui_panels.world_settings_panel import make_world_settings_widget
 
 logger = logging.getLogger(__name__)
 
@@ -51,17 +51,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.node_inspector = None
         self.presets_widget = None
 
-        # --- Виджеты параметров ---
-        self.seed_input: QtWidgets.QSpinBox | None = None
-        self.chunk_size_input: QtWidgets.QSpinBox | None = None
-        self.region_size_in_chunks_input: QtWidgets.QSpinBox | None = None
-        self.cell_size_input: QtWidgets.QDoubleSpinBox | None = None
-        self.global_x_offset_input: QtWidgets.QDoubleSpinBox | None = None
-        self.global_z_offset_input: QtWidgets.QDoubleSpinBox | None = None
-        self.gn_scale_input: QtWidgets.QDoubleSpinBox | None = None
-        self.gn_octaves_input: QtWidgets.QSpinBox | None = None
-        self.gn_amp_input: QtWidgets.QDoubleSpinBox | None = None
-        self.gn_ridge_checkbox: QtWidgets.QCheckBox | None = None
+        # --- Атрибуты для новых виджетов настроек ---
+        self.ws_max_height_input = None
+        self.ws_vertex_spacing_input = None
+        self.pv_resolution_input = None
+        self.pv_realtime_checkbox = None
+        self.gv_scale_input = None
+        self.gv_octaves_input = None
+        self.gv_roughness_input = None
+        self.gv_variation_input = None
 
         self._build_ui()
 
@@ -104,89 +102,19 @@ class MainWindow(QtWidgets.QMainWindow):
         tabs = QtWidgets.QTabWidget()
         tabs.setObjectName("TopTabsRight")
         tabs.setDocumentMode(True)
-
         self.props_bin = create_properties_widget(self)
         tabs.addTab(self.props_bin, "Параметры")
-
         self.node_inspector = make_node_inspector_widget(self)
         tabs.addTab(self.node_inspector, "Инспектор")
-
         return tabs
-
-    def _create_project_params_panel(self) -> QtWidgets.QWidget:
-        panel = QtWidgets.QWidget()
-        layout = QtWidgets.QFormLayout(panel)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
-
-        self.seed_input = QtWidgets.QSpinBox()
-        self.seed_input.setRange(0, 999999999)
-        layout.addRow("Seed:", self.seed_input)
-
-        self.chunk_size_input = QtWidgets.QSpinBox()
-        self.chunk_size_input.setRange(16, 2048)
-        self.chunk_size_input.setSingleStep(16)
-        layout.addRow("Размер чанка:", self.chunk_size_input)
-
-        self.region_size_in_chunks_input = QtWidgets.QSpinBox()
-        self.region_size_in_chunks_input.setRange(1, 16)
-        layout.addRow("Регион (в чанках):", self.region_size_in_chunks_input)
-
-        self.cell_size_input = QtWidgets.QDoubleSpinBox()
-        self.cell_size_input.setRange(0.1, 10.0)
-        self.cell_size_input.setSingleStep(0.1)
-        self.cell_size_input.setDecimals(1)
-        layout.addRow("Размер ячейки:", self.cell_size_input)
-
-        self.global_x_offset_input = QtWidgets.QDoubleSpinBox()
-        self.global_x_offset_input.setRange(-1000000.0, 1000000.0)
-        layout.addRow("Смещение X:", self.global_x_offset_input)
-
-        self.global_z_offset_input = QtWidgets.QDoubleSpinBox()
-        self.global_z_offset_input.setRange(-1000000.0, 1000000.0)
-        layout.addRow("Смещение Z:", self.global_z_offset_input)
-
-        layout.addItem(QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding))
-        return panel
-
-    def _create_global_noise_panel(self) -> QtWidgets.QWidget:
-        panel = QtWidgets.QWidget()
-        layout = QtWidgets.QFormLayout(panel)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
-
-        self.gn_scale_input = QtWidgets.QDoubleSpinBox()
-        self.gn_scale_input.setRange(1.0, 100000.0)
-        self.gn_scale_input.setSingleStep(100.0)
-        layout.addRow("Масштаб:", self.gn_scale_input)
-
-        self.gn_octaves_input = QtWidgets.QSpinBox()
-        self.gn_octaves_input.setRange(1, 10)
-        layout.addRow("Октавы:", self.gn_octaves_input)
-
-        self.gn_amp_input = QtWidgets.QDoubleSpinBox()
-        self.gn_amp_input.setRange(0.0, 1000.0)
-        layout.addRow("Амплитуда (м):", self.gn_amp_input)
-
-        self.gn_ridge_checkbox = QtWidgets.QCheckBox()
-        layout.addRow("Ridge:", self.gn_ridge_checkbox)
-
-        layout.addItem(QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding))
-        return panel
 
     def _create_left_tabs(self) -> QtWidgets.QTabWidget:
         tabs = QtWidgets.QTabWidget()
         tabs.setDocumentMode(True)
-
-        project_params_panel = self._create_project_params_panel()
-        tabs.addTab(project_params_panel, "Проект")
-
-        global_noise_panel = self._create_global_noise_panel()
-        tabs.addTab(global_noise_panel, "Глобальный Шум")
-
+        world_settings_panel = make_world_settings_widget(self)
+        tabs.addTab(world_settings_panel, "Настройки Мира")
         self.presets_widget = make_region_presets_widget(self)
         tabs.addTab(self.presets_widget, "Пресеты")
-
         return tabs
 
     def _connect_components(self):
@@ -195,16 +123,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if self.node_inspector: self.node_inspector.bind_graph(self.graph)
             if self.right_outliner: self.right_outliner.bind_graph(self.graph)
             if self.left_palette: self.left_palette.bind_graph(self.graph)
-
             QtCore.QTimer.singleShot(0, self.graph.finalize_setup)
-
-        for widget in [self.seed_input, self.chunk_size_input, self.region_size_in_chunks_input,
-                       self.cell_size_input, self.global_x_offset_input, self.global_z_offset_input,
-                       self.gn_scale_input, self.gn_octaves_input, self.gn_amp_input]:
-            if widget and isinstance(widget, (QtWidgets.QSpinBox, QtWidgets.QDoubleSpinBox)):
-                widget.valueChanged.connect(self._mark_dirty)
-        if self.gn_ridge_checkbox:
-            self.gn_ridge_checkbox.toggled.connect(self._mark_dirty)
 
         if self.right_outliner:
             self.right_outliner.apply_clicked.connect(self._on_apply_clicked)
@@ -216,14 +135,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self.presets_widget.save_as_requested.connect(self.action_save_active_preset)
 
     def _load_presets_list(self):
-        if not self.presets_widget or not self.project_manager.current_project_data:
-            return
+        if not self.presets_widget or not self.project_manager.current_project_data: return
         presets_data = self.project_manager.current_project_data.get("region_presets", {})
-        preset_names = list(presets_data.keys())
-        self.presets_widget.set_presets(preset_names)
+        self.presets_widget.set_presets(list(presets_data.keys()))
         active_preset = self.project_manager.current_project_data.get("active_preset_name")
-        if active_preset:
-            self.presets_widget.select_preset(active_preset)
+        if active_preset: self.presets_widget.select_preset(active_preset)
 
     def get_project_data(self) -> Dict[str, Any] | None:
         return self.project_manager.current_project_data
@@ -275,33 +191,56 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.right_outliner:
             self.right_outliner.set_busy(True)
         try:
-            if not self.graph:
-                raise RuntimeError("Граф не инициализирован.")
-            output_node = None
-            for node in self.graph.all_nodes():
-                if isinstance(node, OutputNode):
-                    output_node = node
-                    break
+            # 1. Находим финальную ноду (или ту, что в фокусе)
+            # --- ИЗМЕНЕНИЕ: Используем правильный метод get_nodes_by_type ---
+            output_nodes = self.graph.get_nodes_by_type('OutputNode')
+            output_node = self.graph.selected_nodes()[0] if self.graph.selected_nodes() else (output_nodes[0] if output_nodes else None)
             if not output_node:
-                raise RuntimeError("В графе не найдена выходная нода (OutputNode).")
+                raise RuntimeError("В графе не найдена выходная нода и ни одна нода не выбрана.")
 
+            # 2. Собираем контекст из UI
             context = self.project_manager.collect_ui_context()
 
-            # --- ДИАГНОСТИКА: Логируем ключи контекста перед запуском ---
-            logger.debug(f"Контекст перед запуском графа. Ключи: {list(context.keys())}")
-            # ---------------------------------------------------------
+            # 3. Генерируем Мировой Фрактал для WorldInputNode
+            from generator_logic.terrain.fractals import generate_multifractal
 
-            logger.info(f"Запуск вычисления графа от ноды: {output_node.name()}")
-            height_map = run_graph(output_node, context)
+            fractal_params = {
+                'type': 'fbm',
+                'octaves': self.gv_octaves_input.value(),
+                'roughness': self.gv_roughness_input.value(),
+                'seed': context['seed'],
+            }
+            variation_params = {
+                'variation': self.gv_variation_input.value(),
+                'smoothness': 0.0, # Глобально вариация всегда плавная
+            }
+            position_params = {}
+            warp_params = {'type': 'none'}
 
+            scale = self.gv_scale_input.value()
+            coords_x = context['x_coords'] * scale
+            coords_z = context['z_coords'] * scale
+
+            world_fractal_noise = generate_multifractal(
+                coords_x, coords_z, fractal_params, variation_params, position_params, warp_params
+            )
+
+            context["world_input_noise"] = world_fractal_noise
+
+            # 4. Запускаем вычисление графа
+            final_map_01 = run_graph(output_node, context)
+
+            # 5. Применяем финальное масштабирование в метры для превью
+            max_height_m = self.ws_max_height_input.value()
+            final_map_meters = final_map_01 * max_height_m
+
+            # 6. Отправляем результат в 3D-вьюпорт
             if self.preview_widget:
-                current_cell_size = context.get("cell_size", 1.0)
-                self.preview_widget.update_mesh(height_map, current_cell_size)
-                logger.info("Виджет предпросмотра успешно обновлен.")
-            else:
-                logger.warning("Preview widget недоступен.")
+                cell_size = self.ws_vertex_spacing_input.value()
+                self.preview_widget.update_mesh(final_map_meters, cell_size)
+
         except Exception as e:
-            logger.exception(f"Ошибка во время генерации мира: {e}")
+            logger.exception(f"Ошибка во время генерации: {e}")
             QtWidgets.QMessageBox.critical(self, "Ошибка генерации", f"Произошла ошибка: {e}")
         finally:
             if self.right_outliner:
