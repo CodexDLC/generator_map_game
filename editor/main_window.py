@@ -61,8 +61,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pv_realtime_checkbox = None
         self.gv_scale_input = None
         self.gv_octaves_input = None
-        self.gv_roughness_input = None
-        self.gv_variation_input = None
+        self.gv_strength_input = None
 
         self._build_ui()
 
@@ -212,8 +211,8 @@ class MainWindow(QtWidgets.QMainWindow):
             context = self.project_manager.collect_ui_context()
             
             from generator_logic.terrain.fractals import multifractal_wrapper
-            fractal_params = {'type': 'fbm', 'octaves': self.gv_octaves_input.value(), 'roughness': self.gv_roughness_input.value(), 'seed': context['seed'], 'scale': self.gv_scale_input.value()}
-            variation_params = {'variation': self.gv_variation_input.value(), 'smoothness': 0.0}
+            fractal_params = {'type': 'fbm', 'octaves': self.gv_octaves_input.value(), 'roughness': self.gv_strength_input.value(), 'seed': context['seed'], 'scale': self.gv_scale_input.value()}
+            variation_params = {'variation': 0.0, 'smoothness': 0.0}
             world_fractal_noise = multifractal_wrapper(context, fractal_params, variation_params, {}, {'type': 'none'})
             context["world_input_noise"] = world_fractal_noise
 
