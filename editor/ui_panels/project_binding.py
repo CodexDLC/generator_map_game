@@ -26,9 +26,11 @@ def collect_context_from_ui(mw) -> dict:
     # Временно используем константу, чтобы избежать падения.
     seed = 1337
 
+    # ИСПРАВЛЕНИЕ: Меняем местами y_coords и z_coords.
+    # Сетка для шума должна быть в z_coords.
     return {
         "seed": seed,
         "x_coords": x_coords,
-        "y_coords": y_coords,
-        "z_coords": z_coords,
+        "y_coords": z_coords,  # Не используется для 2D шума, пусть будут нули
+        "z_coords": y_coords,  # Здесь должна быть сетка, сгенерированная в y_coords
     }

@@ -9,9 +9,12 @@
 from __future__ import annotations
 
 import gc
+import logging
 import numpy as np
 from PySide6 import QtWidgets
 from vispy import scene
+
+logger = logging.getLogger(__name__)
 
 
 ## --- ОСНОВНОЙ КЛАСС ВИДЖЕТА ---
@@ -58,9 +61,16 @@ class Preview3DWidget(QtWidgets.QWidget):
         if height_map.shape[0] < 2 or height_map.shape[1] < 2:
             return
 
+        # --- Диагностика и защита ---
+        assert height_map.dtype == np.float32, f"Карта высот должна быть float32, а не {height_map.dtype}"
+        assert np.all(np.isfinite(height_map)), "В карте высот есть бесконечные или NaN значения"
+        logger.debug("Height map for preview: dtype=%s min=%.6f max=%.6f",
+                     height_map.dtype, float(height_map.min()), float(height_map.max()))
+        # --- Конец диагностики ---
+
         # 3. Создаём 3D-ландшафт (без cmap)
         self._mesh = scene.visuals.SurfacePlot(
-            z=height_map.astype(np.float32),
+            z=height_map,  # Уже float32
             parent=self.view.scene,
             shading='smooth',  # Включаем встроенное освещение
             color=(0.8, 0.8, 0.9, 1.0)  # Задаем базовый цвет
@@ -83,6 +93,7 @@ class Preview3DWidget(QtWidgets.QWidget):
 
         # 6. Обновляем холст, чтобы показать изменения
         self.canvas.update()
+
     ## --- СЛУЖЕБНЫЕ МЕТОДЫ ---
 
     def _clear_scene(self) -> None:
