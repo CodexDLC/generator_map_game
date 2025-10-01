@@ -82,22 +82,20 @@ class SeedWidget(QtWidgets.QWidget):
 class SliderSpinCombo(QtWidgets.QWidget):
     """
     Комбинированный виджет, состоящий из слайдера (QSlider) и числового
-    поля (QDoubleSpinBox) для точной настройки значений в диапазоне [0, 1].
+    поля (QDoubleSpinBox) для точной настройки значений.
     """
-    # --- ИЗМЕНЕНИЕ: Сигнал теперь называется по-другому для ясности ---
     editingFinished = QtCore.Signal()
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent)
         self._block_signals = False
 
-        # --- Создание и компоновка виджетов без изменений ---
         self.slider = QtWidgets.QSlider(Qt.Orientation.Horizontal)
         self.slider.setRange(0, 1000)
 
         self.spinbox = QtWidgets.QDoubleSpinBox()
-        self.spinbox.setRange(0.0, 1.0)
+        # --- ИЗМЕНЕНИЕ: Диапазон больше не зашит намертво ---
+        # self.spinbox.setRange(0.0, 1.0)
         self.spinbox.setDecimals(3)
         self.spinbox.setSingleStep(0.01)
         self.spinbox.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
@@ -109,50 +107,69 @@ class SliderSpinCombo(QtWidgets.QWidget):
         layout.addWidget(self.slider)
         layout.addWidget(self.spinbox)
 
-
-        # --- ИЗМЕНЕНИЕ: Полностью новая логика сигналов ---
-        # valueChanged больше не используется для отправки сигнала наружу
         self.slider.valueChanged.connect(self._on_slider_change)
         self.spinbox.valueChanged.connect(self._on_spinbox_change)
-        
-        # Сигнал editingFinished будет отправлен только когда пользователь
-        # отпустит слайдер или закончит ввод в поле.
+
         self.slider.sliderReleased.connect(self.editingFinished.emit)
         self.spinbox.editingFinished.connect(self.editingFinished.emit)
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+    # --- ИЗМЕНЕНИЕ: Новые методы для установки диапазона ---
+    def setRange(self, min_val: float, max_val: float):
+        self.spinbox.setRange(min_val, max_val)
+        # При изменении диапазона нужно обновить и обработчики
+        self.slider.valueChanged.disconnect()
+        self.spinbox.valueChanged.disconnect()
+
+        self.slider.valueChanged.connect(self._on_slider_change)
+        self.spinbox.valueChanged.connect(self._on_spinbox_change)
+
+    def setDecimals(self, decimals: int):
+        self.spinbox.setDecimals(decimals)
+
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     def value(self) -> float:
         return self.spinbox.value()
 
     def setValue(self, value: float):
-        value = max(0.0, min(1.0, float(value)))
+        min_val, max_val = self.spinbox.minimum(), self.spinbox.maximum()
+        value = max(min_val, min(max_val, float(value)))
         self._block_signals = True
         try:
             self.spinbox.setValue(value)
-            self.slider.setValue(int(value * 1000))
+            # --- ИЗМЕНЕНИЕ: Масштабируем значение слайдера относительно диапазона ---
+            if (max_val - min_val) > 1e-6:
+                ratio = (value - min_val) / (max_val - min_val)
+                self.slider.setValue(int(ratio * 1000))
+            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         finally:
             self._block_signals = False
-    
+
     @QtCore.Slot(int)
     def _on_slider_change(self, slider_value: int):
         if self._block_signals:
             return
-        # Просто синхронизируем значение, но не отправляем сигнал
-        float_value = slider_value / 1000.0
+        # --- ИЗМЕНЕНИЕ: Рассчитываем значение из положения слайдера и диапазона ---
+        min_val, max_val = self.spinbox.minimum(), self.spinbox.maximum()
+        ratio = slider_value / 1000.0
+        float_value = min_val + (max_val - min_val) * ratio
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         self._block_signals = True
         self.spinbox.setValue(float_value)
         self._block_signals = False
 
-    # --- ИЗМЕНЕНИЕ: Упрощенный слот для spinbox ---
     @QtCore.Slot(float)
     def _on_spinbox_change(self, spinbox_value: float):
         if self._block_signals:
             return
-        # Просто синхронизируем значение, но не отправляем сигнал
-        self._block_signals = True
-        self.slider.setValue(int(spinbox_value * 1000))
-        self._block_signals = False
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+        # --- ИЗМЕНЕНИЕ: Рассчитываем положение слайдера из значения и диапазона ---
+        min_val, max_val = self.spinbox.minimum(), self.spinbox.maximum()
+        if (max_val - min_val) > 1e-6:
+            ratio = (spinbox_value - min_val) / (max_val - min_val)
+            self._block_signals = True
+            self.slider.setValue(int(ratio * 1000))
+            self._block_signals = False
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 
 # ==============================================================================
@@ -275,7 +292,6 @@ class AccordionProperties(QtWidgets.QScrollArea):
 
         node = self._node
         if not node:
-            # Если нода не выбрана, добавляем растяжку, чтобы ничего не было
             self._vl.addStretch(1)
             return
 
@@ -287,11 +303,9 @@ class AccordionProperties(QtWidgets.QScrollArea):
 
         groups: Dict[str, CollapsibleBox] = {}
 
-        sorted_meta_items = sorted(meta.items(), key=lambda item: (
-            1 if (item[1].get('group') or 'Params') == 'Position' else 0,
-            item[1].get('group') or 'Params',
-            item[0]
-        ))
+        # --- ИЗМЕНЕНИЕ: Убираем сортировку, чтобы сохранить порядок из ноды ---
+        sorted_meta_items = meta.items()
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
         for name, prop_meta in sorted_meta_items:
             if name in ('name', 'color', 'text_color', 'disabled'):
@@ -311,10 +325,7 @@ class AccordionProperties(QtWidgets.QScrollArea):
                 label = prop_meta.get('label', name)
                 box.body.addRow(label, widget)
 
-        # --- ИЗМЕНЕНИЕ ДЛЯ ПРОКРУТКИ ---
-        # Добавляем растяжку в самый конец, чтобы все группы прижимались кверху.
         self._vl.addStretch(1)
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     def _create_widget_for_property(self, node: GeneratorNode, name: str, meta: dict) -> Optional[QtWidgets.QWidget]:
         kind = meta.get('type')
@@ -322,18 +333,17 @@ class AccordionProperties(QtWidgets.QScrollArea):
         label = meta.get('label', name)
         update_slot = getattr(self._main_window, '_trigger_preview_update', None)
 
-        is_float = kind in ('float', 'double', 'f')
-        # --- ИЗМЕНЕНИЕ: Улучшенное и более общее условие для ползунка ---
-        is_ratio = "(0..1)" in label or "(%)" in label or "ratio" in name.lower() or "lerp" in name.lower() or "gain" in name.lower() or "jitter" in name.lower() or "strength" in name.lower() or "amplitude" in name.lower()
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+        # --- НАЧАЛО БОЛЬШОГО ИЗМЕНЕНИЯ ---
+        # Теперь мы смотрим на 'widget', а не на 'is_ratio'
 
-        if is_float and is_ratio:
+        if meta.get('widget') == 'slider' and kind == 'float':
             w = SliderSpinCombo()
+            p_range = meta.get('range', (0.0, 1.0))
+            w.setRange(p_range[0], p_range[1])
             w.setValue(value)
-            # Привязываем изменение значения к установке свойства ноды
-            w.slider.valueChanged.connect(lambda val, nn=name, ww=w: node.set_property(nn, val / 1000.0))
-            w.spinbox.valueChanged.connect(lambda val, nn=name, ww=w: node.set_property(nn, val))
-            # А сигнал о завершении редактирования - к обновлению превью
+
+            w.spinbox.valueChanged.connect(lambda val, nn=name: node.set_property(nn, val))
+
             if update_slot:
                 w.editingFinished.connect(update_slot)
             return w

@@ -109,17 +109,21 @@ class GeneratorNode(BaseNode):
                                  'group': group or UIH.safe_tab(tab), 'items': []}
         return None
 
-    def add_float_input(self, name, label, value=0.0, tab='Params', group=None):
-        """Регистрирует свойство как float и создает для него текстовое поле."""
-        # UI-часть остается такой же, как у add_text_input
+    def add_float_input(self, name, label, value=0.0, tab='Params', group=None, p_range=(-1e6, 1e6),
+                        p_widget='spinbox'):
+        """Регистрирует свойство как float и создает для него виджет."""
+        # UI-часть на самой ноде остается текстовым полем для компактности
         UIH.register_text(self, self._onnode_widgets, name=name, label=label, text=str(value),
                           tab=tab, compact=self._compact)
-        # А вот метаданные теперь правильные
+
+        # В метаданные добавляем информацию о желаемом виджете и диапазоне
         self._prop_meta[name] = {
-            'type': 'float', # <-- Вот ключевое изменение!
+            'type': 'float',
             'label': label,
             'tab': UIH.safe_tab(tab),
-            'group': group or UIH.safe_tab(tab)
+            'group': group or UIH.safe_tab(tab),
+            'range': p_range,
+            'widget': p_widget
         }
         return None
 

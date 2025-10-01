@@ -2,154 +2,143 @@
 from __future__ import annotations
 import numpy as np
 from numba import njit, prange
-from game_engine_restructured.numerics.fast_noise import _hash2, fbm_amplitude
+
+from game_engine_restructured.numerics.fast_noise import value_noise_2d
+from ..core.normalization import normalize01
+
 F32 = np.float32
 
-@njit(inline='always', cache=True)
-def _rand01_f32(ix: int, iz: int, seed: int) -> F32:
-    return F32(_hash2(ix, iz, seed)) / F32(4294967296.0)
 
-@njit(inline='always', cache=True)
-def _fade_f32(t: F32) -> F32:
-    return t * t * t * (t * (t * F32(6.0) - F32(15.0)) + F32(10.0))
+# ======================================================================
+# ШАГ 1: Numba-ядро, теперь с корректной передачей сида
+# ======================================================================
 
-@njit(inline='always', cache=True)
-def _lerp_f32(a: F32, b: F32, t: F32) -> F32:
-    return a + (b - a) * t
+@njit(cache=True, fastmath=True)
+def _fbm_numba(noise_fn, u, v, octaves, roughness, seed):
+    amp = F32(1.0)
+    freq = F32(1.0)
+    value = F32(0.0)
+    norm = F32(0.0)
+    for i in range(octaves):
+        # --- ИСПРАВЛЕНИЕ: Используем seed + номер октавы ---
+        noise_val = noise_fn(u * freq, v * freq, seed + i) * F32(2.0) - F32(1.0)
+        value += amp * noise_val
+        norm += amp
+        amp *= roughness
+        freq *= F32(2.0)
+    if norm < 1e-6:
+        return F32(0.0)
+    return value / norm
 
-@njit(inline='always', cache=True)
-def value_noise_2d_f32(x: F32, z: F32, seed: int) -> F32:
-    xi, zi = int(np.floor(x)), int(np.floor(z))
-    xf, zf = x - xi, z - zi
-    u, v = _fade_f32(xf), _fade_f32(zf)
-    n00 = _rand01_f32(xi, zi, seed)
-    n10 = _rand01_f32(xi + 1, zi, seed)
-    n01 = _rand01_f32(xi, zi + 1, seed)
-    n11 = _rand01_f32(xi + 1, zi + 1, seed)
-    nx0 = _lerp_f32(n00, n10, u)
-    nx1 = _lerp_f32(n01, n11, u)
-    return _lerp_f32(nx0, nx1, v)
 
 @njit(cache=True, fastmath=True, parallel=True)
-def _generate_multifractal_numba(
-        coords_x, coords_z,
-        noise_type_is_ridged, noise_type_is_billowy, octaves, roughness, seed, base_freq,
-        var_strength, var_smoothness, var_contrast, var_damping, var_bias,
-        offset_x, offset_y, scale_x, scale_y,
-        warp_type_is_simple, warp_type_is_complex, warp_freq, warp_amp, warp_octaves, warp_seed
+def _generate_fractal_kernel(
+        out_array, u_coords, v_coords, seed,
+        ntype_is_ridged, ntype_is_billowy,
+        octaves, roughness,
+        use_warp, wfreq, wamp, woct
 ):
-    H, W = coords_x.shape
-    output = np.empty((H, W), dtype=F32)
+    H, W = out_array.shape
 
     for j in prange(H):
         for i in range(W):
-            cx = (coords_x[j, i] + offset_x) * scale_x
-            cz = (coords_z[j, i] + offset_y) * scale_y
+            u = u_coords[j, i]
+            v = v_coords[j, i]
 
-            if warp_type_is_simple or warp_type_is_complex:
-                off_x, off_z = F32(0.0), F32(0.0)
-                if warp_type_is_simple:
-                    off_x = (value_noise_2d_f32(cx * warp_freq, cz * warp_freq, warp_seed) * F32(2.0) - F32(1.0)) * warp_amp
-                    off_z = (value_noise_2d_f32(cx * warp_freq, cz * warp_freq, warp_seed + 1) * F32(2.0) - F32(1.0)) * warp_amp
-                elif warp_type_is_complex:
-                    amp_w, freq_w = F32(warp_amp), F32(warp_freq)
-                    for o in range(warp_octaves):
-                        off_x += (value_noise_2d_f32(cx * freq_w, cz * freq_w, warp_seed + o) * F32(2.0) - F32(1.0)) * amp_w
-                        off_z += (value_noise_2d_f32(cx * freq_w, cz * freq_w, warp_seed + o + 100) * F32(2.0) - F32(1.0)) * amp_w
-                        freq_w *= F32(2.0)
-                        amp_w *= F32(0.5)
-                cx += off_x
-                cz += off_z
+            if use_warp:
+                # --- ИСПРАВЛЕНИЕ: Передаем сиды в Domain Warp ---
+                warp_seed = seed + 777
+                dx = _fbm_numba(value_noise_2d, u * wfreq, v * wfreq, woct, roughness, warp_seed)
+                dy = _fbm_numba(value_noise_2d, (u + F32(37.17)) * wfreq, (v - F32(11.41)) * wfreq, woct, roughness,
+                                warp_seed + 1)
+                u += wamp * dx
+                v += wamp * dy
 
-            var_freq = base_freq * (F32(2.0) ** -var_smoothness)
-            local_var = value_noise_2d_f32(cx * var_freq, cz * var_freq, seed - 100)
+            # --- ИСПРАВЛЕНИЕ: Передаем основной сид в генерацию фрактала ---
+            fbm_val = _fbm_numba(value_noise_2d, u, v, octaves, roughness, seed)
 
-            local_var = (local_var - F32(0.5)) * (F32(1.0) + var_contrast) + F32(0.5)
-            local_var = local_var * (F32(1.0) - var_damping)
-            local_var += var_bias - F32(0.5)
-            local_var = max(F32(0.0), min(F32(1.0), local_var))
+            if ntype_is_ridged:
+                result = F32(1.0) - np.abs(fbm_val)
+            elif ntype_is_billowy:
+                result = np.abs(fbm_val)
+            else:  # FBM
+                result = fbm_val
 
-            var_influence = (local_var - F32(0.5)) * var_strength
+            out_array[j, i] = result
 
-            amp, freq, total = F32(1.0), F32(base_freq), F32(0.0)
-            for o in range(octaves):
-                n = value_noise_2d_f32(cx * freq, cz * freq, seed + o) * F32(2.0) - F32(1.0)
-                if noise_type_is_ridged:
-                    n = F32(1.0) - np.abs(n)
-                elif noise_type_is_billowy:
-                    n = np.abs(n)
-                total += n * amp
-                freq *= F32(2.0)
-                amp *= roughness
 
-            total = total * (F32(1.0) + var_influence)
-            output[j, i] = total
-
-    max_amp = fbm_amplitude(roughness, octaves)
-    if max_amp > F32(1e-6): output /= F32(max_amp)
-    if not noise_type_is_ridged: output = (output + F32(1.0)) * F32(0.5)
-    return output
+# ======================================================================
+# ШАГ 2: Главная функция-обертка (без изменений)
+# ======================================================================
 
 def multifractal_wrapper(context: dict, fractal_params: dict, variation_params: dict, position_params: dict,
                          warp_params: dict):
-    world_size = context.get('WORLD_SIZE_METERS', 5000.0)
-    relative_scale = float(fractal_params.get('scale', 0.5))
-    scale_in_meters = relative_scale * world_size
-    base_freq = 1.0 / (scale_in_meters + 1e-9)
+    x_coords = context['x_coords']
+    z_coords = context['z_coords']
+    H, W = x_coords.shape
 
-    noise_type_str = fractal_params.get('type', 'fbm')
-    warp_type_str = warp_params.get('type', 'none')
+    seed = int(fractal_params.get('seed', 0))
+    ntype = (fractal_params.get('type', 'fbm') or 'fbm').lower()
+    octaves = max(1, min(int(fractal_params.get('octaves', 8)), 16))
+    roughness = F32(fractal_params.get('roughness', 0.5))
+    base_scale = max(float(fractal_params.get('scale', 0.5)), 1e-5)
 
-    var_strength = F32(variation_params.get('variation', 2.0))
-    var_smoothness = F32(variation_params.get('smoothness', 0.0))
-    var_contrast = F32(variation_params.get('contrast', 0.3))
-    var_damping = F32(variation_params.get('damping', 0.25))
-    var_bias = F32(variation_params.get('bias', 0.5))
+    ox = float(position_params.get('offset_x', 0.0))
+    oy = float(position_params.get('offset_y', 0.0))
+    sx = float(position_params.get('scale_x', 1.0)) or 1.0
+    sy = float(position_params.get('scale_y', 1.0)) or 1.0
 
-    if var_smoothness < -20.0: var_smoothness = -20.0
+    wtype = (warp_params.get('type', 'none') or 'none').lower()
+    wfreq = F32(warp_params.get('frequency', 0.0))
+    wamp = F32(warp_params.get('amplitude', 0.0))
+    woct = max(1, min(int(warp_params.get('octaves', 4)), 16))
 
-    x = context['x_coords'].astype(F32)
-    z = context['z_coords'].astype(F32)
+    var = float(variation_params.get('variation', 1.0))
+    smooth = float(variation_params.get('smoothness', 0.0))
+    contrast = float(variation_params.get('contrast', 0.0))
+    damping = float(variation_params.get('damping', 0.0))
+    bias = float(variation_params.get('bias', 0.0))
 
-    # --- Вызываем Numba-ядро, которое теперь возвращает "сырой" результат ---
-    raw_output = _generate_multifractal_numba(
-        x, z, # Используем оригинальные координаты
-        noise_type_is_ridged=noise_type_str == 'ridged',
-        noise_type_is_billowy=noise_type_str == 'billowy',
-        octaves=int(fractal_params.get('octaves', 8)),
-        roughness=F32(fractal_params.get('roughness', 0.5)),
-        seed=int(fractal_params.get('seed', 0)),
-        base_freq=F32(base_freq),
-        var_strength=var_strength,
-        var_smoothness=var_smoothness,
-        var_contrast=var_contrast,
-        var_damping=var_damping,
-        var_bias=var_bias,
-        # Параметры Position и Warp передаются как есть
-        offset_x=F32(position_params.get('offset_x', 0.0)),
-        offset_y=F32(position_params.get('offset_y', 0.0)),
-        scale_x=F32(position_params.get('scale_x', 1.0)),
-        scale_y=F32(position_params.get('scale_y', 1.0)),
-        warp_type_is_simple=warp_type_str == 'simple',
-        warp_type_is_complex=warp_type_str == 'complex',
-        warp_freq=F32(warp_params.get('frequency', 0.05)),
-        warp_amp=F32(warp_params.get('amplitude', 0.5)),
-        warp_octaves=int(warp_params.get('octaves', 4)),
-        warp_seed=int(fractal_params.get('seed', 0)) + 12345
+    u = (x_coords * sx + ox) / (context['WORLD_SIZE_METERS'] * base_scale)
+    v = (z_coords * sy + oy) / (context['WORLD_SIZE_METERS'] * base_scale)
+
+    output_array = np.empty((H, W), dtype=F32)
+
+    _generate_fractal_kernel(
+        output_array, u.astype(F32), v.astype(F32), seed,
+        ntype.startswith('rid'), ntype.startswith('bil'),
+        octaves, roughness,
+        wtype != 'none' and wamp > 0, wfreq, wamp, woct
     )
 
-    # --- НАЧАЛО ИЗМЕНЕНИЯ: Финальное масштабирование результата ---
-    # Находим фактический минимум и максимум в сгенерированных данных
-    min_val = np.min(raw_output)
-    max_val = np.max(raw_output)
-    range_val = max_val - min_val
+    f = output_array
 
-    # Растягиваем диапазон [min..max] до [0..1]
-    if range_val > 1e-6:
-        # Это стандартная формула нормализации
-        normalized_output = (raw_output - min_val) / range_val
-    else:
-        # Если рельеф плоский, просто заполняем его средним значением
-        normalized_output = np.full_like(raw_output, 0.5, dtype=F32)
+    if damping > 0:
+        low_freq_output = np.empty_like(f)
+        _generate_fractal_kernel(
+            low_freq_output, (u * 0.5).astype(F32), (v * 0.5).astype(F32), seed,
+            ntype.startswith('rid'), ntype.startswith('bil'),
+            max(octaves // 2, 1), roughness, False, 0, 0, 0
+        )
+        f = normalize01(f, mode='minmax')
+        low = normalize01(low_freq_output, mode='minmax')
+        f = (1.0 - damping) * f + damping * low
 
-    return normalized_output
+    f = normalize01(f, mode='minmax')
+
+    if smooth > 0:
+        f = np.power(f, 1.0 + smooth)
+
+    if contrast != 0:
+        m = np.mean(f)
+        f = np.clip((f - m) * (1.0 + np.clip(contrast, 0.0, 1.0) * 2.0) + m, 0.0, 1.0)
+
+    if bias != 0:
+        f = f + bias * 0.25
+        f = normalize01(f, mode='minmax')
+
+    if var != 1.0:
+        m = f.mean()
+        f = np.clip(m + (f - m) * var, 0.0, 1.0)
+
+    return f.astype(np.float32)
