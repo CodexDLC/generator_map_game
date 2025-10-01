@@ -1,7 +1,6 @@
 # ==============================================================================
 # Файл: editor/ui_panels/global_noise_panel.py
 # ВЕРСИЯ 2.0: Добавлена фабрика make_global_noise_widget для компоновки V2.
-#             Функция create_global_noise_dock оставлена для совместимости (V1).
 # ==============================================================================
 
 from PySide6 import QtWidgets, QtCore
@@ -47,18 +46,3 @@ def make_global_noise_widget(main_window) -> QtWidgets.QWidget:
     form_layout.addRow("Ridge:", main_window.gn_ridge_checkbox)
 
     return noise_widget
-
-
-def create_global_noise_dock(main_window) -> None:
-    """
-    (V1 LEGACY) Создаёт док-виджет «Глобальный Шум».
-    Внутри использует ту же разметку, что и V2-фабрика.
-    """
-    noise_widget = make_global_noise_widget(main_window)
-
-    dock = QtWidgets.QDockWidget("Глобальный Шум", main_window)
-    dock.setObjectName("Панель 'Глобальный Шум'")
-    dock.setWidget(noise_widget)
-
-    main_window.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, dock)
-    main_window.dock_global_noise = dock

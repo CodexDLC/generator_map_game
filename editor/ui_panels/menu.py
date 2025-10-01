@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6 import QtGui
-from editor.theme import APP_STYLE_SHEET
+from editor.core.theme import APP_STYLE_SHEET
 
 # --- ИЗМЕНЕНИЕ: Импортируем обработчики действий ---
 from editor.actions.pipeline_actions import on_save_pipeline, on_load_pipeline
@@ -15,7 +15,7 @@ from editor.actions.pipeline_actions import on_save_pipeline, on_load_pipeline
 from editor.actions.project_actions import on_delete_project
 
 if TYPE_CHECKING:
-    from editor.main_window import MainWindow
+    from editor.core.main_window import MainWindow
 
 
 def build_menus(main_window: "MainWindow") -> None:

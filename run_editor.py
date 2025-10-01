@@ -6,14 +6,13 @@
 
 import sys
 import logging
-from typing import cast
 
-from PySide6 import QtWidgets, QtCore, QtGui
+from PySide6 import QtWidgets
 
-from editor.main_window import MainWindow
-from editor.setup_logging import setup_logging
-from editor.theme import APP_STYLE_SHEET
-from editor.project_manager import show_project_manager
+from editor.core.main_window import MainWindow
+from editor.core.setup_logging import setup_logging
+from editor.core.theme import APP_STYLE_SHEET
+from editor.core.project_manager import show_project_manager
 
 logger = logging.getLogger(__name__)
 

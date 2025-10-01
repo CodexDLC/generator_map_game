@@ -1,6 +1,6 @@
 # editor/graph_utils.py
 from NodeGraphQt import NodeGraph
-from .nodes.node_registry import register_all_nodes
+from editor.nodes.node_registry import register_all_nodes
 
 def create_default_graph_session() -> dict:
     """

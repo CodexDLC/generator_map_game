@@ -9,7 +9,7 @@ import shutil # <-- ИЗМЕНЕНИЕ: Импортируем shutil для у�
 from pathlib import Path
 from PySide6 import QtWidgets
 
-from editor.graph_utils import create_default_graph_session
+from editor.graph.graph_utils import create_default_graph_session
 
 logger = logging.getLogger(__name__)
 

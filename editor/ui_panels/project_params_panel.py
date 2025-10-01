@@ -4,7 +4,6 @@
 #
 # ВЕРСИЯ 2.0:
 #   - NEW: make_project_params_widget(main_window) — виджет без док-рамки (для V2).
-#   - LEGACY: create_project_params_dock(main_window) — док-обёртка (для V1/restoreState).
 #   - Узкие числовые поля, корректная политика роста формы.
 #   - Поля пробрасываются в main_window.* (совместимость с project_binding.py).
 # ==============================================================================
@@ -12,7 +11,7 @@
 from __future__ import annotations
 from PySide6 import QtWidgets, QtCore
 
-from editor.system_utils import get_recommended_max_map_size
+from editor.utils.system_utils import get_recommended_max_map_size
 
 
 # ------------------------------------------------------------------------------ helpers
@@ -123,22 +122,3 @@ def make_project_params_widget(main_window) -> QtWidgets.QWidget:
     # растяжка вниз
     form.addItem(QtWidgets.QSpacerItem(0, 0, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding))
     return root
-
-
-# ------------------------------------------------------------------------------ V1 dock wrapper (legacy)
-
-def create_project_params_dock(main_window) -> QtWidgets.QDockWidget:
-    """
-    Совместимость с V1: создаёт док-обёртку поверх того же содержимого.
-    Возвращает QDockWidget и добавляет его в правую зону.
-    """
-    content = make_project_params_widget(main_window)
-
-    dock = QtWidgets.QDockWidget("Параметры Проекта", main_window)
-    dock.setObjectName("Панель 'Параметры Проекта'")
-    dock.setWidget(content)
-    dock.setMinimumWidth(340)
-
-    main_window.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, dock)
-    main_window.dock_project_params = dock
-    return dock

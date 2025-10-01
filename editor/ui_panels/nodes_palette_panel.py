@@ -9,7 +9,7 @@ from typing import Dict, List, Tuple
 
 from PySide6 import QtWidgets, QtCore, QtGui
 
-from editor.custom_graph import CustomNodeGraph
+from editor.graph.custom_graph import CustomNodeGraph
 
 logger = logging.getLogger(__name__)
 

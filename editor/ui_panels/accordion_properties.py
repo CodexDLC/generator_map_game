@@ -8,13 +8,13 @@
 from __future__ import annotations
 
 import random
-from typing import Dict, Optional, Any, List
+from typing import Dict, Optional, List
 
 from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtCore import Qt
 
-from editor.theme import PALETTE
-from editor.custom_graph import CustomNodeGraph
+from editor.core.theme import PALETTE
+from editor.graph.custom_graph import CustomNodeGraph
 from editor.nodes.base_node import GeneratorNode
 
 

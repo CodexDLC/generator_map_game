@@ -4,7 +4,6 @@
 #
 # ВЕРСИЯ 2.0:
 #   - NEW: make_compute_widget(main_window) — фабрика виджета без док-рамки (для V2).
-#   - LEGACY: create_compute_dock(main_window) — док-обёртка для V1.
 #   - Только одна кнопка "APPLY" (тайловый режим убран). Для совместимости:
 #       main_window.apply_tiled_button = None
 # ==============================================================================
@@ -56,22 +55,3 @@ def make_compute_widget(main_window) -> QtWidgets.QWidget:
     lay.addWidget(apply_button)
     lay.addStretch(1)
     return root
-
-
-# ------------------------------------------------------------------------------
-# V1 LEGACY: док-обёртка (оставлена для старой раскладки и restoreState)
-def create_compute_dock(main_window) -> QtWidgets.QDockWidget:
-    """
-    Создаёт док «Вычисление» поверх того же содержимого, что и фабрика V2.
-    Возвращает QDockWidget, добавляет его в правую зону.
-    """
-    content = make_compute_widget(main_window)
-
-    dock = QtWidgets.QDockWidget("Вычисление", main_window)
-    dock.setObjectName("Панель 'Вычисление'")
-    dock.setFeatures(QtWidgets.QDockWidget.DockWidgetMovable |
-                     QtWidgets.QDockWidget.DockWidgetFloatable)
-    dock.setWidget(content)
-
-    main_window.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, dock)
-    return dock

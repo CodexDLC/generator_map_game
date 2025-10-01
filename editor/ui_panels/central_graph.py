@@ -9,7 +9,7 @@ from typing import cast
 
 from PySide6 import QtWidgets, QtCore
 
-from editor.custom_graph import CustomNodeGraph
+from editor.graph.custom_graph import CustomNodeGraph
 from editor.nodes.node_registry import register_all_nodes
 from editor.ui_panels.nodes_palette_panel import NodesPaletteWidget
 from editor.ui_panels.right_outliner import RightOutlinerWidget

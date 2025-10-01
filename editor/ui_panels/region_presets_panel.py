@@ -5,7 +5,6 @@
 # ВЕРСИЯ 2.0:
 #   - NEW: make_region_presets_widget(main_window)  — встраиваемый виджет (без док-рамки)
 #   - NEW: open_region_presets_window(main_window)  — отдельное окно (меню «Пресеты»)
-#   - LEGACY: create_region_presets_dock(main_window) — док-обёртка для V1/restoreState
 #
 # Принципы:
 #   - UI-слой только шлёт сигналы, бизнес-логика остаётся в main_window.
@@ -213,30 +212,3 @@ def open_region_presets_window(main_window) -> None:
 
     main_window._region_presets_win = win
     win.show()
-
-
-# ------------------------------------------------------------------------------ LEGACY док-обёртка (для V1/restoreState)
-
-def create_region_presets_dock(main_window) -> QtWidgets.QDockWidget:
-    """
-    Создаёт док с пресетами региона (для старой раскладки).
-    Возвращает QDockWidget и добавляет его в левую зону.
-    """
-    content = make_region_presets_widget(main_window)
-    dock = QtWidgets.QDockWidget("Пресеты региона", main_window)
-    dock.setObjectName("Dock_RegionPresets")
-    dock.setFeatures(QtWidgets.QDockWidget.DockWidgetMovable | QtWidgets.QDockWidget.DockWidgetFloatable)
-    dock.setWidget(content)
-
-    try:
-        main_window.addDockWidget(QtCore.Qt.LeftDockWidgetArea, dock)
-    except Exception:
-        pass
-
-    # для старого кода
-    try:
-        main_window.dock_region_presets = dock
-    except Exception:
-        pass
-
-    return dock

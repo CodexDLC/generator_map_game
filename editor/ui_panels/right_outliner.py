@@ -5,11 +5,11 @@
 # ==============================================================================
 
 from __future__ import annotations
-from typing import Dict, Any, List, Optional
-from PySide6 import QtWidgets, QtCore, QtGui
+from typing import Dict, List, Optional
+from PySide6 import QtWidgets, QtCore
 
 from NodeGraphQt import BaseNode
-from editor.custom_graph import CustomNodeGraph # Используем для аннотации типов
+from editor.graph.custom_graph import CustomNodeGraph # Используем для аннотации типов
 
 
 class RightOutlinerWidget(QtWidgets.QWidget):

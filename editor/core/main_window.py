@@ -5,18 +5,19 @@ import traceback
 from typing import Optional, Dict, Any
 
 from PySide6 import QtWidgets, QtCore, QtGui
-from editor.graph_runner import run_graph
-from editor.theme import APP_STYLE_SHEET
+from editor.graph.graph_runner import run_graph
 from editor.ui_panels.accordion_properties import create_properties_widget
 from editor.ui_panels.central_graph import create_bottom_work_area_v2
 from editor.ui_panels.menu import build_menus
 from editor.ui_panels.node_inspector import make_node_inspector_widget
 from editor.ui_panels.region_presets_panel import make_region_presets_widget
 from editor.ui_panels.shortcuts import install_shortcuts
-from editor.preview_widget import Preview3DWidget
-from editor.project_manager import ProjectManager
+from editor.widgets.preview_widget import Preview3DWidget
+from editor.core.project_manager import ProjectManager
 from editor.actions import preset_actions
 from editor.ui_panels.world_settings_panel import make_world_settings_widget
+from editor.ui_panels.render_panel import make_render_panel_widget
+from editor.core.render_settings import RenderSettings
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.resize(1600, 900)
         self.setAttribute(QtCore.Qt.WA_StyledBackground, True)
         self.project_manager = ProjectManager(self)
+        self.render_settings = RenderSettings()
 
         # UI-компоненты
         self.graph = None
@@ -84,6 +86,12 @@ class MainWindow(QtWidgets.QMainWindow):
         tabs.addTab(self.props_bin, "Параметры")
         self.node_inspector = make_node_inspector_widget(self)
         tabs.addTab(self.node_inspector, "Инспектор")
+
+        self.render_panel = make_render_panel_widget(
+            self, self.render_settings, self._on_render_settings_changed
+        )
+        tabs.addTab(self.render_panel, "Рендер")
+        
         return tabs
 
     def _create_left_tabs(self) -> QtWidgets.QTabWidget:
@@ -126,10 +134,19 @@ class MainWindow(QtWidgets.QMainWindow):
             self.presets_widget.delete_requested.connect(self.action_delete_preset_by_name)
             self.presets_widget.save_as_requested.connect(self.action_save_active_preset)
 
+    @QtCore.Slot(object)
+    def _on_render_settings_changed(self, settings: RenderSettings):
+        """Применяет новые настройки к виджету превью."""
+        self.render_settings = settings
+        if self.preview_widget:
+            self.preview_widget.apply_render_settings(settings)
+            if self.sender() and self.sender().objectName() == "height_exaggeration_spinbox":
+                self._on_apply_clicked()
+
     # --- ИЗМЕНЕНИЕ: Упрощаем метод, убираем таймер ---
     @QtCore.Slot()
     def _trigger_preview_update(self):
-        """Слот, который вызывается, когда виджет закончил редактирование."""
+        '''Слот, который вызывается, когда виджет закончил редактирование.'''
         if self.pv_realtime_checkbox and self.pv_realtime_checkbox.isChecked():
             # Просто напрямую вызываем apply, без задержки
             self._on_apply_clicked()

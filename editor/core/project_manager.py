@@ -19,13 +19,13 @@ from PySide6 import QtWidgets, QtCore
 from editor.actions.project_actions import (
     on_new_project, on_open_project, on_save_project, load_project_data
 )
-from editor.graph_utils import create_default_graph_session
-from editor.theme import APP_STYLE_SHEET
+from editor.graph.graph_utils import create_default_graph_session
+from editor.core.theme import APP_STYLE_SHEET
 from editor.ui_panels.project_binding import apply_project_to_ui, collect_context_from_ui
 from editor.actions.preset_actions import load_preset_into_graph
 
 if TYPE_CHECKING:
-    from editor.main_window import MainWindow
+    from editor.core.main_window import MainWindow
 
 logger = logging.getLogger(__name__)
 
