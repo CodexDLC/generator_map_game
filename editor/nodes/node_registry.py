@@ -11,10 +11,6 @@ def register_all_nodes(graph):
         logger.critical("[NodeRegistry] Graph object is None.")
         return
 
-    # ==================== НАЧАЛО ИСПРАВЛЕНИЯ ====================
-    # Обновленный список нод, соответствующий текущей структуре проекта.
-    # Удалены AntiRippleNode, TerracerNode, MathOpsNode, ToMetersNode.
-
     NODES_TO_IMPORT = [
         # Ландшафт.Пайплайн
         ("editor.nodes.height.io.world_input_node", "WorldInputNode"),
@@ -26,6 +22,9 @@ def register_all_nodes(graph):
 
         # Ландшафт.Маски
         ("editor.nodes.height.composition.slope_mask_node", "SlopeMaskNode"),
+
+        # Ландшафт.Эрозия
+        ("editor.nodes.height.erosion.landlab_erosion_node", "LandlabErosionNode"),
 
         # Универсальные.Шумы
         ("editor.nodes.universal.noises.perlin_noise_node", "PerlinNoiseNode"),
@@ -45,7 +44,6 @@ def register_all_nodes(graph):
         # UI
         ("editor.nodes.backdrop_node", "CustomBackdropNode"),
     ]
-    # ===================== КОНЕЦ ИСПРАВЛЕНИЯ ======================
 
     ok, fail = 0, 0
     for module_path, class_name in NODES_TO_IMPORT:

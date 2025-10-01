@@ -61,7 +61,8 @@ def multifractal_wrapper(context: dict, fractal_params: dict, variation_params: 
 
     # --- сиды ---
     world_seed = _resolve_world_seed(context)
-    node_off   = int(fractal_params.get('seed_offset', 0))
+    # поддерживаем оба варианта: если передан seed, используем его; иначе берём seed_offset
+    node_off = int(fractal_params.get('seed', fractal_params.get('seed_offset', 0)))
     seed_main  = _mix_seed(world_seed, node_off, 0)
     seed_warp  = _mix_seed(world_seed, node_off, 12345)
 
