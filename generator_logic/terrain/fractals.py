@@ -3,25 +3,19 @@ from __future__ import annotations
 import numpy as np
 from numba import njit, prange
 from game_engine_restructured.numerics.fast_noise import _hash2, fbm_amplitude
-
 F32 = np.float32
 
-# --- (весь Numba-код остается без изменений) ---
-# ... value_noise_2d_f32, _generate_multifractal_numba и т.д. ...
 @njit(inline='always', cache=True)
 def _rand01_f32(ix: int, iz: int, seed: int) -> F32:
     return F32(_hash2(ix, iz, seed)) / F32(4294967296.0)
-
 
 @njit(inline='always', cache=True)
 def _fade_f32(t: F32) -> F32:
     return t * t * t * (t * (t * F32(6.0) - F32(15.0)) + F32(10.0))
 
-
 @njit(inline='always', cache=True)
 def _lerp_f32(a: F32, b: F32, t: F32) -> F32:
     return a + (b - a) * t
-
 
 @njit(inline='always', cache=True)
 def value_noise_2d_f32(x: F32, z: F32, seed: int) -> F32:
@@ -36,13 +30,11 @@ def value_noise_2d_f32(x: F32, z: F32, seed: int) -> F32:
     nx1 = _lerp_f32(n01, n11, u)
     return _lerp_f32(nx0, nx1, v)
 
-
-# --- Основное Numba-ядро ---
 @njit(cache=True, fastmath=True, parallel=True)
 def _generate_multifractal_numba(
         coords_x, coords_z,
         noise_type_is_ridged, noise_type_is_billowy, octaves, roughness, seed, base_freq,
-        var_strength, var_smoothness,
+        var_strength, var_smoothness, var_contrast, var_damping, var_bias,
         offset_x, offset_y, scale_x, scale_y,
         warp_type_is_simple, warp_type_is_complex, warp_freq, warp_amp, warp_octaves, warp_seed
 ):
@@ -71,8 +63,13 @@ def _generate_multifractal_numba(
 
             var_freq = base_freq * (F32(2.0) ** -var_smoothness)
             local_var = value_noise_2d_f32(cx * var_freq, cz * var_freq, seed - 100)
-            local_roughness = roughness * (F32(1.0) + (local_var - F32(0.5)) * var_strength)
-            local_roughness = max(F32(0.01), min(F32(0.99), local_roughness))
+
+            local_var = (local_var - F32(0.5)) * (F32(1.0) + var_contrast) + F32(0.5)
+            local_var = local_var * (F32(1.0) - var_damping)
+            local_var += var_bias - F32(0.5)
+            local_var = max(F32(0.0), min(F32(1.0), local_var))
+
+            var_influence = (local_var - F32(0.5)) * var_strength
 
             amp, freq, total = F32(1.0), F32(base_freq), F32(0.0)
             for o in range(octaves):
@@ -83,7 +80,9 @@ def _generate_multifractal_numba(
                     n = np.abs(n)
                 total += n * amp
                 freq *= F32(2.0)
-                amp *= local_roughness
+                amp *= roughness
+
+            total = total * (F32(1.0) + var_influence)
             output[j, i] = total
 
     max_amp = fbm_amplitude(roughness, octaves)
@@ -91,26 +90,23 @@ def _generate_multifractal_numba(
     if not noise_type_is_ridged: output = (output + F32(1.0)) * F32(0.5)
     return np.clip(output, F32(0.0), F32(1.0))
 
-
-# --- Python-обертка ---
 def multifractal_wrapper(context: dict, fractal_params: dict, variation_params: dict, position_params: dict,
                          warp_params: dict):
-    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
-    # Получаем размер мира из контекста
     world_size = context.get('WORLD_SIZE_METERS', 5000.0)
-
-    # Scale - это множитель от размера мира (например, 0.58)
     relative_scale = float(fractal_params.get('scale', 0.5))
-
-    # Вычисляем итоговый масштаб в метрах
     scale_in_meters = relative_scale * world_size
-
-    # Рассчитываем базовую частоту
     base_freq = 1.0 / (scale_in_meters + 1e-9)
-    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
     noise_type_str = fractal_params.get('type', 'fbm')
     warp_type_str = warp_params.get('type', 'none')
+
+    var_strength = F32(variation_params.get('variation', 2.0))
+    var_smoothness = F32(variation_params.get('smoothness', 0.0))
+    var_contrast = F32(variation_params.get('contrast', 0.3))
+    var_damping = F32(variation_params.get('damping', 0.25))
+    var_bias = F32(variation_params.get('bias', 0.5))
+
+    if var_smoothness < -20.0: var_smoothness = -20.0
 
     x = context['x_coords'].astype(F32)
     z = context['z_coords'].astype(F32)
@@ -118,7 +114,6 @@ def multifractal_wrapper(context: dict, fractal_params: dict, variation_params: 
     ANCHOR = F32(65536.0)
     base_x = np.floor(x[0, 0] / ANCHOR) * ANCHOR
     base_z = np.floor(z[0, 0] / ANCHOR) * ANCHOR
-
     x_local = x - base_x
     z_local = z - base_z
 
@@ -130,8 +125,11 @@ def multifractal_wrapper(context: dict, fractal_params: dict, variation_params: 
         roughness=F32(fractal_params.get('roughness', 0.5)),
         seed=int(fractal_params.get('seed', 0)),
         base_freq=F32(base_freq),
-        var_strength=F32(variation_params.get('variation', 2.0)),
-        var_smoothness=F32(variation_params.get('smoothness', 0.0)),
+        var_strength=var_strength,
+        var_smoothness=var_smoothness,
+        var_contrast=var_contrast,
+        var_damping=var_damping,
+        var_bias=var_bias,
         offset_x=F32(position_params.get('offset_x', 0.0)),
         offset_y=F32(position_params.get('offset_y', 0.0)),
         scale_x=F32(position_params.get('scale_x', 1.0)),

@@ -1,6 +1,6 @@
 # editor/nodes/universal/noises/perlin_noise_node.py
 from editor.nodes.base_node import GeneratorNode
-from generator_logic.terrain.noises import fbm_noise_wrapper
+from generator_logic.terrain.perlin import fbm_noise_wrapper
 
 class PerlinNoiseNode(GeneratorNode):
     __identifier__ = "Универсальные.Шумы"
@@ -40,11 +40,11 @@ class PerlinNoiseNode(GeneratorNode):
 
     def _compute(self, context):
         # --- НАЧАЛО ИЗМЕНЕНИЯ ---
-        base_scale = context.get('BASE_WORLD_SCALE', 16000.0)
-        relative_scale = self._get_float_param('scale', 0.1)  # Берем 0.1 (10%) из UI
+        world_size = context.get('WORLD_SIZE_METERS', 5000.0)
+        relative_scale = self._get_float_param('scale', 0.1)
 
         # Рассчитываем абсолютный масштаб в метрах
-        absolute_scale_in_meters = relative_scale * base_scale
+        absolute_scale_in_meters = relative_scale * world_size
         # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
         noise_params = {

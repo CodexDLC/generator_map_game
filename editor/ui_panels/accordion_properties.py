@@ -288,6 +288,7 @@ class AccordionProperties(QtWidgets.QScrollArea):
         groups: Dict[str, CollapsibleBox] = {}
 
         sorted_meta_items = sorted(meta.items(), key=lambda item: (
+            1 if (item[1].get('group') or 'Params') == 'Position' else 0,
             item[1].get('group') or 'Params',
             item[0]
         ))

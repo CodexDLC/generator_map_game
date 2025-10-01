@@ -1,6 +1,6 @@
 # editor/nodes/universal/noises/voronoi_noise_node.py
 from editor.nodes.base_node import GeneratorNode
-from generator_logic.terrain.noises import voronoi_noise_wrapper
+from generator_logic.terrain.voronoi import voronoi_noise_wrapper
 
 class VoronoiNoiseNode(GeneratorNode):
     __identifier__ = "Универсальные.Шумы"

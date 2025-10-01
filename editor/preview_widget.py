@@ -75,6 +75,12 @@ class Preview3DWidget(QtWidgets.QWidget):
             shading='smooth',  # Включаем встроенное освещение
             color=(0.8, 0.8, 0.9, 1.0)  # Задаем базовый цвет
         )
+        if hasattr(self._mesh, 'light'):
+            # Убираем глянцевые блики, делая зеркальный цвет черным
+            self._mesh.light.specular = (0.0, 0.0, 0.0, 1.0)
+
+            # Немного увеличиваем рассеянное освещение, чтобы тени не были слишком темными
+            self._mesh.light.ambient = 0.4
 
         # 4. Масштабируем модель согласно размеру ячейки
         self._mesh.transform = scene.transforms.MatrixTransform()
