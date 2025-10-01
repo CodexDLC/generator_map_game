@@ -1,4 +1,4 @@
-# editor/main_window.py
+# editor/core/main_window.py
 from __future__ import annotations
 import logging
 import traceback
@@ -42,9 +42,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.node_inspector = None
         self.presets_widget = None
         self._last_selected_node = None
-
-        # --- ИЗМЕНЕНИЕ: Удаляем предварительную инициализацию ---
-        # self.ws_max_height_input и другие атрибуты теперь создаются динамически
 
         self._build_ui()
         build_menus(self)
@@ -91,14 +88,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self, self.render_settings, self._on_render_settings_changed
         )
         tabs.addTab(self.render_panel, "Рендер")
-        
+
         return tabs
 
     def _create_left_tabs(self) -> QtWidgets.QTabWidget:
         tabs = QtWidgets.QTabWidget()
         tabs.setDocumentMode(True)
 
-        # --- ИЗМЕНЕНИЕ: Принимаем виджеты и сохраняем ссылки на них ---
         world_settings_panel, ws_widgets = make_world_settings_widget(self)
         self.global_x_offset_input = ws_widgets["global_x_offset_input"]
         self.global_z_offset_input = ws_widgets["global_z_offset_input"]
@@ -118,9 +114,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _connect_components(self):
         if self.graph:
-            # --- ИЗМЕНЕНИЕ: Передаем ссылку на main_window в панель свойств ---
             if self.props_bin: self.props_bin.set_graph(self.graph, self)
-            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
             if self.node_inspector: self.node_inspector.bind_graph(self.graph)
             if self.right_outliner: self.right_outliner.bind_graph(self.graph)
             if self.left_palette: self.left_palette.bind_graph(self.graph)
@@ -135,22 +129,28 @@ class MainWindow(QtWidgets.QMainWindow):
             self.presets_widget.save_as_requested.connect(self.action_save_active_preset)
 
     @QtCore.Slot(object)
-    def _on_render_settings_changed(self, settings: RenderSettings):
-        """Применяет новые настройки к виджету превью."""
-        self.render_settings = settings
-        if self.preview_widget:
-            self.preview_widget.apply_render_settings(settings)
-            if self.sender() and self.sender().objectName() == "height_exaggeration_spinbox":
-                self._on_apply_clicked()
+    def _on_render_settings_changed(self, new_settings: RenderSettings):
+        """
+        Применяет новые настройки к виджету превью.
+        Если изменилось преувеличение высоты - запускает полную перерисовку.
+        """
+        old_hex = self.render_settings.height_exaggeration
+        new_hex = new_settings.height_exaggeration
 
-    # --- ИЗМЕНЕНИЕ: Упрощаем метод, убираем таймер ---
+        self.render_settings = new_settings
+        if self.preview_widget:
+            self.preview_widget.apply_render_settings(new_settings)
+
+        # Если изменился `height_exaggeration`, нужна полная перерисовка,
+        # так как меняется геометрия, а не только свет/цвет.
+        if abs(old_hex - new_hex) > 1e-6:
+            self._on_apply_clicked()
+
     @QtCore.Slot()
     def _trigger_preview_update(self):
         '''Слот, который вызывается, когда виджет закончил редактирование.'''
         if self.pv_realtime_checkbox and self.pv_realtime_checkbox.isChecked():
-            # Просто напрямую вызываем apply, без задержки
             self._on_apply_clicked()
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     @QtCore.Slot(list)
     def _on_node_selection_changed(self, selected_nodes):

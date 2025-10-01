@@ -4,17 +4,25 @@ from dataclasses import dataclass, asdict
 
 @dataclass
 class RenderSettings:
+    # Свет/материал
     light_azimuth_deg: float = 45.0
     light_altitude_deg: float = 35.0
     ambient: float = 0.34
     diffuse: float = 1.00
     specular: float = 0.06
     shininess: float = 24.0
+    light_mode: str = "world"   # "world" | "headlight"
+
+    # Геометрия/камера
     height_exaggeration: float = 1.25
     fov: float = 45.0
     auto_frame: bool = True
-    # НОВОЕ:
-    light_mode: str = "world"   # "world" | "headlight"
+
+    # Цвет
+    use_palette: bool = True
+    palette_name: str = "Rock"      # Rock|Desert|Snow|Volcano
+    use_slope_darkening: bool = False
+    slope_strength: float = 0.25    # 0..1
 
     @classmethod
     def from_dict(cls, d: dict) -> "RenderSettings":
