@@ -2,6 +2,20 @@
 from __future__ import annotations
 from typing import Any, Tuple
 
+# --- ИЗМЕНЕНИЕ: Добавляем новую функцию ---
+def make_properties_signature(node) -> Tuple[Any, ...]:
+    """Создает сигнатуру на основе текущих свойств ноды."""
+    try:
+        # Используем _prop_meta, так как там описаны все свойства, влияющие на вычисления
+        props = tuple(sorted(
+            (name, node.get_property(name)) for name in node._prop_meta.keys()
+        ))
+        return props
+    except Exception:
+        # Возвращаем уникальный ID как запасной вариант, если что-то пошло не так
+        return (id(node),)
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
 def make_context_signature(context: dict) -> Tuple[Any, ...]:
     try:
         seed = int(context.get("seed"))

@@ -12,7 +12,8 @@ def register_all_nodes(graph):
         return
 
     # ==================== НАЧАЛО ИСПРАВЛЕНИЯ ====================
-    # Список нод, составленный на основе реально существующих файлов в проекте
+    # Обновленный список нод, соответствующий текущей структуре проекта.
+    # Удалены AntiRippleNode, TerracerNode, MathOpsNode, ToMetersNode.
 
     NODES_TO_IMPORT = [
         # Ландшафт.Пайплайн
@@ -26,10 +27,6 @@ def register_all_nodes(graph):
         # Ландшафт.Маски
         ("editor.nodes.height.composition.slope_mask_node", "SlopeMaskNode"),
 
-        # Ландшафт.Эффекты
-        ("editor.nodes.height.effects.anti_ripple_node", "AntiRippleNode"),
-        ("editor.nodes.height.effects.terracer_node", "TerracerNode"),
-
         # Универсальные.Шумы
         ("editor.nodes.universal.noises.perlin_noise_node", "PerlinNoiseNode"),
         ("editor.nodes.universal.noises.voronoi_noise_node", "VoronoiNoiseNode"),
@@ -37,8 +34,6 @@ def register_all_nodes(graph):
 
         # Универсальные.Математика
         ("editor.nodes.universal.math.normalize01_node", "Normalize01Node"),
-        ("editor.nodes.universal.math.math_ops_node", "MathOpsNode"),
-        ("editor.nodes.universal.math.to_meters_node", "ToMetersNode"),
 
         # Универсальные.Маски
         ("editor.nodes.universal.masks.mask_node", "MaskNode"),

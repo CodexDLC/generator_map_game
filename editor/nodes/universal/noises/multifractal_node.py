@@ -12,9 +12,9 @@ class MultiFractalNode(GeneratorNode):
         self.add_output('Out')
         # UI остается без изменений
         self.add_enum_input("noise_type", "Noise Type", ["FBM", "Ridged", "Billowy"], group="Fractal", default="FBM")
-        self.add_text_input("scale", "Scale", group="Fractal", text="0.5")
+        self.add_float_input("scale", "Scale (%)", value=0.5, group="Fractal")
         self.add_text_input("octaves", "Octaves", group="Fractal", text="8")
-        self.add_text_input("roughness", "Roughness", group="Fractal", text="0.5")
+        self.add_float_input("roughness", "Roughness (0..1)", value=0.5, group="Fractal")
         self.add_seed_input("seed", "Seed", group="Fractal")
         self.add_text_input("variation", "Variation", group="Variation", text="2.0")
         self.add_text_input("smoothness", "Smoothness", group="Variation", text="0.0")
@@ -23,8 +23,8 @@ class MultiFractalNode(GeneratorNode):
         self.add_text_input("scale_x", "Scale X", group="Position", text="1.0")
         self.add_text_input("scale_y", "Scale Y", group="Position", text="1.0")
         self.add_enum_input("warp_type", "Perturb", ["None", "Simple", "Complex"], group="Warp", default="None")
-        self.add_text_input("warp_freq", "Frequency", group="Warp", text="0.05")
-        self.add_text_input("warp_amp", "Amplitude", group="Warp", text="0.5")
+        self.add_float_input("warp_freq", "Frequency", group="Warp", value=0.05)
+        self.add_float_input("warp_amp", "Amplitude (0..1)", group="Warp", value=0.5)
         self.add_text_input("warp_octaves", "Octaves", group="Warp", text="4")
         self.set_color(80, 25, 30)
 

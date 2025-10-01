@@ -11,13 +11,11 @@ class VoronoiNoiseNode(GeneratorNode):
         self.add_output('Out')
 
         # --- Noise ---
-        self.add_text_input("scale", "Scale", tab="Params", group="Noise", text="0.5")
-        self.add_text_input("jitter", "Jitter", tab="Params", group="Noise", text="0.45")
-        self.add_enum_input("function", "Function", ["F1", "F2", "F2-F1"],
-                            tab="Params", group="Noise", default="F1")
-        self.add_text_input("gain", "Gain", tab="Params", group="Noise", text="0.5")
-        # NB: дефолт 0.1 ближе к Gaea-пресету D; хочешь — верни "0.5"
-        self.add_text_input("clamp_val", "Clamp", tab="Params", group="Noise", text="0.1")
+        self.add_float_input("scale", "Scale (%)", value=0.5, tab="Params", group="Noise")
+        self.add_float_input("jitter", "Jitter (0..1)", value=0.45, tab="Params", group="Noise")
+        self.add_enum_input("function", "Function", ["F1", "F2", "F2-F1"], tab="Params", group="Noise", default="F1")
+        self.add_float_input("gain", "Gain (0..1)", value=0.5, tab="Params", group="Noise")
+        self.add_float_input("clamp_val", "Clamp (0..1)", value=0.1, tab="Params", group="Noise")
         self.add_seed_input("seed", "Seed", tab="Params", group="Noise")
 
         # --- Style / Metric / Terrace (новое) ---
@@ -32,13 +30,13 @@ class VoronoiNoiseNode(GeneratorNode):
             tab="Params", group="Noise", default="Euclidean"
         )
         self.add_text_input("terrace_steps", "Terrace Steps", tab="Params", group="Noise", text="8")
-        self.add_text_input("terrace_blend", "Terrace Blend", tab="Params", group="Noise", text="0.35")
+        self.add_float_input("terrace_blend", "Terrace Blend (0..1)", value=0.35, tab="Params", group="Noise")
 
         # --- Warp ---
         self.add_enum_input("warp_type", "Type", ["None", "Simple", "Complex"],
                             tab="Params", group="Warp", default="None")
-        self.add_text_input("warp_freq", "Frequency", tab="Params", group="Warp", text="0.05")
-        self.add_text_input("warp_amp", "Amplitude", tab="Params", group="Warp", text="0.5")
+        self.add_float_input("warp_freq", "Frequency", value=0.05, tab="Params", group="Warp")
+        self.add_float_input("warp_amp", "Amplitude (0..1)", value=0.5, tab="Params", group="Warp")
         self.add_text_input("warp_octaves", "Octaves", tab="Params", group="Warp", text="14")
 
         self.set_color(90, 90, 30)

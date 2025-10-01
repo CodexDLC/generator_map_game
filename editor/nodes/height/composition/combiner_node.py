@@ -27,12 +27,14 @@ class CombinerNode(GeneratorNode):
 
         # --- Новая структура UI ---
         self.add_enum_input("operation", "Mode",
-                            ["Add", "Subtract", "Multiply", "Divide", "Min", "Max", "Lerp", 
-                             "Screen", "Overlay", "Difference", "Dodge", "Burn", 
+                            ["Add", "Subtract", "Multiply", "Divide", "Min", "Max", "Lerp",
+                             "Screen", "Overlay", "Difference", "Dodge", "Burn",
                              "Soft Light", "Hard Light", "Hypotenuse"],
                             tab="Params", group="Settings", default="Add")
         self.add_text_input("const_b", "Constant B", tab="Params", group="Settings", text="0.0")
         self.add_text_input("lerp_t", "Ratio (0..1)", tab="Params", group="Settings", text="0.5")
+
+        self.add_float_input("lerp_t", "Ratio (0..1)", value=0.5, tab="Params", group="Settings")
 
         self.add_enum_input("output_mode", "Output", ["None", "Clamp", "Extend"],
                             tab="Params", group="Output", default="None")

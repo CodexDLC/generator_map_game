@@ -117,7 +117,7 @@ APP_STYLE_SHEET = f"""
         border-radius: 6px;
         margin: 8px 6px;
         padding: 12px 8px 8px 8px;
-        min-height: 0;
+        /* min-height: 0;  <-- ЭТА СТРОКА УДАЛЕНА */
     }}
     
     QGroupBox#CollapsibleBox::title {{

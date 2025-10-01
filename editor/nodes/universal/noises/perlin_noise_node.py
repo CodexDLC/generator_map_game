@@ -12,16 +12,16 @@ class PerlinNoiseNode(GeneratorNode):
 
         # Group "Noise"
         self.add_enum_input("noise_type", "Type", ["FBM", "Ridged", "Billowy"], tab="Params", group="Noise", default="FBM")
-        self.add_text_input("scale", "Scale (%)", tab="Params", group="Noise", text="0.1") # По умолчанию 10%
+        self.add_float_input("scale", "Scale (%)", value=0.1, tab="Params", group="Noise")
         self.add_text_input("octaves", "Octaves", tab="Params", group="Noise", text="10")
-        self.add_text_input("gain", "Gain", tab="Params", group="Noise", text="0.5")
-        self.add_text_input("amplitude", "Amplitude", tab="Params", group="Noise", text="1.0")
+        self.add_float_input("gain", "Gain (0..1)", value=0.5, tab="Params", group="Noise")
+        self.add_float_input("amplitude", "Amplitude (0..1)", value=1.0, tab="Params", group="Noise")
         self.add_seed_input("seed", "Seed", tab="Params", group="Noise")
 
         # Group "Warp"
         self.add_enum_input("warp_type", "Type", ["None", "Simple", "Complex"], tab="Params", group="Warp", default="None")
-        self.add_text_input("warp_freq", "Frequency", tab="Params", group="Warp", text="0.05")
-        self.add_text_input("warp_amp", "Amplitude", tab="Params", group="Warp", text="0.5")
+        self.add_float_input("warp_freq", "Frequency", value=0.05, tab="Params", group="Warp")
+        self.add_float_input("warp_amp", "Amplitude (0..1)", value=0.5, tab="Params", group="Warp")
         self.add_text_input("warp_octaves", "Octaves", tab="Params", group="Warp", text="10")
 
         self.set_color(90, 30, 90)

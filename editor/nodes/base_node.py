@@ -16,7 +16,9 @@ from PySide6 import QtCore
 from NodeGraphQt import BaseNode
 
 from editor.nodes._helpers import node_ui as UIH
+# --- ИЗМЕНЕНИЕ: Импортируем новую функцию ---
 from editor.nodes._helpers import cache_utils as CU
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,9 @@ class GeneratorNode(BaseNode):
     def __init__(self):
         super().__init__()
         self._prop_meta: Dict[str, dict] = {}
+        # --- НАЧАЛО ИЗМЕНЕНИЯ: Добавляем хранилище для истории сидов ---
+        self._seed_history: Dict[str, List[int]] = {}
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         self._onnode_widgets: List[Any] = []
         self._compact: bool = True
         self._description_text: str = "Описание для этой ноды не задано."
@@ -34,9 +39,30 @@ class GeneratorNode(BaseNode):
         self._is_dirty: bool = True
         self._result_cache: Any = None
         self._rev: int = 0
-        self._last_sig: Tuple[Any, Any] | None = None
+        # --- ИЗМЕНЕНИЕ: Меняем _last_sig на _last_signature для ясности ---
+        self._last_signature: Tuple[Any, ...] | None = None
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         self._apply_tooltips_to_node()
         self._deferred_init_tooltips()
+
+    # --- НАЧАЛО ИЗМЕНЕНИЯ: Новый метод для добавления сида в историю ---
+    def add_to_seed_history(self, name: str, seed: int):
+        """Добавляет сид в историю для указанного свойства."""
+        if name not in self._seed_history:
+            self._seed_history[name] = []
+        
+        history = self._seed_history[name]
+        
+        # Удаляем, если такое значение уже есть, чтобы переместить его в начало
+        if seed in history:
+            history.remove(seed)
+        
+        # Добавляем новое значение в начало списка
+        history.insert(0, seed)
+        
+        # Ограничиваем размер истории (например, 15 последних значений)
+        self._seed_history[name] = history[:15]
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     def add_seed_input(self, name, label, tab='Params', group=None):
         """
@@ -48,19 +74,23 @@ class GeneratorNode(BaseNode):
         except (ValueError, TypeError):
             initial_seed = random.randint(0, 0xFFFFFFFF)
 
+        # --- НАЧАЛО ИЗМЕНЕНИЯ: Регистрируем свойство с новым типом 'seed' ---
         self._prop_meta[name] = {
-            'type': 'int',
+            'type': 'seed',  # <-- Новый специальный тип!
             'label': label,
             'tab': UIH.safe_tab(tab),
             'group': group or UIH.safe_tab(tab)
         }
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+        
+        # Добавляем начальный сид в историю
+        self.add_to_seed_history(name, initial_seed)
 
-        # Передаем начальное значение напрямую в функцию-хелпер.
-        # Это правильный способ, который не требует возврата виджета.
         UIH.register_text(self, self._onnode_widgets, name=name, label=label, text=str(initial_seed),
                           tab=tab, compact=self._compact)
 
         self.set_property(name, initial_seed, push_undo=False)
+
 
     def set_compact(self, compact: bool):
         self._compact = bool(compact)
@@ -80,6 +110,20 @@ class GeneratorNode(BaseNode):
                           tab=tab, compact=self._compact)
         self._prop_meta[name] = {'type': 'line', 'label': label, 'tab': UIH.safe_tab(tab),
                                  'group': group or UIH.safe_tab(tab), 'items': []}
+        return None
+
+    def add_float_input(self, name, label, value=0.0, tab='Params', group=None):
+        """Регистрирует свойство как float и создает для него текстовое поле."""
+        # UI-часть остается такой же, как у add_text_input
+        UIH.register_text(self, self._onnode_widgets, name=name, label=label, text=str(value),
+                          tab=tab, compact=self._compact)
+        # А вот метаданные теперь правильные
+        self._prop_meta[name] = {
+            'type': 'float', # <-- Вот ключевое изменение!
+            'label': label,
+            'tab': UIH.safe_tab(tab),
+            'group': group or UIH.safe_tab(tab)
+        }
         return None
 
     def add_checkbox(self, name, label, text='', state=False, tab='Params', group=None):
@@ -119,12 +163,16 @@ class GeneratorNode(BaseNode):
         meta = self._prop_meta[name]
         kind = meta.get('type')
         if raw_value is None or raw_value == '':
-            if kind in ('int', 'i'): return 0
+            # --- ИЗМЕНЕНИЕ: Добавили 'seed' в список ---
+            if kind in ('int', 'i', 'seed'): return 0
+            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
             if kind in ('float', 'double', 'f'): return 0.0
             if kind == 'check': return False
             return raw_value
         try:
-            if kind in ('int', 'i'):
+            # --- ИЗМЕНЕНИЕ: Добавили 'seed' в список ---
+            if kind in ('int', 'i', 'seed'):
+            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
                 return int(float(str(raw_value).replace(',', '.')))
             elif kind in ('float', 'double', 'f'):
                 return float(str(raw_value).replace(',', '.'))
@@ -134,7 +182,9 @@ class GeneratorNode(BaseNode):
                 return bool(raw_value)
             return str(raw_value)
         except (ValueError, TypeError):
-            if kind in ('int', 'i'): return 0
+            # --- ИЗМЕНЕНИЕ: Добавили 'seed' в список ---
+            if kind in ('int', 'i', 'seed'): return 0
+            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
             if kind in ('float', 'double', 'f'): return 0.0
             if kind == 'check': return False
             return raw_value
@@ -254,39 +304,45 @@ class GeneratorNode(BaseNode):
         super().on_disconnected(in_port, out_port)
         self.mark_dirty()
 
-    def _make_context_signature(self, context: dict):
-        return CU.make_context_signature(context)
-
-    def _make_upstream_signature(self):
-        return CU.make_upstream_signature(self)
-
+    # --- ИЗМЕНЕНИЕ: Переписываем метод compute ---
     def compute(self, context: dict):
-        ctx_sig = self._make_context_signature(context)
-        up_sig = self._make_upstream_signature()
-        full_sig = (ctx_sig, up_sig)
-        if full_sig != self._last_sig:
-            self._last_sig = full_sig
-            self._is_dirty = True
+        # 1. Собираем полную сигнатуру состояния
+        ctx_sig = CU.make_context_signature(context)
+        up_sig = CU.make_upstream_signature(self)
+        props_sig = CU.make_properties_signature(self)
+        full_signature = (ctx_sig, up_sig, props_sig)
 
+        # 2. Сравниваем с предыдущей сигнатурой
+        if not self._is_dirty and full_signature == self._last_signature:
+            # Если все совпадает и нода не "грязная", возвращаем кэш
+            logger.debug(f"✓ cache-hit for {self.name()}")
+            return self._result_cache
+
+        # 3. Если сигнатура изменилась или нода помечена как грязная - пересчитываем
+        logger.debug(f"↻ recomputing {self.name()}...")
+        t0 = time.perf_counter()
+
+        # Глубина вложенности для отладки
         depth = int(context.setdefault('_compute_depth', 0))
-        pad = '  ' * depth
-        tag = f"{self.__class__.__name__}({self.id})"
+        context['_compute_depth'] = depth + 1
+        try:
+            # Вызываем основную логику вычислений
+            result = self._compute(context)
+        finally:
+            # Восстанавливаем глубину
+            context['_compute_depth'] = depth
 
-        if self._is_dirty:
-            t0 = time.perf_counter()
-            context['_compute_depth'] = depth + 1
-            try:
-                result = self._compute(context)
-            finally:
-                context['_compute_depth'] = depth
-            self._result_cache = result
-            self._is_dirty = False
-            dt = (time.perf_counter() - t0) * 1000.0
-            logger.debug(f"{pad}↻ recompute {tag} in {dt:.2f} ms")
-        else:
-            logger.debug(f"{pad}✓ cache-hit {tag}")
+        dt = (time.perf_counter() - t0) * 1000.0
+        logger.debug(f"  -> recompute finished in {dt:.2f} ms")
+
+        # 4. Сохраняем новый результат и сигнатуру в кэш
+        self._result_cache = result
+        self._last_signature = full_signature
+        self._is_dirty = False # Сбрасываем флаг
 
         return self._result_cache
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
 
     def _compute(self, context: dict):
         raise NotImplementedError(

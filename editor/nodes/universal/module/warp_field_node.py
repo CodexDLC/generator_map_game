@@ -50,7 +50,7 @@ class WarpFieldNode(GeneratorNode):
         self.add_text_input("scale_tiles", "FBM Scale (tiles)", tab="FBM Fallback", text="4000")
         self.add_text_input("octaves",     "FBM Octaves",       tab="FBM Fallback", text="2")
         self.add_checkbox   ("ridge",      "FBM Ridge",         tab="FBM Fallback", state=False)
-        self.add_text_input("seed_offset", "FBM Seed Offset",   tab="FBM Fallback", text="0")
+        self.add_seed_input("seed_offset", "FBM Seed Offset",   tab="FBM Fallback")
 
         self.set_color(40, 90, 90)
         self.set_description(DESC)

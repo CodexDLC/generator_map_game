@@ -110,7 +110,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _connect_components(self):
         if self.graph:
-            if self.props_bin: self.props_bin.set_graph(self.graph)
+            # --- ИЗМЕНЕНИЕ: Передаем ссылку на main_window в панель свойств ---
+            if self.props_bin: self.props_bin.set_graph(self.graph, self)
+            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
             if self.node_inspector: self.node_inspector.bind_graph(self.graph)
             if self.right_outliner: self.right_outliner.bind_graph(self.graph)
             if self.left_palette: self.left_palette.bind_graph(self.graph)
@@ -123,6 +125,15 @@ class MainWindow(QtWidgets.QMainWindow):
             self.presets_widget.create_from_current_requested.connect(self.action_create_preset_from_dialog)
             self.presets_widget.delete_requested.connect(self.action_delete_preset_by_name)
             self.presets_widget.save_as_requested.connect(self.action_save_active_preset)
+
+    # --- ИЗМЕНЕНИЕ: Упрощаем метод, убираем таймер ---
+    @QtCore.Slot()
+    def _trigger_preview_update(self):
+        """Слот, который вызывается, когда виджет закончил редактирование."""
+        if self.pv_realtime_checkbox and self.pv_realtime_checkbox.isChecked():
+            # Просто напрямую вызываем apply, без задержки
+            self._on_apply_clicked()
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     @QtCore.Slot(list)
     def _on_node_selection_changed(self, selected_nodes):
