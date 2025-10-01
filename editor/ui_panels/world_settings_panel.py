@@ -17,14 +17,34 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     layout = QtWidgets.QVBoxLayout(root)
     layout.setContentsMargins(8, 8, 8, 8)
 
-    # Словарь для хранения созданных виджетов
     widgets = {}
 
     # --- Секция 1: Масштаб Мира ---
     world_scale_box = _create_group_box("1. Масштаб Мира")
     form1 = world_scale_box.layout()
 
-    # --- ИЗМЕНЕНИЕ: Создаем виджеты и кладем их в словарь ---
+    # --- НАЧАЛО ИЗМЕНЕНИЯ ---
+
+    # Поле для смещения по X
+    widgets["global_x_offset_input"] = QtWidgets.QDoubleSpinBox()
+    widgets["global_x_offset_input"].setRange(-1000000, 1000000)
+    widgets["global_x_offset_input"].setSingleStep(1000)
+    widgets["global_x_offset_input"].setDecimals(0)
+    widgets["global_x_offset_input"].setValue(0)
+    form1.addRow("Global Offset X (m):", widgets["global_x_offset_input"])
+
+    # Поле для смещения по Z
+    widgets["global_z_offset_input"] = QtWidgets.QDoubleSpinBox()
+    widgets["global_z_offset_input"].setRange(-1000000, 1000000)
+    widgets["global_z_offset_input"].setSingleStep(1000)
+    widgets["global_z_offset_input"].setDecimals(0)
+    widgets["global_z_offset_input"].setValue(0)
+    form1.addRow("Global Offset Z (m):", widgets["global_z_offset_input"])
+
+    form1.addRow(QtWidgets.QLabel("---"))  # Разделитель
+
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
     widgets["world_size_input"] = QtWidgets.QDoubleSpinBox()
     widgets["world_size_input"].setRange(256.0, 65536.0)
     widgets["world_size_input"].setValue(5000.0)
@@ -43,6 +63,8 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     form1.addRow("Масштаб X/Z (м/пиксель):", widgets["vertex_spacing_input"])
 
     layout.addWidget(world_scale_box)
+
+    # ... (остальной код файла без изменений) ...
 
     # --- Секция 2: Рендер Превью ---
     preview_box = _create_group_box("2. Рендер Превью")
@@ -78,11 +100,10 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     widgets["gv_strength_input"] = QtWidgets.QDoubleSpinBox()
     widgets["gv_strength_input"].setRange(0.0, 1.0)
     widgets["gv_strength_input"].setDecimals(2)
-    widgets["gv_strength_input"].setValue(0.5)  # Более адекватное значение по умолчанию
+    widgets["gv_strength_input"].setValue(0.5)
     form3.addRow("Сила (0-1):", widgets["gv_strength_input"])
 
     layout.addWidget(variation_box)
     layout.addStretch()
 
-    # Возвращаем виджет и словарь с контролами
     return root, widgets

@@ -92,6 +92,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # --- ИЗМЕНЕНИЕ: Принимаем виджеты и сохраняем ссылки на них ---
         world_settings_panel, ws_widgets = make_world_settings_widget(self)
+        self.global_x_offset_input = ws_widgets["global_x_offset_input"]
+        self.global_z_offset_input = ws_widgets["global_z_offset_input"]
         self.ws_world_size_input = ws_widgets["world_size_input"]
         self.ws_max_height_input = ws_widgets["max_height_input"]
         self.ws_vertex_spacing_input = ws_widgets["vertex_spacing_input"]

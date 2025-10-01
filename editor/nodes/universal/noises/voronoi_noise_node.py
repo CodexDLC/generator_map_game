@@ -10,22 +10,40 @@ class VoronoiNoiseNode(GeneratorNode):
         super().__init__()
         self.add_output('Out')
 
-        # Group "Noise"
+        # --- Noise ---
         self.add_text_input("scale", "Scale", tab="Params", group="Noise", text="0.5")
         self.add_text_input("jitter", "Jitter", tab="Params", group="Noise", text="0.45")
-        self.add_enum_input("function", "Function", ["F1", "F2", "F2-F1"], tab="Params", group="Noise", default="F1")
+        self.add_enum_input("function", "Function", ["F1", "F2", "F2-F1"],
+                            tab="Params", group="Noise", default="F1")
         self.add_text_input("gain", "Gain", tab="Params", group="Noise", text="0.5")
-        self.add_text_input("clamp_val", "Clamp", tab="Params", group="Noise", text="0.5")
+        # NB: дефолт 0.1 ближе к Gaea-пресету D; хочешь — верни "0.5"
+        self.add_text_input("clamp_val", "Clamp", tab="Params", group="Noise", text="0.1")
         self.add_seed_input("seed", "Seed", tab="Params", group="Noise")
 
-        # Group "Warp"
-        self.add_enum_input("warp_type", "Type", ["None", "Simple", "Complex"], tab="Params", group="Warp", default="None")
+        # --- Style / Metric / Terrace (новое) ---
+        self.add_enum_input(
+            "style", "Style",
+            ["Cells (C)", "Ridges (R)", "Peaks (P)", "Plateaus (A)", "Mountains/Dual (D)"],
+            tab="Params", group="Noise", default="Mountains/Dual (D)"
+        )
+        self.add_enum_input(
+            "metric", "Metric",
+            ["Euclidean", "Manhattan", "Chebyshev"],
+            tab="Params", group="Noise", default="Euclidean"
+        )
+        self.add_text_input("terrace_steps", "Terrace Steps", tab="Params", group="Noise", text="8")
+        self.add_text_input("terrace_blend", "Terrace Blend", tab="Params", group="Noise", text="0.35")
+
+        # --- Warp ---
+        self.add_enum_input("warp_type", "Type", ["None", "Simple", "Complex"],
+                            tab="Params", group="Warp", default="None")
         self.add_text_input("warp_freq", "Frequency", tab="Params", group="Warp", text="0.05")
         self.add_text_input("warp_amp", "Amplitude", tab="Params", group="Warp", text="0.5")
         self.add_text_input("warp_octaves", "Octaves", tab="Params", group="Warp", text="14")
 
         self.set_color(90, 90, 30)
 
+    # --- helpers (как у тебя) ---
     def _get_float_param(self, name: str, default: float) -> float:
         try:
             return float(self.get_property(name))
@@ -39,16 +57,30 @@ class VoronoiNoiseNode(GeneratorNode):
             return default
 
     def _compute(self, context):
+        # распарсим style/metric из подписей enum
+        style = str(self.get_property('style')).lower()
+        metric = str(self.get_property('metric')).lower()
+        if '(' in style:  # "Mountains/Dual (D)" -> "mountains/dual"
+            style = style.split('(')[0].strip()
+        if '(' in metric:
+            metric = metric.split('(')[0].strip()
+
         noise_params = {
             'scale': self._get_float_param('scale', 0.5),
             'jitter': self._get_float_param('jitter', 0.45),
-            'function': self.get_property('function').lower(),
+            'function': str(self.get_property('function')).lower(),
             'gain': self._get_float_param('gain', 0.5),
-            'clamp': self._get_float_param('clamp_val', 0.5),
-            'seed': self.get_property('seed'),
+            'clamp': self._get_float_param('clamp_val', 0.1),  # ключ 'clamp' ждёт враппер
+            'seed': self._get_int_param('seed', 0),
+            # новое
+            'style': style,
+            'metric': metric,
+            'terrace_steps': self._get_int_param('terrace_steps', 8),
+            'terrace_blend': self._get_float_param('terrace_blend', 0.35),
         }
+
         warp_params = {
-            'type': self.get_property('warp_type').lower(),
+            'type': str(self.get_property('warp_type')).lower(),
             'frequency': self._get_float_param('warp_freq', 0.05),
             'amplitude': self._get_float_param('warp_amp', 0.5),
             'octaves': self._get_int_param('warp_octaves', 14),
