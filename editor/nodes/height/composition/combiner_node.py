@@ -32,7 +32,6 @@ class CombinerNode(GeneratorNode):
                              "Soft Light", "Hard Light", "Hypotenuse"],
                             tab="Params", group="Settings", default="Add")
         self.add_text_input("const_b", "Constant B", tab="Params", group="Settings", text="0.0")
-        self.add_text_input("lerp_t", "Ratio (0..1)", tab="Params", group="Settings", text="0.5")
 
         self.add_float_input("lerp_t", "Ratio (0..1)", value=0.5, tab="Params", group="Settings")
 

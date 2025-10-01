@@ -88,7 +88,7 @@ def _generate_multifractal_numba(
     max_amp = fbm_amplitude(roughness, octaves)
     if max_amp > F32(1e-6): output /= F32(max_amp)
     if not noise_type_is_ridged: output = (output + F32(1.0)) * F32(0.5)
-    return np.clip(output, F32(0.0), F32(1.0))
+    return output
 
 def multifractal_wrapper(context: dict, fractal_params: dict, variation_params: dict, position_params: dict,
                          warp_params: dict):
@@ -111,14 +111,9 @@ def multifractal_wrapper(context: dict, fractal_params: dict, variation_params: 
     x = context['x_coords'].astype(F32)
     z = context['z_coords'].astype(F32)
 
-    ANCHOR = F32(65536.0)
-    base_x = np.floor(x[0, 0] / ANCHOR) * ANCHOR
-    base_z = np.floor(z[0, 0] / ANCHOR) * ANCHOR
-    x_local = x - base_x
-    z_local = z - base_z
-
-    return _generate_multifractal_numba(
-        x_local, z_local,
+    # --- Вызываем Numba-ядро, которое теперь возвращает "сырой" результат ---
+    raw_output = _generate_multifractal_numba(
+        x, z, # Используем оригинальные координаты
         noise_type_is_ridged=noise_type_str == 'ridged',
         noise_type_is_billowy=noise_type_str == 'billowy',
         octaves=int(fractal_params.get('octaves', 8)),
@@ -130,6 +125,7 @@ def multifractal_wrapper(context: dict, fractal_params: dict, variation_params: 
         var_contrast=var_contrast,
         var_damping=var_damping,
         var_bias=var_bias,
+        # Параметры Position и Warp передаются как есть
         offset_x=F32(position_params.get('offset_x', 0.0)),
         offset_y=F32(position_params.get('offset_y', 0.0)),
         scale_x=F32(position_params.get('scale_x', 1.0)),
@@ -141,3 +137,19 @@ def multifractal_wrapper(context: dict, fractal_params: dict, variation_params: 
         warp_octaves=int(warp_params.get('octaves', 4)),
         warp_seed=int(fractal_params.get('seed', 0)) + 12345
     )
+
+    # --- НАЧАЛО ИЗМЕНЕНИЯ: Финальное масштабирование результата ---
+    # Находим фактический минимум и максимум в сгенерированных данных
+    min_val = np.min(raw_output)
+    max_val = np.max(raw_output)
+    range_val = max_val - min_val
+
+    # Растягиваем диапазон [min..max] до [0..1]
+    if range_val > 1e-6:
+        # Это стандартная формула нормализации
+        normalized_output = (raw_output - min_val) / range_val
+    else:
+        # Если рельеф плоский, просто заполняем его средним значением
+        normalized_output = np.full_like(raw_output, 0.5, dtype=F32)
+
+    return normalized_output
