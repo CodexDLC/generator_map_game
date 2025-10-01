@@ -1,5 +1,5 @@
 # editor/nodes/_helpers/node_ui.py
-# ВЕРСИЯ 2.0 (РЕФАКТОРИНГ): Функции регистрации теперь возвращают созданный виджет.
+# ВЕРСИЯ 2.1: Отключаем создание виджетов на ноде для чистого UI.
 from __future__ import annotations
 from typing import Any, List, Optional
 
@@ -22,52 +22,29 @@ def widget_enum(member: str):
     except Exception:
         return None
 
+# --- Функции hide/show больше не нужны, но можно их оставить ---
 def hide_widget(w) -> None:
-    try:
-        if not w:
-            return
-        w.setVisible(False)
-        if hasattr(w, "setMaximumHeight"):
-            w.setMaximumHeight(0)
-        if hasattr(w, "setMinimumHeight"):
-            w.setMinimumHeight(0)
-    except Exception:
-        pass
+    pass
 
 def show_widget(w) -> None:
-    try:
-        if not w:
-            return
-        w.setVisible(True)
-        if hasattr(w, "setMaximumHeight"):
-            w.setMaximumHeight(24)
-        if hasattr(w, "setMinimumHeight"):
-            w.setMinimumHeight(16)
-    except Exception:
-        pass
+    pass
+# ----------------------------------------------------------------
 
 def add_property_compat(node, name, value, *, items=None, tab="Params", widget_type=None):
     """Запасной путь для старых сборок: напрямую в модель."""
     try:
         items = list(items) if items else []
-        return node.model.add_property(name, value, items=items, tab=tab)
+        return node.model.add_property(name, value, items=items, tab=tab, widget_type=widget_type)
     except Exception:
-        return None
+        # Более старый API
+        return node.model.add_property(name, value, items=items, tab=tab)
+
+# --- НАЧАЛО ИЗМЕНЕНИЙ ---
 
 def register_text(node: BaseNode, widgets: List[Any], *,
                   name: str, label: str, text: str = "", tab: str = "Params",
                   compact: bool = True) -> Any:
     tab = safe_tab(tab)
-    fn = getattr(BaseNode, "add_text_input", None)
-    if callable(fn):
-        try:
-            w = fn(node, name, label, text=text, tab=tab)
-            widgets.append(w)
-            if compact:
-                hide_widget(w)
-            return w  # ИЗМЕНЕНИЕ: Возвращаем созданный виджет
-        except Exception:
-            pass
     add_property_compat(node, name, text, tab=tab, widget_type=widget_enum("LINE_EDIT"))
     return None
 
@@ -75,17 +52,12 @@ def register_checkbox(node: BaseNode, widgets: List[Any], *,
                       name: str, label: str, text: str = "", state: bool = False,
                       tab: str = "Params", compact: bool = True) -> Any:
     tab = safe_tab(tab)
-    fn = getattr(BaseNode, "add_checkbox", None)
-    if callable(fn):
-        try:
-            w = fn(node, name, label, text=text, state=bool(state), tab=tab)
-            widgets.append(w)
-            if compact:
-                hide_widget(w)
-            return w # ИЗМЕНЕНИЕ: Возвращаем созданный виджет
-        except Exception:
-            pass
     add_property_compat(node, name, bool(state), tab=tab, widget_type=widget_enum("CHECKBOX"))
+    # Для чекбоксов также установим текст, если он есть
+    try:
+        node.set_custom_widget_text(name, text)
+    except:
+        pass
     return None
 
 def register_combo(node: BaseNode, widgets: List[Any], *,
@@ -94,22 +66,9 @@ def register_combo(node: BaseNode, widgets: List[Any], *,
                    default: Optional[str] = None) -> Any:
     tab = safe_tab(tab)
     items = list(items) if items else []
-    fn = getattr(BaseNode, "add_combo_menu", None)
-    if callable(fn):
-        try:
-            w = fn(node, name, label, items=items, tab=tab)
-            widgets.append(w)
-            if compact:
-                hide_widget(w)
-            if default is not None:
-                try:
-                    node.set_property(name, default)
-                except Exception:
-                    pass
-            return w # ИЗМЕНЕНИЕ: Возвращаем созданный виджет
-        except Exception:
-            pass
     defval = default if default is not None else (items[0] if items else "")
     add_property_compat(node, name, defval, items=items, tab=tab,
                         widget_type=widget_enum("COMBO_BOX"))
     return None
+
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
