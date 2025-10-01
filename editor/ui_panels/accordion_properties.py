@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from random import random
+import random
 from typing import Dict, Optional, Any, List
 
 from PySide6 import QtWidgets, QtCore, QtGui
@@ -369,6 +369,33 @@ class AccordionProperties(QtWidgets.QScrollArea):
                 w.editingFinished.connect(update_slot) # А превью - по завершению
             # --- КОНЕЦ ИЗМЕНЕНИЯ ---
             return w
+        
+        # --- НАЧАЛО НОВОГО БЛОКА ---
+        elif kind == 'seed':
+            w = SeedWidget()
+            w.setValue(int(value or 0))
+
+            # Заполняем историю
+            history = node._seed_history.get(name, [])
+            w.set_history(history)
+
+            # Обновляем свойство ноды при изменении значения
+            w.valueChanged.connect(lambda val, nn=name: node.set_property(nn, int(val)))
+
+            # При завершении редактирования (клик по "🎲" или Enter)
+            def on_finish():
+                new_val = w.value()
+                # 1. Добавляем в историю
+                node.add_to_seed_history(name, new_val)
+                # 2. Обновляем выпадающий список
+                w.set_history(node._seed_history.get(name, []))
+                # 3. Запускаем пересчет превью
+                if update_slot:
+                    update_slot()
+
+            w.editingFinished.connect(on_finish)
+            return w
+        # --- КОНЕЦ НОВОГО БЛОКА ---
 
         elif kind == 'check':
             w = QtWidgets.QCheckBox()

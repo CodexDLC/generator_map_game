@@ -29,7 +29,7 @@ class GeneratorNode(BaseNode):
     def __init__(self):
         super().__init__()
         self._prop_meta: Dict[str, dict] = {}
-        # --- НАЧАЛО ИЗМЕНЕНИЯ: Добавляем хранилище для истории сидов ---
+        # --- НАЧАЛО ИЗМЕНЕНИЯ ---
         self._seed_history: Dict[str, List[int]] = {}
         # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         self._onnode_widgets: List[Any] = []
@@ -45,22 +45,19 @@ class GeneratorNode(BaseNode):
         self._apply_tooltips_to_node()
         self._deferred_init_tooltips()
 
-    # --- НАЧАЛО ИЗМЕНЕНИЯ: Новый метод для добавления сида в историю ---
+    # --- НАЧАЛО ИЗМЕНЕНИЯ ---
     def add_to_seed_history(self, name: str, seed: int):
         """Добавляет сид в историю для указанного свойства."""
         if name not in self._seed_history:
             self._seed_history[name] = []
-        
+
         history = self._seed_history[name]
-        
-        # Удаляем, если такое значение уже есть, чтобы переместить его в начало
+
         if seed in history:
             history.remove(seed)
-        
-        # Добавляем новое значение в начало списка
+
         history.insert(0, seed)
-        
-        # Ограничиваем размер истории (например, 15 последних значений)
+
         self._seed_history[name] = history[:15]
     # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
@@ -74,7 +71,7 @@ class GeneratorNode(BaseNode):
         except (ValueError, TypeError):
             initial_seed = random.randint(0, 0xFFFFFFFF)
 
-        # --- НАЧАЛО ИЗМЕНЕНИЯ: Регистрируем свойство с новым типом 'seed' ---
+        # --- НАЧАЛО ИЗМЕНЕНИЯ ---
         self._prop_meta[name] = {
             'type': 'seed',  # <-- Новый специальный тип!
             'label': label,
@@ -82,10 +79,10 @@ class GeneratorNode(BaseNode):
             'group': group or UIH.safe_tab(tab)
         }
         # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-        
-        # Добавляем начальный сид в историю
+
         self.add_to_seed_history(name, initial_seed)
 
+        # UIH.register_text по-прежнему используется для отображения на самой ноде
         UIH.register_text(self, self._onnode_widgets, name=name, label=label, text=str(initial_seed),
                           tab=tab, compact=self._compact)
 
@@ -165,14 +162,12 @@ class GeneratorNode(BaseNode):
         if raw_value is None or raw_value == '':
             # --- ИЗМЕНЕНИЕ: Добавили 'seed' в список ---
             if kind in ('int', 'i', 'seed'): return 0
-            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
             if kind in ('float', 'double', 'f'): return 0.0
             if kind == 'check': return False
             return raw_value
         try:
             # --- ИЗМЕНЕНИЕ: Добавили 'seed' в список ---
             if kind in ('int', 'i', 'seed'):
-            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
                 return int(float(str(raw_value).replace(',', '.')))
             elif kind in ('float', 'double', 'f'):
                 return float(str(raw_value).replace(',', '.'))
@@ -184,7 +179,6 @@ class GeneratorNode(BaseNode):
         except (ValueError, TypeError):
             # --- ИЗМЕНЕНИЕ: Добавили 'seed' в список ---
             if kind in ('int', 'i', 'seed'): return 0
-            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
             if kind in ('float', 'double', 'f'): return 0.0
             if kind == 'check': return False
             return raw_value
@@ -199,6 +193,8 @@ class GeneratorNode(BaseNode):
             except (ValueError, TypeError):
                 pass
 
+        # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+        # Проверяем, отличается ли значение ДО преобразования в строку
         try:
             if self.get_property(name) != value:
                 self.mark_dirty()
@@ -209,6 +205,15 @@ class GeneratorNode(BaseNode):
             val = str(value)
             if self.name() != val:
                 self.set_name(val)
+
+        # Преобразуем значение в строку для тех типов, которые используют
+        # текстовое поле (QLineEdit) для отображения на самой ноде.
+        # Ваш get_property() уже умеет преобразовывать это обратно в число.
+        prop_meta = self._prop_meta.get(name)
+        if prop_meta:
+            kind = prop_meta.get('type')
+            if kind in ('int', 'i', 'float', 'double', 'f', 'seed', 'line'):
+                value = str(value)
 
         super().set_property(name, value, push_undo=push_undo)
 
