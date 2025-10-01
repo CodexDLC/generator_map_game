@@ -1,9 +1,8 @@
+# editor/ui_panels/accordion_properties.py
 # ==============================================================================
 # editor/ui_panels/accordion_properties.py
-# ВЕРСИЯ 3.3 (УЛУЧШЕНИЕ UX):
-# - FIX: Гарантирована работа вертикальной прокрутки при большом кол-ве свойств.
-# - NEW: Добавлен композитный виджет SliderSpinCombo для удобной настройки
-#   параметров в диапазоне [0..1] с помощью ползунка.
+# ВЕРСИЯ 3.4 (HOTFIX): Исправлен NameError при создании виджетов.
+# - Переменная is_float теперь определяется до ее первого использования.
 # ==============================================================================
 
 from __future__ import annotations
@@ -61,7 +60,7 @@ class SeedWidget(QtWidgets.QWidget):
     def generate_new_seed(self):
         new_seed = random.randint(0, 4294967295)
         self.spinbox.setValue(new_seed)
-        self.editingFinished.emit()  # Сигнализируем о завершении редактирования
+        self.editingFinished.emit()
 
     def value(self) -> int:
         return int(self.spinbox.value())
@@ -76,14 +75,11 @@ class SeedWidget(QtWidgets.QWidget):
             action.triggered.connect(lambda _, s=seed: self.setValue(s))
             self.history_menu.addAction(action)
 
+
 # ==============================================================================
-# НОВЫЙ КОМПОЗИТНЫЙ ВИДЖЕТ: ПОЛЗУНОК + ПОЛЕ ВВОДА (с изменениями)
+# КОМПОЗИТНЫЙ ВИДЖЕТ: ПОЛЗУНОК + ПОЛЕ ВВОДА
 # ==============================================================================
 class SliderSpinCombo(QtWidgets.QWidget):
-    """
-    Комбинированный виджет, состоящий из слайдера (QSlider) и числового
-    поля (QDoubleSpinBox) для точной настройки значений.
-    """
     editingFinished = QtCore.Signal()
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
@@ -94,8 +90,6 @@ class SliderSpinCombo(QtWidgets.QWidget):
         self.slider.setRange(0, 1000)
 
         self.spinbox = QtWidgets.QDoubleSpinBox()
-        # --- ИЗМЕНЕНИЕ: Диапазон больше не зашит намертво ---
-        # self.spinbox.setRange(0.0, 1.0)
         self.spinbox.setDecimals(3)
         self.spinbox.setSingleStep(0.01)
         self.spinbox.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
@@ -113,10 +107,8 @@ class SliderSpinCombo(QtWidgets.QWidget):
         self.slider.sliderReleased.connect(self.editingFinished.emit)
         self.spinbox.editingFinished.connect(self.editingFinished.emit)
 
-    # --- ИЗМЕНЕНИЕ: Новые методы для установки диапазона ---
     def setRange(self, min_val: float, max_val: float):
         self.spinbox.setRange(min_val, max_val)
-        # При изменении диапазона нужно обновить и обработчики
         self.slider.valueChanged.disconnect()
         self.spinbox.valueChanged.disconnect()
 
@@ -125,8 +117,6 @@ class SliderSpinCombo(QtWidgets.QWidget):
 
     def setDecimals(self, decimals: int):
         self.spinbox.setDecimals(decimals)
-
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     def value(self) -> float:
         return self.spinbox.value()
@@ -137,39 +127,31 @@ class SliderSpinCombo(QtWidgets.QWidget):
         self._block_signals = True
         try:
             self.spinbox.setValue(value)
-            # --- ИЗМЕНЕНИЕ: Масштабируем значение слайдера относительно диапазона ---
             if (max_val - min_val) > 1e-6:
                 ratio = (value - min_val) / (max_val - min_val)
                 self.slider.setValue(int(ratio * 1000))
-            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         finally:
             self._block_signals = False
 
     @QtCore.Slot(int)
     def _on_slider_change(self, slider_value: int):
-        if self._block_signals:
-            return
-        # --- ИЗМЕНЕНИЕ: Рассчитываем значение из положения слайдера и диапазона ---
+        if self._block_signals: return
         min_val, max_val = self.spinbox.minimum(), self.spinbox.maximum()
         ratio = slider_value / 1000.0
         float_value = min_val + (max_val - min_val) * ratio
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         self._block_signals = True
         self.spinbox.setValue(float_value)
         self._block_signals = False
 
     @QtCore.Slot(float)
     def _on_spinbox_change(self, spinbox_value: float):
-        if self._block_signals:
-            return
-        # --- ИЗМЕНЕНИЕ: Рассчитываем положение слайдера из значения и диапазона ---
+        if self._block_signals: return
         min_val, max_val = self.spinbox.minimum(), self.spinbox.maximum()
         if (max_val - min_val) > 1e-6:
             ratio = (spinbox_value - min_val) / (max_val - min_val)
             self._block_signals = True
             self.slider.setValue(int(ratio * 1000))
             self._block_signals = False
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 
 # ==============================================================================
@@ -192,12 +174,7 @@ class CollapsibleBox(QtWidgets.QGroupBox):
         self.setObjectName("CollapsibleBox")
         self.setCheckable(True)
         self.setChecked(True)
-
-        # --- НАЧАЛО ИЗМЕНЕНИЯ ---
-        # Эта строка запрещает группе сжиматься по вертикали.
-        # Теперь она будет требовать ровно столько места, сколько нужно её содержимому.
         self.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Minimum)
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
         lay = QtWidgets.QVBoxLayout(self)
         lay.setContentsMargins(8, 6, 8, 8)
@@ -229,31 +206,19 @@ class AccordionProperties(QtWidgets.QScrollArea):
         self._vl.setContentsMargins(6, 6, 6, 6)
         self._vl.setSpacing(8)
 
-        # --- ИЗМЕНЕНИЕ ДЛЯ ПРОКРУТКИ ---
-        # Мы НЕ добавляем addStretch(1) здесь. Растягивающийся элемент будет
-        # добавлен в самом конце, после всех виджетов, в методе _rebuild.
-        # Это гарантирует, что если контент превысит высоту, появится прокрутка.
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-
         self.setWidget(self._root)
         self.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
 
-    # ... (методы set_graph, _on_graph_selection, clear_layout, set_node без изменений)
     def set_graph(self, graph: Optional[CustomNodeGraph], main_window: Optional[QtWidgets.QMainWindow] = None) -> None:
-        self._main_window = main_window  # Сохраняем ссылку
-        if self._graph is graph:
-            return
-
+        self._main_window = main_window
+        if self._graph is graph: return
         if self._graph:
             try:
                 self._graph.selection_changed.disconnect(self._on_graph_selection)
             except (RuntimeError, TypeError):
                 pass
-
         self._graph = graph
-        if self._graph is None:
-            return
-
+        if self._graph is None: return
         self._graph.selection_changed.connect(self._on_graph_selection)
         self._on_graph_selection(self._graph.selected_nodes())
 
@@ -262,7 +227,6 @@ class AccordionProperties(QtWidgets.QScrollArea):
         node = None
         if selected_nodes and isinstance(selected_nodes[0], GeneratorNode):
             node = selected_nodes[0]
-
         self.set_node(node)
 
     def clear_layout(self):
@@ -270,56 +234,41 @@ class AccordionProperties(QtWidgets.QScrollArea):
             item = self._vl.takeAt(0)
             if item is None: continue
             w = item.widget()
-            if w:
-                w.deleteLater()
+            if w: w.deleteLater()
             layout = item.layout()
             if layout:
                 while layout.count():
                     child = layout.takeAt(0)
-                    if child.widget():
-                        child.widget().deleteLater()
+                    if child.widget(): child.widget().deleteLater()
 
     @QtCore.Slot(object)
     def set_node(self, node: Optional[GeneratorNode]):
-        if self._node is node:
-            return
-
+        if self._node is node: return
         self._node = node
         self._rebuild()
 
     def _rebuild(self):
         self.clear_layout()
-
         node = self._node
         if not node:
             self._vl.addStretch(1)
             return
 
         meta = node.properties_meta()
-
         if not meta:
             self._vl.addStretch(1)
             return
 
         groups: Dict[str, CollapsibleBox] = {}
 
-        # --- ИЗМЕНЕНИЕ: Убираем сортировку, чтобы сохранить порядок из ноды ---
-        sorted_meta_items = meta.items()
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-
-        for name, prop_meta in sorted_meta_items:
-            if name in ('name', 'color', 'text_color', 'disabled'):
-                continue
-
+        for name, prop_meta in meta.items():
+            if name in ('name', 'color', 'text_color', 'disabled'): continue
             group_name = prop_meta.get('group') or 'Params'
-
             if group_name not in groups:
                 box = CollapsibleBox(group_name, self._root)
                 groups[group_name] = box
                 self._vl.addWidget(box)
-
             box = groups[group_name]
-
             widget = self._create_widget_for_property(node, name, prop_meta)
             if widget:
                 label = prop_meta.get('label', name)
@@ -333,32 +282,30 @@ class AccordionProperties(QtWidgets.QScrollArea):
         label = meta.get('label', name)
         update_slot = getattr(self._main_window, '_trigger_preview_update', None)
 
-        # --- НАЧАЛО БОЛЬШОГО ИЗМЕНЕНИЯ ---
-        # Теперь мы смотрим на 'widget', а не на 'is_ratio'
+        # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+        is_float = kind in ('float', 'double', 'f')
+        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
-        if meta.get('widget') == 'slider' and kind == 'float':
+        if meta.get('widget') == 'slider' and is_float:
             w = SliderSpinCombo()
             p_range = meta.get('range', (0.0, 1.0))
             w.setRange(p_range[0], p_range[1])
             w.setValue(value)
-
             w.spinbox.valueChanged.connect(lambda val, nn=name: node.set_property(nn, val))
-
             if update_slot:
                 w.editingFinished.connect(update_slot)
             return w
 
         if kind == 'line':
             w = QtWidgets.QLineEdit()
-            if name == 'name' and value is None:
-                value = node.name()
+            if name == 'name' and value is None: value = node.name()
             w.setText(str(value))
             w.editingFinished.connect(lambda nn=name, ww=w: node.set_property(nn, ww.text()))
             if update_slot:
                 w.editingFinished.connect(update_slot)
             return w
 
-        elif kind in ('int', 'i', 'float', 'double', 'f'):
+        elif is_float or kind in ('int', 'i'):
             w = QtWidgets.QDoubleSpinBox()
             if is_float:
                 w.setDecimals(meta.get('decimals', 3))
@@ -374,39 +321,27 @@ class AccordionProperties(QtWidgets.QScrollArea):
             w.setAlignment(Qt.AlignmentFlag.AlignRight)
             w.setMaximumWidth(meta.get('width', 100))
             w.setValue(float(value or 0))
-            # --- ИЗМЕНЕНИЕ: Привязываем разные сигналы ---
-            w.valueChanged.connect(lambda val, nn=name: node.set_property(nn, val)) # Обновляем свойство сразу
+            w.valueChanged.connect(lambda val, nn=name: node.set_property(nn, val))
             if update_slot:
-                w.editingFinished.connect(update_slot) # А превью - по завершению
-            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+                w.editingFinished.connect(update_slot)
             return w
-        
-        # --- НАЧАЛО НОВОГО БЛОКА ---
+
         elif kind == 'seed':
             w = SeedWidget()
             w.setValue(int(value or 0))
-
-            # Заполняем историю
             history = node._seed_history.get(name, [])
             w.set_history(history)
-
-            # Обновляем свойство ноды при изменении значения
             w.valueChanged.connect(lambda val, nn=name: node.set_property(nn, int(val)))
 
-            # При завершении редактирования (клик по "🎲" или Enter)
             def on_finish():
                 new_val = w.value()
-                # 1. Добавляем в историю
                 node.add_to_seed_history(name, new_val)
-                # 2. Обновляем выпадающий список
                 w.set_history(node._seed_history.get(name, []))
-                # 3. Запускаем пересчет превью
                 if update_slot:
                     update_slot()
 
             w.editingFinished.connect(on_finish)
             return w
-        # --- КОНЕЦ НОВОГО БЛОКА ---
 
         elif kind == 'check':
             w = QtWidgets.QCheckBox()

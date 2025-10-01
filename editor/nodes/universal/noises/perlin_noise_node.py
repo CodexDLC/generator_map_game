@@ -2,6 +2,7 @@
 from editor.nodes.base_node import GeneratorNode
 from generator_logic.terrain.perlin import fbm_noise_wrapper
 
+
 class PerlinNoiseNode(GeneratorNode):
     __identifier__ = "Универсальные.Шумы"
     NODE_NAME = "Perlin"
@@ -10,19 +11,28 @@ class PerlinNoiseNode(GeneratorNode):
         super().__init__()
         self.add_output('Out')
 
+        # --- НАЧАЛО ИЗМЕНЕНИЙ: Добавлены параметры для создания ползунков ---
         # Group "Noise"
-        self.add_enum_input("noise_type", "Type", ["FBM", "Ridged", "Billowy"], tab="Params", group="Noise", default="FBM")
-        self.add_float_input("scale", "Scale (%)", value=0.1, tab="Params", group="Noise")
+        self.add_enum_input("noise_type", "Type", ["FBM", "Ridged", "Billowy"], tab="Params", group="Noise",
+                            default="FBM")
+        self.add_float_input("scale", "Scale (%)", value=0.1, tab="Params", group="Noise", p_range=(0.0, 1.0),
+                             p_widget='slider')
         self.add_text_input("octaves", "Octaves", tab="Params", group="Noise", text="10")
-        self.add_float_input("gain", "Gain (0..1)", value=0.5, tab="Params", group="Noise")
-        self.add_float_input("amplitude", "Amplitude (0..1)", value=1.0, tab="Params", group="Noise")
+        self.add_float_input("gain", "Gain (0..1)", value=0.5, tab="Params", group="Noise", p_range=(0.0, 1.0),
+                             p_widget='slider')
+        self.add_float_input("amplitude", "Amplitude (0..1)", value=1.0, tab="Params", group="Noise",
+                             p_range=(0.0, 1.0), p_widget='slider')
         self.add_seed_input("seed", "Seed", tab="Params", group="Noise")
 
         # Group "Warp"
-        self.add_enum_input("warp_type", "Type", ["None", "Simple", "Complex"], tab="Params", group="Warp", default="None")
-        self.add_float_input("warp_freq", "Frequency", value=0.05, tab="Params", group="Warp")
-        self.add_float_input("warp_amp", "Amplitude (0..1)", value=0.5, tab="Params", group="Warp")
+        self.add_enum_input("warp_type", "Type", ["None", "Simple", "Complex"], tab="Params", group="Warp",
+                            default="None")
+        self.add_float_input("warp_freq", "Frequency", value=0.05, tab="Params", group="Warp", p_range=(0.0, 1.0),
+                             p_widget='slider')
+        self.add_float_input("warp_amp", "Amplitude (0..1)", value=0.5, tab="Params", group="Warp", p_range=(0.0, 1.0),
+                             p_widget='slider')
         self.add_text_input("warp_octaves", "Octaves", tab="Params", group="Warp", text="10")
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
         self.set_color(90, 30, 90)
 
@@ -39,22 +49,15 @@ class PerlinNoiseNode(GeneratorNode):
             return default
 
     def _compute(self, context):
-        # --- НАЧАЛО ИЗМЕНЕНИЯ ---
-        world_size = context.get('WORLD_SIZE_METERS', 5000.0)
-        relative_scale = self._get_float_param('scale', 0.1)
-
-        # Рассчитываем абсолютный масштаб в метрах
-        absolute_scale_in_meters = relative_scale * world_size
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-
         noise_params = {
             'type': self.get_property('noise_type').lower(),
-            'scale': absolute_scale_in_meters,  # <--- Передаем рассчитанное значение
+            'scale': self._get_float_param('scale', 0.1),
             'octaves': self._get_int_param('octaves', 10),
             'gain': self._get_float_param('gain', 0.5),
             'amplitude': self.get_property('amplitude'),
             'seed': self.get_property('seed'),
         }
+
         warp_params = {
             'type': self.get_property('warp_type').lower(),
             'frequency': self._get_float_param('warp_freq', 0.05),
