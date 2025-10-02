@@ -18,57 +18,69 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
 
     widgets = {}
 
-    world_scale_box = CollapsibleBox("1. Масштаб и Координаты")
+    # --- НАЧАЛО ИЗМЕНЕНИЙ: Новый блок "1. Масштаб и Разрешение" ---
+    world_scale_box = CollapsibleBox("1. Масштаб и Разрешение")
     world_scale_box.setChecked(True)
 
+    # Разрешение региона в пикселях (вместо "Размер мира")
+    widgets["region_resolution_input"] = QtWidgets.QComboBox()
+    widgets["region_resolution_input"].addItems(["512x512", "1024x1024", "2048x2048", "4096x4096"])
+    widgets["region_resolution_input"].setCurrentText("1024x1024")
+    world_scale_box.body.addRow("Разрешение региона (пикс):", widgets["region_resolution_input"])
+
+    # Расстояние между вершинами в метрах (вместо "Масштаб X/Z")
+    widgets["vertex_distance_input"] = QtWidgets.QDoubleSpinBox()
+    widgets["vertex_distance_input"].setRange(0.1, 128.0)
+    widgets["vertex_distance_input"].setValue(4.0)
+    widgets["vertex_distance_input"].setDecimals(2)
+    widgets["vertex_distance_input"].setSingleStep(0.5)
+    world_scale_box.body.addRow("Расстояние м/вершина:", widgets["vertex_distance_input"])
+
+    # Максимальная высота в метрах (остается)
+    widgets["max_height_input"] = QtWidgets.QDoubleSpinBox()
+    widgets["max_height_input"].setRange(1.0, 50000.0)
+    widgets["max_height_input"].setValue(4000.0)
+    widgets["max_height_input"].setDecimals(0)
+    world_scale_box.body.addRow("Макс. Высота (м):", widgets["max_height_input"])
+
+    layout.addWidget(world_scale_box)
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
+    # Старые виджеты координат и превью остаются, но теперь это блоки 2 и 3
+    coords_box = CollapsibleBox("2. Координаты и Превью")
+    coords_box.setChecked(True)
+
     widgets["global_x_offset_input"] = QtWidgets.QDoubleSpinBox()
-    widgets["global_x_offset_input"].setRange(-1000000, 1000000)
+    widgets["global_x_offset_input"].setRange(-10000000, 10000000)
     widgets["global_x_offset_input"].setSingleStep(1000)
     widgets["global_x_offset_input"].setDecimals(0)
     widgets["global_x_offset_input"].setValue(0)
-    world_scale_box.body.addRow("Смещение X (м):", widgets["global_x_offset_input"])
+    coords_box.body.addRow("Смещение X (м):", widgets["global_x_offset_input"])
 
     widgets["global_z_offset_input"] = QtWidgets.QDoubleSpinBox()
-    widgets["global_z_offset_input"].setRange(-1000000, 1000000)
+    widgets["global_z_offset_input"].setRange(-10000000, 10000000)
     widgets["global_z_offset_input"].setSingleStep(1000)
     widgets["global_z_offset_input"].setDecimals(0)
     widgets["global_z_offset_input"].setValue(0)
-    world_scale_box.body.addRow("Смещение Z (м):", widgets["global_z_offset_input"])
+    coords_box.body.addRow("Смещение Z (м):", widgets["global_z_offset_input"])
 
-    world_scale_box.body.addRow(QtWidgets.QLabel("---"))
+    coords_box.body.addRow(QtWidgets.QLabel("---"))
 
-    widgets["world_size_input"] = QtWidgets.QDoubleSpinBox()
-    widgets["world_size_input"].setRange(256.0, 65536.0)
-    widgets["world_size_input"].setValue(5000.0)
-    widgets["world_size_input"].setSingleStep(100)
-    widgets["world_size_input"].setDecimals(0)
-    world_scale_box.body.addRow("Размер Мира (м):", widgets["world_size_input"])
+    # Разрешение превью переименовываем для ясности
+    widgets["preview_resolution_input"] = QtWidgets.QComboBox()
+    widgets["preview_resolution_input"].addItems(["256x256", "512x512", "1024x1024"])
+    widgets["preview_resolution_input"].setCurrentText("512x512")
+    coords_box.body.addRow("Разрешение превью:", widgets["preview_resolution_input"])
 
-    widgets["max_height_input"] = QtWidgets.QDoubleSpinBox()
-    widgets["max_height_input"].setRange(1.0, 50000.0)
-    widgets["max_height_input"].setValue(1200.0)
-    world_scale_box.body.addRow("Макс. Высота (м):", widgets["max_height_input"])
-
-    widgets["vertex_spacing_input"] = QtWidgets.QDoubleSpinBox()
-    widgets["vertex_spacing_input"].setRange(0.1, 100.0)
-    widgets["vertex_spacing_input"].setValue(1.0)
-    world_scale_box.body.addRow("Масштаб X/Z (м/пиксель):", widgets["vertex_spacing_input"])
-
-    layout.addWidget(world_scale_box)
-
-    preview_box = CollapsibleBox("2. Рендер Превью")
-    preview_box.setChecked(True)
-    widgets["resolution_input"] = QtWidgets.QComboBox()
-    widgets["resolution_input"].addItems(["256x256", "512x512", "1024x1024", "2048x2048"])
-    widgets["resolution_input"].setCurrentText("1024x1024")
-    preview_box.body.addRow("Разрешение:", widgets["resolution_input"])
     widgets["realtime_checkbox"] = QtWidgets.QCheckBox("Обновлять в реальном времени")
     widgets["realtime_checkbox"].setChecked(True)
-    preview_box.body.addRow(widgets["realtime_checkbox"])
-    layout.addWidget(preview_box)
+    coords_box.body.addRow(widgets["realtime_checkbox"])
+    layout.addWidget(coords_box)
 
-    ws_noise_box = CollapsibleBox("3. Глобальный Шум (Цилиндрический)")
+    # Блок глобального шума теперь блок 4
+    ws_noise_box = CollapsibleBox("4. Глобальный Шум (Планета)")
     ws_noise_box.setChecked(True)
+    # ... (содержимое блока глобального шума остается без изменений) ...
     noise_layout = ws_noise_box.body
 
     ocean_group = QtWidgets.QGroupBox("Полярные Океаны")
@@ -85,7 +97,7 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     widgets["ws_ocean_falloff"].setValue(10.0)
     widgets["ws_ocean_falloff"].setDecimals(1)
     ocean_form.addRow("Плавность перехода (°):", widgets["ws_ocean_falloff"])
-    
+
     noise_layout.addRow(ocean_group)
 
     fbm_group = QtWidgets.QGroupBox("Настройки шума")

@@ -120,7 +120,7 @@ def align_style_gain(
     ss = H_style[mask].astype(np.float64)
     if bs.size < 8:
         return H_style.astype(np.float32), 1.0, 0.0
-
+    
     mb, sb = bs.mean(), bs.std() + 1e-6
     ms, ssig = ss.mean(), ss.std() + 1e-6
 
@@ -160,8 +160,7 @@ def seam_rmse_along_border(
 
 def morph_wave_ridge(n: np.ndarray, k: np.ndarray, sharpness_enhance: float = 0.0) -> np.ndarray:
     """Морф одной октавы n∈[-1,1] между billow/base/ridge по карте k∈[-1,1].
-    k>0 → ridge, k<0 → billow, k≈0 → base. sharpness_enhance ≥ 0 усиливает «остроту».
-    """
+    k>0 → ridge, k<0 → billow, k≈0 → base. sharpness_enhance ≥ 0 усиливает «остроту»."""
     n = np.clip(n, -1.0, 1.0).astype(np.float32)
     k = np.clip(k, -1.0, 1.0).astype(np.float32)
     t_r = np.maximum(0.0, k)
@@ -266,3 +265,42 @@ def uber_fbm(
     h /= max(1e-6, norm)
     return np.clip(h, -1.0, 1.0).astype(np.float32)
 
+# ---------------------------------
+# НОВАЯ ФУНКЦИЯ: ГЕКСАГОНАЛЬНАЯ МАСКА
+# ---------------------------------
+
+def hex_mask(
+    shape: Tuple[int, int],
+    blend_width_pct: float = 0.20,
+) -> np.ndarray:
+    """
+    Создает маску M∈[0,1] в виде гексагона, вписанного в квадратный массив.
+
+    Имеет сплошной центр (значение 1.0) и плавно затухающие края.
+    - shape: (height, width) квадратного массива.
+    - blend_width_pct: Ширина зоны смешивания в процентах от радиуса гексагона (0.2 = 20%).
+    """
+    h, w = shape
+    if h != w:
+        raise ValueError("Функция hex_mask ожидает квадратную форму массива.")
+
+    # Создаем сетку координат от -1 до 1 с центром в (0,0)
+    x = np.linspace(-1.0, 1.0, w, dtype=np.float32)
+    y = np.linspace(-1.0, 1.0, h, dtype=np.float32)
+    xv, yv = np.meshgrid(x, y)
+
+    # Математика для определения расстояния до центра в гексагональной метрике
+    # "Сплющивает" круг в гексагон
+    q2x = xv
+    q2y = -0.5 * xv + (np.sqrt(3.0) / 2.0) * yv
+    q3y = -0.5 * xv - (np.sqrt(3.0) / 2.0) * yv
+    
+    hex_dist = np.maximum(np.abs(q2x), np.maximum(np.abs(q2y), np.abs(q3y)))
+
+    # Определяем границы для плавного перехода
+    inner_radius = 1.0 - max(0.0, min(1.0, blend_width_pct))
+    
+    # Инвертированный smoothstep, чтобы в центре был 1, а по краям 0
+    mask = 1.0 - smoothstep(inner_radius, 1.0, hex_dist)
+
+    return mask.astype(np.float32)

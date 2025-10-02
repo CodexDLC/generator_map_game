@@ -46,12 +46,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._last_selected_node = None
         self.world_map_widget: WorldMapWidget | None = None
 
+        # --- АТРИБУТЫ ДЛЯ НАСТРОЕК МИРА (V2) ---
+        self.region_resolution_input: QtWidgets.QComboBox | None = None
+        self.vertex_distance_input: QtWidgets.QDoubleSpinBox | None = None
+        self.max_height_input: QtWidgets.QDoubleSpinBox | None = None
         self.global_x_offset_input: QtWidgets.QDoubleSpinBox | None = None
         self.global_z_offset_input: QtWidgets.QDoubleSpinBox | None = None
-        self.world_size_input: QtWidgets.QDoubleSpinBox | None = None
-        self.max_height_input: QtWidgets.QDoubleSpinBox | None = None
-        self.vertex_spacing_input: QtWidgets.QDoubleSpinBox | None = None
-        self.resolution_input: QtWidgets.QComboBox | None = None
+        self.preview_resolution_input: QtWidgets.QComboBox | None = None
         self.realtime_checkbox: QtWidgets.QCheckBox | None = None
         self.ws_noise_box: CollapsibleBox | None = None
 
@@ -127,11 +128,13 @@ class MainWindow(QtWidgets.QMainWindow):
         return tabs
 
     def _connect_components(self):
+        # --- ИЗМЕНЕНИЕ: Подключаем новые виджеты ---
+        if self.region_resolution_input: self.region_resolution_input.currentIndexChanged.connect(self._trigger_preview_update)
+        if self.vertex_distance_input: self.vertex_distance_input.editingFinished.connect(self._trigger_preview_update)
+        if self.max_height_input: self.max_height_input.editingFinished.connect(self._trigger_preview_update)
         if self.global_x_offset_input: self.global_x_offset_input.editingFinished.connect(self._trigger_preview_update)
         if self.global_z_offset_input: self.global_z_offset_input.editingFinished.connect(self._trigger_preview_update)
-        if self.world_size_input: self.world_size_input.editingFinished.connect(self._trigger_preview_update)
-        if self.max_height_input: self.max_height_input.editingFinished.connect(self._trigger_preview_update)
-        if self.resolution_input: self.resolution_input.currentIndexChanged.connect(self._trigger_preview_update)
+        if self.preview_resolution_input: self.preview_resolution_input.currentIndexChanged.connect(self._trigger_preview_update)
         if self.ws_noise_box: self.ws_noise_box.toggled.connect(self._trigger_preview_update)
 
         # --- ПОДКЛЮЧЕНИЯ ДЛЯ СФЕРИЧЕСКОГО ШУМА ---
@@ -245,54 +248,47 @@ class MainWindow(QtWidgets.QMainWindow):
                 return
 
             logger.info(f"Рендеринг превью для ноды: '{target_node.name()}'")
-            context = self.project_manager.collect_ui_context()
 
-            # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-            # Основной вьювер всегда работает в режиме "Plane"
-            context['preview_mode'] = 'Plane'
+            context = self.project_manager.collect_ui_context(for_preview=True)
 
-            from generator_logic.terrain.global_sphere_noise import global_sphere_noise_wrapper
+            # --- НАЧАЛО ИСПРАВЛЕНИЯ: Рассчитываем реальный размер мира для консистентности шума ---
+            try:
+                real_res_str = self.region_resolution_input.currentText()
+                real_res = int(real_res_str.split('x')[0])
+                real_vertex_dist = self.vertex_distance_input.value()
+                # Это реальный размер региона в метрах, он не зависит от разрешения превью
+                real_world_size_for_noise = real_res * real_vertex_dist
+            except Exception:
+                # В случае ошибки используем размер из контекста превью
+                real_world_size_for_noise = context['WORLD_SIZE_METERS']
+            # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
             if self.ws_noise_box.isChecked():
-                sphere_params = {
-                    'frequency': self.ws_sphere_frequency.value(),
-                    'octaves': int(self.ws_sphere_octaves.value()),
-                    'gain': self.ws_sphere_gain.value(),
-                    'ridge': self.ws_sphere_ridge.isChecked(),
-                    'seed': self.ws_sphere_seed.value(),
-                    'ocean_latitude': self.ws_ocean_latitude.value(),
-                    'ocean_falloff': self.ws_ocean_falloff.value(),
+                from game_engine_restructured.numerics.fast_noise import fbm_grid_bipolar, fbm_amplitude
+                params = {
+                    "seed": self.ws_sphere_seed.value(),
+                    "coords_x": context['x_coords'], "coords_z": context['z_coords'],
+                    # --- ИЗМЕНЕНИЕ: Используем РЕАЛЬНЫЙ размер для расчета частоты ---
+                    "freq0": 1.0 / (real_world_size_for_noise * self.ws_sphere_frequency.value() * 0.1),
+                    "octaves": int(self.ws_sphere_octaves.value()),
+                    "gain": self.ws_sphere_gain.value(),
+                    "ridge": self.ws_sphere_ridge.isChecked(),
                 }
-
-                warp_params = {
-                    'type': self.ws_warp_type.currentText().lower(),
-                    'frequency': 1.0 / max(self.ws_warp_rel_size.value(), 1e-6),
-                    'amp0_m': self.ws_warp_strength.value(),
-                    'complexity': 3,
-                    'roughness': 0.5,
-                    'iterations': 1,
-                    'attenuation': 0.5,
-                    'anisotropy': 1.0,
-                    'seed': sphere_params['seed'] + 12345
-                }
-
-                logger.debug(f"Параметры Глобального Шума (Сфера): sphere={sphere_params}, warp={warp_params}")
-
-                world_fractal_noise = global_sphere_noise_wrapper(context, sphere_params, warp_params)
+                raw_noise = fbm_grid_bipolar(**params)
+                max_amp = fbm_amplitude(params['gain'], params['octaves'])
+                if max_amp > 1e-9: raw_noise /= max_amp
+                world_fractal_noise = (raw_noise + 1.0) * 0.5
             else:
-                logger.debug("Глобальный шум выключен. Используется плоская карта.")
                 world_fractal_noise = np.zeros_like(context["x_coords"], dtype=np.float32)
 
             context["world_input_noise"] = world_fractal_noise
             final_map_01 = run_graph(target_node, context)
-            max_height_m = self.max_height_input.value()
-            final_map_meters = final_map_01 * max_height_m
+
+            preview_max_height = context.get('max_height_m', 1000.0)
+            final_map_meters = final_map_01 * preview_max_height
 
             if self.preview_widget:
-                resolution_str = self.resolution_input.currentText()
-                preview_res = int(resolution_str.split('x')[0])
-                world_size = context.get('WORLD_SIZE_METERS', 5000.0)
-                preview_vertex_spacing = world_size / preview_res
+                preview_vertex_spacing = 1.0
                 self.preview_widget.update_mesh(final_map_meters, preview_vertex_spacing)
 
         except Exception as e:
@@ -309,7 +305,7 @@ class MainWindow(QtWidgets.QMainWindow):
     # --- НОВЫЕ МЕТОДЫ В КОНЦЕ КЛАССА ---
 
     def show_world_map(self):
-        """ Открывает или показывает окно с картой мира. """
+        ''' Открывает или показывает окно с картой мира. '''
         if self.world_map_widget is None:
             self.world_map_widget = WorldMapWidget(self)
             self.world_map_widget.map_label.region_selected.connect(self.on_region_selected_from_map)
@@ -320,7 +316,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @QtCore.Slot(float, float)
     def on_region_selected_from_map(self, offset_x: float, offset_z: float):
-        """ Обновляет смещения в UI и запускает перерисовку. """
+        ''' Обновляет смещения в UI и запускает перерисовку. '''
         if self.global_x_offset_input and self.global_z_offset_input:
             self.global_x_offset_input.setValue(offset_x)
             self.global_z_offset_input.setValue(offset_z)

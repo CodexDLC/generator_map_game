@@ -75,11 +75,12 @@ class ProjectManager:
         self.mark_dirty(False)
         self._status_msg(f"Проект '{Path(project_path).name}' загружен.")
 
-    def collect_ui_context(self) -> dict:
+    def collect_ui_context(self, for_preview: bool = True) -> dict:
         """
         Собирает все параметры из UI в единый словарь-контекст для генератора.
         """
-        context = collect_context_from_ui(self._mw)
+        # --- ИЗМЕНЕНИЕ: Пробрасываем аргумент 'for_preview' дальше ---
+        context = collect_context_from_ui(self._mw, for_preview=for_preview)
         context['project'] = self.current_project_data
         return context
 
