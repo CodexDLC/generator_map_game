@@ -80,6 +80,7 @@ class Preview3DWidget(QtWidgets.QWidget):
                 color = (0.8 * base, 0.8 * base, 0.8 * base, 1.0)
                 self._mesh.unfreeze()
                 self._mesh.color = color
+                self._mesh.cmap = None # Очищаем cmap, если переключаемся на solid color
                 self._mesh.colors = None # Очищаем colors, если переключаемся на solid color
                 self._mesh.freeze()
 
@@ -110,31 +111,35 @@ class Preview3DWidget(QtWidgets.QWidget):
         s = self._settings
         z = (height_map * float(s.height_exaggeration)).astype(np.float32, copy=False)
 
-        cmap_arg = None
-        clim_arg = None
-        colors_arg = None
-        color_arg = None
+        # --- СОЗДАЁМ SurfacePlot БЕЗ cmap/clim В КОНСТРУКТОРЕ ---
+        self._mesh = scene.visuals.SurfacePlot(z=z, parent=self.view.scene, shading='smooth')
+
+        # --- НАСТРАИВАЕМ ЦВЕТА ПОСЛЕ СОЗДАНИЯ ---
+        self._mesh.unfreeze() # Размораживаем для установки атрибутов
 
         if s.use_palette:
+            z01, _, _ = _normalize_01(z)
             if s.use_slope_darkening:
-                z01, _, _ = _normalize_01(z)
                 rgb = map_palette_cpu(z01, s.palette_name)
                 mult = _slope_mask(z, cell_size, s.slope_strength)
                 rgb = (rgb * mult[..., None]).clip(0.0, 1.0)
                 a = np.ones((*rgb.shape[:2], 1), dtype=np.float32)
-                colors_arg = np.concatenate([rgb, a], axis=-1)
+                self._mesh.colors = np.concatenate([rgb, a], axis=-1)
+                self._mesh.cmap = None # Очищаем cmap
+                self._mesh.color = None # Очищаем solid color
             else:
-                cmap_arg = make_colormap_from_palette(s.palette_name)
-                clim_arg = (float(z.min()), float(z.max()))
+                self._mesh.cmap = make_colormap_from_palette(s.palette_name)
+                self._mesh.clim = (float(z.min()), float(z.max()))
+                self._mesh.colors = None # Очищаем colors
+                self._mesh.color = None # Очищаем solid color
         else:
             base = float(max(0.05, min(2.0, s.diffuse)))
-            color_arg = (0.8 * base, 0.8 * base, 0.8 * base, 1.0)
+            color = (0.8 * base, 0.8 * base, 0.8 * base, 1.0)
+            self._mesh.color = color
+            self._mesh.cmap = None # Очищаем cmap
+            self._mesh.colors = None # Очищаем colors
 
-        self._mesh = scene.visuals.SurfacePlot(z=z, parent=self.view.scene, shading='smooth',
-                                               cmap=cmap_arg,
-                                               clim=clim_arg,
-                                               colors=colors_arg,
-                                               color=color_arg)
+        self._mesh.freeze() # Замораживаем обратно
 
         if hasattr(self._mesh, 'light'):
             self._apply_light()
