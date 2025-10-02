@@ -25,6 +25,7 @@ def register_all_nodes(graph):
 
         # Ландшафт.Эрозия
         ("editor.nodes.height.erosion.landlab_erosion_node", "LandlabErosionNode"),
+        ("editor.nodes.height.erosion.easy_erosion_node", "EasyErosionNode"),
 
         # Универсальные.Шумы
         ("editor.nodes.universal.noises.perlin_noise_node", "PerlinNoiseNode"),
