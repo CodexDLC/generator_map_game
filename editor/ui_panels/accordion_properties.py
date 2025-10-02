@@ -1,58 +1,40 @@
 # editor/ui_panels/accordion_properties.py
-# ==============================================================================
-# editor/ui_panels/accordion_properties.py
-# ВЕРСИЯ 3.4 (HOTFIX): Исправлен NameError при создании виджетов.
-# - Переменная is_float теперь определяется до ее первого использования.
-# ==============================================================================
-
 from __future__ import annotations
-
 import random
 from typing import Dict, Optional, List
-
 from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtCore import Qt
-
 from editor.core.theme import PALETTE
 from editor.graph.custom_graph import CustomNodeGraph
 from editor.nodes.base_node import GeneratorNode
 
 
-# ==============================================================================
-# НОВЫЙ ВИДЖЕТ ДЛЯ РАБОТЫ С СИДАМИ
-# ==============================================================================
 class SeedWidget(QtWidgets.QWidget):
-    """Комбинированный виджет для сида: поле ввода, кнопка "🎲" и история."""
     valueChanged = QtCore.Signal(float)
     editingFinished = QtCore.Signal()
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent)
         self._block_signals = False
-
         self.spinbox = QtWidgets.QDoubleSpinBox()
         self.spinbox.setRange(0, 4294967295)
         self.spinbox.setDecimals(0)
         self.spinbox.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
-
         self.generate_btn = QtWidgets.QToolButton()
         self.generate_btn.setText("🎲")
         self.generate_btn.setToolTip("Сгенерировать новый случайный сид")
-
         self.history_btn = QtWidgets.QToolButton()
         self.history_btn.setText("📖")
         self.history_btn.setToolTip("Показать историю сидов")
         self.history_btn.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
         self.history_menu = QtWidgets.QMenu(self)
         self.history_btn.setMenu(self.history_menu)
-
         layout = QtWidgets.QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
         layout.addWidget(self.spinbox, 1)
         layout.addWidget(self.generate_btn)
         layout.addWidget(self.history_btn)
-
         self.generate_btn.clicked.connect(self.generate_new_seed)
         self.spinbox.valueChanged.connect(self.valueChanged.emit)
         self.spinbox.editingFinished.connect(self.editingFinished.emit)
@@ -76,34 +58,32 @@ class SeedWidget(QtWidgets.QWidget):
             self.history_menu.addAction(action)
 
 
-# ==============================================================================
-# КОМПОЗИТНЫЙ ВИДЖЕТ: ПОЛЗУНОК + ПОЛЕ ВВОДА
-# ==============================================================================
 class SliderSpinCombo(QtWidgets.QWidget):
     editingFinished = QtCore.Signal()
 
-    def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None, slider_on_left: bool = True):
         super().__init__(parent)
         self._block_signals = False
-
         self.slider = QtWidgets.QSlider(Qt.Orientation.Horizontal)
         self.slider.setRange(0, 1000)
-
         self.spinbox = QtWidgets.QDoubleSpinBox()
         self.spinbox.setDecimals(3)
         self.spinbox.setSingleStep(0.01)
         self.spinbox.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.spinbox.setFixedWidth(60)
-
         layout = QtWidgets.QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
-        layout.addWidget(self.slider)
-        layout.addWidget(self.spinbox)
+
+        if slider_on_left:
+            layout.addWidget(self.slider)
+            layout.addWidget(self.spinbox)
+        else:
+            layout.addWidget(self.spinbox)
+            layout.addWidget(self.slider)
 
         self.slider.valueChanged.connect(self._on_slider_change)
         self.spinbox.valueChanged.connect(self._on_spinbox_change)
-
         self.slider.sliderReleased.connect(self.editingFinished.emit)
         self.spinbox.editingFinished.connect(self.editingFinished.emit)
 
@@ -111,7 +91,6 @@ class SliderSpinCombo(QtWidgets.QWidget):
         self.spinbox.setRange(min_val, max_val)
         self.slider.valueChanged.disconnect()
         self.spinbox.valueChanged.disconnect()
-
         self.slider.valueChanged.connect(self._on_slider_change)
         self.spinbox.valueChanged.connect(self._on_spinbox_change)
 
@@ -154,9 +133,6 @@ class SliderSpinCombo(QtWidgets.QWidget):
             self._block_signals = False
 
 
-# ==============================================================================
-# Фабричная функция (без изменений)
-# ==============================================================================
 def create_properties_widget(parent: QtWidgets.QWidget) -> "AccordionProperties":
     props = AccordionProperties(parent=parent)
     props.setObjectName("PropertiesAccordion")
@@ -165,9 +141,6 @@ def create_properties_widget(parent: QtWidgets.QWidget) -> "AccordionProperties"
     return props
 
 
-# ==============================================================================
-# Основной класс виджета (с изменениями)
-# ==============================================================================
 class CollapsibleBox(QtWidgets.QGroupBox):
     def __init__(self, title: str, parent=None):
         super().__init__(title, parent)
@@ -175,18 +148,14 @@ class CollapsibleBox(QtWidgets.QGroupBox):
         self.setCheckable(True)
         self.setChecked(True)
         self.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Minimum)
-
         lay = QtWidgets.QVBoxLayout(self)
         lay.setContentsMargins(8, 6, 8, 8)
         lay.setSpacing(6)
-
         self._content = QtWidgets.QWidget(self)
         lay.addWidget(self._content)
-
         self.body = QtWidgets.QFormLayout(self._content)
         self.body.setContentsMargins(4, 4, 4, 4)
         self.body.setSpacing(6)
-
         self.toggled.connect(self._content.setVisible)
 
 
@@ -195,17 +164,14 @@ class AccordionProperties(QtWidgets.QScrollArea):
         super().__init__(parent)
         self.setObjectName("AccordionProperties")
         self.setWidgetResizable(True)
-
         self._graph: Optional[CustomNodeGraph] = None
         self._node: Optional[GeneratorNode] = None
         self._main_window: Optional[QtWidgets.QMainWindow] = None
-
         self._root = QtWidgets.QWidget()
         self._root.setStyleSheet(f"background-color: {PALETTE['dock_bg']};")
         self._vl = QtWidgets.QVBoxLayout(self._root)
         self._vl.setContentsMargins(6, 6, 6, 6)
         self._vl.setSpacing(8)
-
         self.setWidget(self._root)
         self.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
 
@@ -253,14 +219,11 @@ class AccordionProperties(QtWidgets.QScrollArea):
         if not node:
             self._vl.addStretch(1)
             return
-
         meta = node.properties_meta()
         if not meta:
             self._vl.addStretch(1)
             return
-
         groups: Dict[str, CollapsibleBox] = {}
-
         for name, prop_meta in meta.items():
             if name in ('name', 'color', 'text_color', 'disabled'): continue
             group_name = prop_meta.get('group') or 'Params'
@@ -273,21 +236,16 @@ class AccordionProperties(QtWidgets.QScrollArea):
             if widget:
                 label = prop_meta.get('label', name)
                 box.body.addRow(label, widget)
-
         self._vl.addStretch(1)
 
     def _create_widget_for_property(self, node: GeneratorNode, name: str, meta: dict) -> Optional[QtWidgets.QWidget]:
         kind = meta.get('type')
         value = node.get_property(name)
-        label = meta.get('label', name)
         update_slot = getattr(self._main_window, '_trigger_preview_update', None)
-
-        # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
         is_float = kind in ('float', 'double', 'f')
-        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-
         if meta.get('widget') == 'slider' and is_float:
-            w = SliderSpinCombo()
+            # --- ИЗМЕНЕНИЕ: Указываем slider_on_left=False для правой панели ---
+            w = SliderSpinCombo(slider_on_left=False)
             p_range = meta.get('range', (0.0, 1.0))
             w.setRange(p_range[0], p_range[1])
             w.setValue(value)
@@ -295,7 +253,6 @@ class AccordionProperties(QtWidgets.QScrollArea):
             if update_slot:
                 w.editingFinished.connect(update_slot)
             return w
-
         if kind == 'line':
             w = QtWidgets.QLineEdit()
             if name == 'name' and value is None: value = node.name()
@@ -304,7 +261,6 @@ class AccordionProperties(QtWidgets.QScrollArea):
             if update_slot:
                 w.editingFinished.connect(update_slot)
             return w
-
         elif is_float or kind in ('int', 'i'):
             w = QtWidgets.QDoubleSpinBox()
             if is_float:
@@ -316,7 +272,6 @@ class AccordionProperties(QtWidgets.QScrollArea):
                 w.setSingleStep(meta.get('step', 1))
                 w.setRange(meta.get('range', (-4294967295, 4294967295))[0],
                            meta.get('range', (-4294967295, 4294967295))[1])
-
             w.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
             w.setAlignment(Qt.AlignmentFlag.AlignRight)
             w.setMaximumWidth(meta.get('width', 100))
@@ -325,7 +280,6 @@ class AccordionProperties(QtWidgets.QScrollArea):
             if update_slot:
                 w.editingFinished.connect(update_slot)
             return w
-
         elif kind == 'seed':
             w = SeedWidget()
             w.setValue(int(value or 0))
@@ -342,7 +296,6 @@ class AccordionProperties(QtWidgets.QScrollArea):
 
             w.editingFinished.connect(on_finish)
             return w
-
         elif kind == 'check':
             w = QtWidgets.QCheckBox()
             w.setChecked(bool(value))
@@ -350,7 +303,6 @@ class AccordionProperties(QtWidgets.QScrollArea):
             if update_slot:
                 w.toggled.connect(update_slot)
             return w
-
         elif kind == 'combo':
             w = QtWidgets.QComboBox()
             items = [str(x) for x in meta.get('items', [])]
@@ -361,5 +313,4 @@ class AccordionProperties(QtWidgets.QScrollArea):
             if update_slot:
                 w.currentTextChanged.connect(update_slot)
             return w
-
         return None
