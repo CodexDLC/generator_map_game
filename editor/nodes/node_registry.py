@@ -33,6 +33,7 @@ def register_all_nodes(graph):
 
         # UI
         ("editor.nodes.backdrop_node", "CustomBackdropNode"),
+        ("editor.nodes.universal.debug.sphere_projection_node", "SphereProjectionNode"),
     ]
 
     ok, fail = 0, 0

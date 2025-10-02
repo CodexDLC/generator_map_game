@@ -1,4 +1,3 @@
-# editor/core/render_settings.py
 from __future__ import annotations
 from dataclasses import dataclass, asdict
 
@@ -20,13 +19,13 @@ class RenderSettings:
 
     # Цвет
     use_palette: bool = True
-    palette_name: str = "Rock"      # Rock|Desert|Snow|Volcano
+    palette_name: str = "Rock"
     use_slope_darkening: bool = False
-    slope_strength: float = 0.25    # 0..1
+    slope_strength: float = 0.25
 
     @classmethod
     def from_dict(cls, d: dict) -> "RenderSettings":
-        base = asdict(cls())  # дефолты
+        base = asdict(cls())
         base.update({k: d[k] for k in base.keys() if k in d})
         return cls(**base)
 

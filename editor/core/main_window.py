@@ -19,6 +19,8 @@ from editor.actions import preset_actions
 from editor.ui_panels.world_settings_panel import make_world_settings_widget
 from editor.ui_panels.render_panel import make_render_panel_widget
 from editor.core.render_settings import RenderSettings
+# --- НОВЫЙ ИМПОРТ ---
+from editor.ui_panels.world_map_widget import WorldMapWidget
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.node_inspector: QtWidgets.QWidget | None = None
         self.presets_widget: 'RegionPresetsWidget' | None = None
         self._last_selected_node = None
+        self.world_map_widget: WorldMapWidget | None = None
 
         self.global_x_offset_input: QtWidgets.QDoubleSpinBox | None = None
         self.global_z_offset_input: QtWidgets.QDoubleSpinBox | None = None
@@ -51,19 +54,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.resolution_input: QtWidgets.QComboBox | None = None
         self.realtime_checkbox: QtWidgets.QCheckBox | None = None
         self.ws_noise_box: CollapsibleBox | None = None
-        self.ws_fractal_type: QtWidgets.QComboBox | None = None
-        self.ws_fractal_scale: SliderSpinCombo | None = None
-        self.ws_fractal_octaves: SliderSpinCombo | None = None
-        self.ws_fractal_roughness: SliderSpinCombo | None = None
-        self.ws_fractal_seed: SeedWidget | None = None
-        self.ws_var_strength: SliderSpinCombo | None = None
-        self.ws_var_smoothness: SliderSpinCombo | None = None
-        self.ws_var_contrast: SliderSpinCombo | None = None
-        self.ws_var_damping: SliderSpinCombo | None = None
-        self.ws_var_bias: SliderSpinCombo | None = None
+
+        # --- АТРИБУТЫ ДЛЯ СФЕРИЧЕСКОГО ШУМА ---
+        self.ws_sphere_radius: QtWidgets.QDoubleSpinBox | None = None
+        self.ws_sphere_frequency: SliderSpinCombo | None = None
+        self.ws_sphere_octaves: SliderSpinCombo | None = None
+        self.ws_sphere_gain: SliderSpinCombo | None = None
+        self.ws_sphere_ridge: QtWidgets.QCheckBox | None = None
+        self.ws_sphere_seed: SeedWidget | None = None
         self.ws_warp_type: QtWidgets.QComboBox | None = None
         self.ws_warp_rel_size: SliderSpinCombo | None = None
         self.ws_warp_strength: SliderSpinCombo | None = None
+        self.ws_ocean_latitude: SliderSpinCombo | None = None
+        self.ws_ocean_falloff: SliderSpinCombo | None = None
 
         self._build_ui()
         build_menus(self)
@@ -130,19 +133,19 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.max_height_input: self.max_height_input.editingFinished.connect(self._trigger_preview_update)
         if self.resolution_input: self.resolution_input.currentIndexChanged.connect(self._trigger_preview_update)
         if self.ws_noise_box: self.ws_noise_box.toggled.connect(self._trigger_preview_update)
-        if self.ws_fractal_type: self.ws_fractal_type.currentIndexChanged.connect(self._trigger_preview_update)
-        if self.ws_fractal_scale: self.ws_fractal_scale.editingFinished.connect(self._trigger_preview_update)
-        if self.ws_fractal_octaves: self.ws_fractal_octaves.editingFinished.connect(self._trigger_preview_update)
-        if self.ws_fractal_roughness: self.ws_fractal_roughness.editingFinished.connect(self._trigger_preview_update)
-        if self.ws_fractal_seed: self.ws_fractal_seed.editingFinished.connect(self._trigger_preview_update)
-        if self.ws_var_strength: self.ws_var_strength.editingFinished.connect(self._trigger_preview_update)
-        if self.ws_var_smoothness: self.ws_var_smoothness.editingFinished.connect(self._trigger_preview_update)
-        if self.ws_var_contrast: self.ws_var_contrast.editingFinished.connect(self._trigger_preview_update)
-        if self.ws_var_damping: self.ws_var_damping.editingFinished.connect(self._trigger_preview_update)
-        if self.ws_var_bias: self.ws_var_bias.editingFinished.connect(self._trigger_preview_update)
+
+        # --- ПОДКЛЮЧЕНИЯ ДЛЯ СФЕРИЧЕСКОГО ШУМА ---
+        if self.ws_sphere_frequency: self.ws_sphere_frequency.editingFinished.connect(self._trigger_preview_update)
+        if self.ws_sphere_octaves: self.ws_sphere_octaves.editingFinished.connect(self._trigger_preview_update)
+        if self.ws_sphere_gain: self.ws_sphere_gain.editingFinished.connect(self._trigger_preview_update)
+        if self.ws_sphere_ridge: self.ws_sphere_ridge.toggled.connect(self._trigger_preview_update)
+        if self.ws_sphere_seed: self.ws_sphere_seed.editingFinished.connect(self._trigger_preview_update)
         if self.ws_warp_type: self.ws_warp_type.currentIndexChanged.connect(self._trigger_preview_update)
         if self.ws_warp_rel_size: self.ws_warp_rel_size.editingFinished.connect(self._trigger_preview_update)
         if self.ws_warp_strength: self.ws_warp_strength.editingFinished.connect(self._trigger_preview_update)
+        if self.ws_ocean_latitude: self.ws_ocean_latitude.editingFinished.connect(self._trigger_preview_update)
+        if self.ws_ocean_falloff: self.ws_ocean_falloff.editingFinished.connect(self._trigger_preview_update)
+
         if self.graph:
             if self.props_bin: self.props_bin.set_graph(self.graph, self)
             if self.node_inspector: self.node_inspector.bind_graph(self.graph)
@@ -243,38 +246,39 @@ class MainWindow(QtWidgets.QMainWindow):
 
             logger.info(f"Рендеринг превью для ноды: '{target_node.name()}'")
             context = self.project_manager.collect_ui_context()
-            from generator_logic.terrain.fractals import multifractal_wrapper
 
-            world_size = context.get('WORLD_SIZE_METERS', 5000.0)
-            max_height = self.max_height_input.value()
+            # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+            # Основной вьювер всегда работает в режиме "Plane"
+            context['preview_mode'] = 'Plane'
+
+            from generator_logic.terrain.global_sphere_noise import global_sphere_noise_wrapper
 
             if self.ws_noise_box.isChecked():
-                fractal_params = {
-                    'type': self.ws_fractal_type.currentText().lower(),
-                    'scale': self.ws_fractal_scale.value() / 100.0,
-                    'octaves': int(self.ws_fractal_octaves.value()),
-                    'roughness': self.ws_fractal_roughness.value(),
-                    'seed': self.ws_fractal_seed.value(),
+                sphere_params = {
+                    'frequency': self.ws_sphere_frequency.value(),
+                    'octaves': int(self.ws_sphere_octaves.value()),
+                    'gain': self.ws_sphere_gain.value(),
+                    'ridge': self.ws_sphere_ridge.isChecked(),
+                    'seed': self.ws_sphere_seed.value(),
+                    'ocean_latitude': self.ws_ocean_latitude.value(),
+                    'ocean_falloff': self.ws_ocean_falloff.value(),
                 }
-                variation_params = {'variation': self.ws_var_strength.value(),
-                                    'smoothness': self.ws_var_smoothness.value(),
-                                    'contrast': self.ws_var_contrast.value(), 'damping': self.ws_var_damping.value(),
-                                    'bias': self.ws_var_bias.value(), }
 
-                wt = self.ws_warp_type.currentText().lower()
-                warp_freq = 1.0 / (world_size * max(self.ws_warp_rel_size.value(), 1e-6))
-                warp_amp0_m = self.ws_warp_strength.value() * max_height
+                warp_params = {
+                    'type': self.ws_warp_type.currentText().lower(),
+                    'frequency': 1.0 / max(self.ws_warp_rel_size.value(), 1e-6),
+                    'amp0_m': self.ws_warp_strength.value(),
+                    'complexity': 3,
+                    'roughness': 0.5,
+                    'iterations': 1,
+                    'attenuation': 0.5,
+                    'anisotropy': 1.0,
+                    'seed': sphere_params['seed'] + 12345
+                }
 
-                warp_params_final = {'type': wt, 'frequency': warp_freq, 'amp0_m': warp_amp0_m, 'complexity': 3,
-                                     'roughness': 0.5, 'attenuation': 1.0, 'iterations': 1, 'anisotropy': 1.0,
-                                     'seed': fractal_params['seed']}
+                logger.debug(f"Параметры Глобального Шума (Сфера): sphere={sphere_params}, warp={warp_params}")
 
-                # --- НОВАЯ ЛОГИКА: Подробный вывод в лог ---
-                logger.debug(
-                    f"Параметры Глобального Шума: fractal={fractal_params}, variation={variation_params}, warp={warp_params_final}")
-
-                world_fractal_noise = multifractal_wrapper(context, fractal_params, variation_params, {},
-                                                           warp_params_final)
+                world_fractal_noise = global_sphere_noise_wrapper(context, sphere_params, warp_params)
             else:
                 logger.debug("Глобальный шум выключен. Используется плоская карта.")
                 world_fractal_noise = np.zeros_like(context["x_coords"], dtype=np.float32)
@@ -287,6 +291,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if self.preview_widget:
                 resolution_str = self.resolution_input.currentText()
                 preview_res = int(resolution_str.split('x')[0])
+                world_size = context.get('WORLD_SIZE_METERS', 5000.0)
                 preview_vertex_spacing = world_size / preview_res
                 self.preview_widget.update_mesh(final_map_meters, preview_vertex_spacing)
 
@@ -300,3 +305,23 @@ class MainWindow(QtWidgets.QMainWindow):
     def _trigger_apply(self) -> None:
         if self.right_outliner and self.right_outliner.apply_button:
             self.right_outliner.apply_button.animateClick(10)
+
+    # --- НОВЫЕ МЕТОДЫ В КОНЦЕ КЛАССА ---
+
+    def show_world_map(self):
+        """ Открывает или показывает окно с картой мира. """
+        if self.world_map_widget is None:
+            self.world_map_widget = WorldMapWidget(self)
+            self.world_map_widget.map_label.region_selected.connect(self.on_region_selected_from_map)
+
+        self.world_map_widget.show()
+        self.world_map_widget.activateWindow()
+        self.world_map_widget.raise_()
+
+    @QtCore.Slot(float, float)
+    def on_region_selected_from_map(self, offset_x: float, offset_z: float):
+        """ Обновляет смещения в UI и запускает перерисовку. """
+        if self.global_x_offset_input and self.global_z_offset_input:
+            self.global_x_offset_input.setValue(offset_x)
+            self.global_z_offset_input.setValue(offset_z)
+            self._on_apply_clicked()

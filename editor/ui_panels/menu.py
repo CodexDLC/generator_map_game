@@ -60,8 +60,9 @@ def build_menus(main_window: "MainWindow") -> None:
 
     # --- Меню "Вид" ---
     view_menu = menu_bar.addMenu("&Вид")
-
-    # TODO: Добавить действия для управления панелями
+    
+    map_action = view_menu.addAction("Карта Мира...")
+    map_action.triggered.connect(main_window.show_world_map)
 
     # --- Меню "Помощь" ---
     help_menu = menu_bar.addMenu("&Помощь")

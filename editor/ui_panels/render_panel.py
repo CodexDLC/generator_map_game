@@ -41,6 +41,7 @@ class RenderPanel(QtWidgets.QWidget):
         self.apply_btn = QtWidgets.QPushButton("Применить")
         top_layout.addWidget(self.apply_btn)
         lay.addLayout(top_layout)
+
         lay.addWidget(
             QtWidgets.QFrame(self, frameShape=QtWidgets.QFrame.Shape.HLine, frameShadow=QtWidgets.QFrame.Shadow.Sunken))
 
