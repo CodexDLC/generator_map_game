@@ -1,88 +1,59 @@
 # editor/logic/world_map_logic.py
-from __future__ import annotations
 import logging
 import numpy as np
-from PySide6 import QtGui
-from PIL import Image
-from PIL.ImageQt import ImageQt
-
-from generator_logic.terrain.global_sphere_noise import global_sphere_noise_wrapper
 
 logger = logging.getLogger(__name__)
 
-
-def generate_world_map_image(
-        sphere_params: dict,
-        sea_level: float = 0.4,
-        resolution: tuple[int, int] = (1024, 512)
-) -> QtGui.QPixmap | None:
+def calculate_offset_from_map_click(
+    u: float, v: float, layout_info: dict,
+    region_res_str: str, vertex_distance: float
+) -> tuple[float, float]:
     """
-    Генерирует 2D-карту мира (суша/вода) на основе глобальных настроек шума.
-
-    Args:
-        sphere_params: Словарь с параметрами для global_sphere_noise_wrapper.
-        sea_level: Уровень моря (0..1) для разделения суши и воды.
-        resolution: Разрешение генерируемой карты (ширина, высота).
-
-    Returns:
-        Готовый QPixmap для отображения или None в случае ошибки.
+    Рассчитывает мировое смещение (в метрах) по клику на карте.
     """
+    if not layout_info or 'layout' not in layout_info:
+        return 0.0, 0.0
+
+    layout = layout_info.get("layout", {})
+    
+    # Параметры из UI для расчета масштаба
     try:
-        W, H = resolution
-        # Контекст для генератора не требует реальных координат, только их форму
-        x_coords, z_coords = np.meshgrid(np.zeros(W, dtype=np.float32), np.zeros(H, dtype=np.float32))
-        context = {
-            'project': {'seed': sphere_params.get('seed', 0)},
-            'x_coords': x_coords,
-            'z_coords': z_coords,
-        }
+        resolution = int(region_res_str.split('x')[0])
+    except:
+        resolution = 1024
+    
+    region_size_meters = resolution * vertex_distance
 
-        # Генерируем карту высот [0..1]
-        height_map_01 = global_sphere_noise_wrapper(context, sphere_params, warp_params={})
-        if height_map_01 is None:
-            return None
+    # Координаты клика в пикселях холста
+    canvas_width = layout_info.get("canvas_width_px", 1)
+    canvas_height = layout_info.get("canvas_height_px", 1)
+    clicked_px = u * canvas_width
+    clicked_py = v * canvas_height
 
-        # Создаем цветное изображение: синий для воды, зеленый для суши
-        land_color = (80, 140, 60)
-        sea_color = (60, 90, 130)
+    # Ищем ближайший гекс
+    closest_id = -1
+    min_dist_sq = float('inf')
+    
+    for region_id, (px, py) in layout_info.get("pixel_positions", {}).items():
+        dist_sq = (clicked_px - px)**2 + (clicked_py - py)**2
+        if dist_sq < min_dist_sq:
+            min_dist_sq = dist_sq
+            closest_id = region_id
 
-        # Используем np.where для быстрой векторизованной раскраски
-        color_map = np.where(
-            height_map_01[..., np.newaxis] > sea_level,
-            land_color,
-            sea_color
-        ).astype(np.uint8)
+    if closest_id == -1:
+        return 0.0, 0.0
 
-        # Конвертируем в QPixmap
-        pil_img = Image.fromarray(color_map, mode='RGB')
-        q_img = ImageQt(pil_img)
-        return QtGui.QPixmap.fromImage(q_img)
+    logger.info(f"Клик по региону ID: {closest_id}")
 
-    except Exception as e:
-        logger.error(f"Ошибка при генерации карты мира: {e}", exc_info=True)
-        return None
+    # Получаем нормализованные 2D-координаты центра выбранного гекса
+    norm_x, norm_y = layout.get(closest_id, (0.5, 0.5))
 
+    # Преобразуем их в мировые координаты (приблизительно)
+    # Предполагаем, что вся карта мира укладывается в некий большой квадрат
+    total_world_width = region_size_meters * layout_info.get("layout_width_in_regions", 10)
+    total_world_height = region_size_meters * layout_info.get("layout_height_in_regions", 6)
 
-def calculate_offset_from_map_click(u: float, v: float, region_world_size: float) -> tuple[float, float]:
-    """
-    Рассчитывает смещение для основного превью по клику на карте.
-
-    Args:
-        u: Горизонтальная координата клика (0..1, слева направо).
-        v: Вертикальная координата клика (0..1, сверху вниз).
-        region_world_size: Размер мира, который отображается в основном превью (в метрах).
-
-    Returns:
-        Кортеж (offset_x, offset_z) для установки в UI.
-    """
-    # Карта мира представляет собой "развертку" с диапазоном координат
-    # примерно в 2 раза шире, чем основной регион.
-    # Это приближение, но оно интуитивно понятно.
-    map_width = region_world_size * 2
-    map_height = region_world_size
-
-    # u=0.5, v=0.5 - это центр карты (0, 0)
-    offset_x = (u - 0.5) * map_width
-    offset_z = (v - 0.5) * map_height * -1  # Ось Z инвертирована
+    offset_x = (norm_x - 0.5) * total_world_width
+    offset_z = (norm_y - 0.5) * total_world_height * -1 # Ось Z инвертирована
 
     return offset_x, offset_z

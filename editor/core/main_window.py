@@ -5,12 +5,13 @@ import traceback
 from typing import Optional, Dict, Any
 from dataclasses import asdict
 import json
+import math
 
 import numpy as np
 from PySide6 import QtWidgets, QtCore, QtGui
-from editor.graph.graph_runner import run_graph
 
-# --- ИСПРАВЛЕННЫЕ ИМПОРТЫ ---
+# --- Импорты ---
+from editor.graph.graph_runner import run_graph
 from editor.ui.layouts.properties_panel import create_properties_widget
 from editor.ui.widgets.custom_controls import SliderSpinCombo, SeedWidget, CollapsibleBox
 from editor.ui.layouts.central_layout import create_bottom_work_area_v2
@@ -19,12 +20,11 @@ from editor.ui.layouts.node_inspector_panel import make_node_inspector_widget
 from editor.ui.layouts.presets_panel import make_region_presets_widget
 from editor.ui.bindings.shortcuts import install_shortcuts
 from editor.ui.widgets.preview_widget import Preview3DWidget
-from editor.ui.layouts.world_settings_panel import make_world_settings_widget
+from editor.ui.layouts.world_settings_panel import make_world_settings_widget, MAX_SIDE_METERS
 from editor.ui.layouts.render_panel import make_render_panel_widget
 from editor.core.render_settings import RenderSettings
 from editor.ui.layouts.world_map_window import WorldMapWidget
-from editor.logic.world_map_logic import generate_world_map_image, calculate_offset_from_map_click
-
+from editor.logic import hex_map_logic
 from editor.core.project_manager import ProjectManager
 from editor.actions import preset_actions
 
@@ -42,48 +42,44 @@ class MainWindow(QtWidgets.QMainWindow):
         self.project_manager = ProjectManager(self)
         self.render_settings = RenderSettings()
 
+        # --- Инициализация всех атрибутов UI ---
         self.graph: 'CustomNodeGraph' | None = None
         self.preview_widget: Preview3DWidget | None = None
+        self.world_map_widget: WorldMapWidget | None = None
+        self.central_tabs: QtWidgets.QTabWidget | None = None
         self.props_bin: QtWidgets.QWidget | None = None
         self.right_outliner: 'RightOutlinerWidget' | None = None
         self.left_palette: QtWidgets.QWidget | None = None
         self.node_inspector: QtWidgets.QWidget | None = None
         self.presets_widget: 'RegionPresetsWidget' | None = None
-        self._last_selected_node = None
-        self.world_map_widget: WorldMapWidget | None = None
-        self.render_panel = None # Инициализируем, чтобы избежать AttributeError
+        self.render_panel: QtWidgets.QWidget | None = None
+        self.realtime_checkbox: QtWidgets.QCheckBox | None = None
 
-        # --- АТРИБУТЫ ДЛЯ НАСТРОЕК МИРА (V2) ---
+        # Атрибуты из world_settings_panel
+        self.subdivision_level_input: QtWidgets.QComboBox | None = None
         self.region_resolution_input: QtWidgets.QComboBox | None = None
         self.vertex_distance_input: QtWidgets.QDoubleSpinBox | None = None
         self.max_height_input: QtWidgets.QDoubleSpinBox | None = None
-        self.global_x_offset_input: QtWidgets.QDoubleSpinBox | None = None
-        self.global_z_offset_input: QtWidgets.QDoubleSpinBox | None = None
-        self.preview_resolution_input: QtWidgets.QComboBox | None = None
-        self.realtime_checkbox: QtWidgets.QCheckBox | None = None
+        self.planet_radius_label: QtWidgets.QLabel | None = None
+        self.base_elevation_label: QtWidgets.QLabel | None = None
         self.ws_noise_box: CollapsibleBox | None = None
-        self.world_seed_input: SeedWidget | None = None
-
-        # --- АТРИБУТЫ ДЛЯ СФЕРИЧЕСКОГО ШУМА ---
-        self.ws_sphere_radius: QtWidgets.QDoubleSpinBox | None = None
-        self.ws_sphere_frequency: SliderSpinCombo | None = None
+        self.ws_sea_level: SliderSpinCombo | None = None
+        self.ws_relative_scale: SliderSpinCombo | None = None
         self.ws_sphere_octaves: SliderSpinCombo | None = None
         self.ws_sphere_gain: SliderSpinCombo | None = None
         self.ws_sphere_ridge: QtWidgets.QCheckBox | None = None
         self.ws_sphere_seed: SeedWidget | None = None
-        self.ws_warp_type: QtWidgets.QComboBox | None = None
-        self.ws_warp_rel_size: SliderSpinCombo | None = None
-        self.ws_warp_strength: SliderSpinCombo | None = None
-        self.ws_ocean_latitude: SliderSpinCombo | None = None
-        self.ws_ocean_falloff: SliderSpinCombo | None = None
+
+        self.world_map_layout_info: dict = {}
+        self.current_world_offset = (0.0, 0.0)
+        self._last_selected_node = None
 
         self._build_ui()
         build_menus(self)
         install_shortcuts(self)
         if project_path:
             self.project_manager.load_project(project_path)
-            
-        self._load_app_settings() # <--- ДОБАВЛЕНА ЗАГРУЗКА НАСТРОЕК
+        self._load_app_settings()
 
     def _build_ui(self) -> None:
         try:
@@ -94,13 +90,18 @@ class MainWindow(QtWidgets.QMainWindow):
             self.preview_widget = QtWidgets.QLabel("Preview widget failed to load")
             self.preview_widget.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
 
+        self.world_map_widget = WorldMapWidget(self)
+        self.central_tabs = QtWidgets.QTabWidget()
+        self.central_tabs.addTab(self.preview_widget, "3D Превью")
+        self.central_tabs.addTab(self.world_map_widget, "Карта Мира (Атлас)")
+
         bottom_work_area, self.graph, self.left_palette, self.right_outliner = create_bottom_work_area_v2(self)
         tabs_left = self._create_left_tabs()
         tabs_right = self._create_right_tabs()
 
         top_splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal, self)
         top_splitter.addWidget(tabs_left)
-        top_splitter.addWidget(self.preview_widget)
+        top_splitter.addWidget(self.central_tabs)
         top_splitter.addWidget(tabs_right)
         top_splitter.setStretchFactor(1, 1)
         top_splitter.setSizes([360, 900, 420])
@@ -112,6 +113,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(main_splitter)
         self._connect_components()
 
+    def _create_left_tabs(self) -> QtWidgets.QTabWidget:
+        tabs = QtWidgets.QTabWidget()
+        tabs.setDocumentMode(True)
+        world_settings_panel, ws_widgets = make_world_settings_widget(self)
+
+        # ИСПРАВЛЕНИЕ: Просто присваиваем все виджеты без условий
+        for name, widget in ws_widgets.items():
+            setattr(self, name, widget)
+
+        tabs.addTab(world_settings_panel, "Настройки Мира")
+        self.presets_widget = make_region_presets_widget(self)
+        tabs.addTab(self.presets_widget, "Пресеты")
+        return tabs
+
     def _create_right_tabs(self) -> QtWidgets.QTabWidget:
         tabs = QtWidgets.QTabWidget()
         tabs.setObjectName("TopTabsRight")
@@ -120,43 +135,27 @@ class MainWindow(QtWidgets.QMainWindow):
         tabs.addTab(self.props_bin, "Параметры")
         self.node_inspector = make_node_inspector_widget(self)
         tabs.addTab(self.node_inspector, "Инспектор")
-        self.render_panel = make_render_panel_widget(
-            self, self.render_settings, self._on_render_settings_changed
-        )
+        self.render_panel = make_render_panel_widget(self, self.render_settings, self._on_render_settings_changed)
         tabs.addTab(self.render_panel, "Рендер")
         return tabs
 
-    def _create_left_tabs(self) -> QtWidgets.QTabWidget:
-        tabs = QtWidgets.QTabWidget()
-        tabs.setDocumentMode(True)
-        world_settings_panel, ws_widgets = make_world_settings_widget(self)
-        for name, widget in ws_widgets.items():
-            setattr(self, name, widget)
-        tabs.addTab(world_settings_panel, "Настройки Мира")
-        self.presets_widget = make_region_presets_widget(self)
-        tabs.addTab(self.presets_widget, "Пресеты")
-        return tabs
-
     def _connect_components(self):
-        if self.world_seed_input: self.world_seed_input.editingFinished.connect(self._trigger_preview_update)
-        if self.region_resolution_input: self.region_resolution_input.currentIndexChanged.connect(self._trigger_preview_update)
-        if self.vertex_distance_input: self.vertex_distance_input.editingFinished.connect(self._trigger_preview_update)
-        if self.max_height_input: self.max_height_input.editingFinished.connect(self._trigger_preview_update)
-        if self.global_x_offset_input: self.global_x_offset_input.editingFinished.connect(self._trigger_preview_update)
-        if self.global_z_offset_input: self.global_z_offset_input.editingFinished.connect(self._trigger_preview_update)
-        if self.preview_resolution_input: self.preview_resolution_input.currentIndexChanged.connect(self._trigger_preview_update)
-        if self.ws_noise_box: self.ws_noise_box.toggled.connect(self._trigger_preview_update)
-        if self.ws_sphere_frequency: self.ws_sphere_frequency.editingFinished.connect(self._trigger_preview_update)
-        if self.ws_sphere_octaves: self.ws_sphere_octaves.editingFinished.connect(self._trigger_preview_update)
-        if self.ws_sphere_gain: self.ws_sphere_gain.editingFinished.connect(self._trigger_preview_update)
-        if self.ws_sphere_ridge: self.ws_sphere_ridge.toggled.connect(self._trigger_preview_update)
-        if self.ws_sphere_seed: self.ws_sphere_seed.editingFinished.connect(self._trigger_preview_update)
-        if self.ws_warp_type: self.ws_warp_type.currentIndexChanged.connect(self._trigger_preview_update)
-        if self.ws_warp_rel_size: self.ws_warp_rel_size.editingFinished.connect(self._trigger_preview_update)
-        if self.ws_warp_strength: self.ws_warp_strength.editingFinished.connect(self._trigger_preview_update)
-        if self.ws_ocean_latitude: self.ws_ocean_latitude.editingFinished.connect(self._trigger_preview_update)
-        if self.ws_ocean_falloff: self.ws_ocean_falloff.editingFinished.connect(self._trigger_preview_update)
+        # Подключения для динамического UI и карты
+        if self.region_resolution_input: self.region_resolution_input.currentIndexChanged.connect(
+            self._update_dynamic_ranges)
+        if self.vertex_distance_input: self.vertex_distance_input.valueChanged.connect(self._update_calculated_fields)
+        if self.subdivision_level_input: self.subdivision_level_input.currentIndexChanged.connect(
+            self._update_calculated_fields)
 
+        # Подключения для перерисовки карты
+        if self.ws_sea_level: self.ws_sea_level.editingFinished.connect(self._update_world_map_view)
+        if self.ws_relative_scale: self.ws_relative_scale.editingFinished.connect(self._update_world_map_view)
+        if self.ws_sphere_octaves: self.ws_sphere_octaves.editingFinished.connect(self._update_world_map_view)
+        if self.ws_sphere_gain: self.ws_sphere_gain.editingFinished.connect(self._update_world_map_view)
+        if self.ws_sphere_ridge: self.ws_sphere_ridge.toggled.connect(self._update_world_map_view)
+        if self.ws_sphere_seed: self.ws_sphere_seed.editingFinished.connect(self._update_world_map_view)
+
+        # Подключения графа и панелей
         if self.graph:
             if self.props_bin: self.props_bin.set_graph(self.graph, self)
             if self.node_inspector: self.node_inspector.bind_graph(self.graph)
@@ -164,13 +163,51 @@ class MainWindow(QtWidgets.QMainWindow):
             if self.left_palette: self.left_palette.bind_graph(self.graph)
             QtCore.QTimer.singleShot(0, self.graph.finalize_setup)
             self.graph.selection_changed.connect(self._on_node_selection_changed)
-        if self.right_outliner:
-            self.right_outliner.apply_clicked.connect(self._on_apply_clicked)
+        if self.right_outliner: self.right_outliner.apply_clicked.connect(self._on_apply_clicked)
         if self.presets_widget:
             self.presets_widget.load_requested.connect(self.action_load_region_preset)
             self.presets_widget.create_from_current_requested.connect(self.action_create_preset_from_dialog)
             self.presets_widget.delete_requested.connect(self.action_delete_preset_by_name)
             self.presets_widget.save_as_requested.connect(self.action_save_active_preset)
+        if self.world_map_widget:
+            self.world_map_widget.generation_requested.connect(self._update_world_map_view)
+            self.world_map_widget.map_view.map_clicked.connect(self._on_world_map_clicked)
+
+        QtCore.QTimer.singleShot(0, self._update_dynamic_ranges)
+
+    def _update_dynamic_ranges(self):
+        if not (self.region_resolution_input and self.vertex_distance_input): return
+        res_str = self.region_resolution_input.currentText()
+        resolution = int(res_str.split('x')[0])
+        max_dist = MAX_SIDE_METERS / resolution
+        self.vertex_distance_input.blockSignals(True)
+        self.vertex_distance_input.setRange(0.25, max_dist)
+        if self.vertex_distance_input.value() > max_dist:
+            self.vertex_distance_input.setValue(max_dist)
+        self.vertex_distance_input.blockSignals(False)
+        self._update_calculated_fields()
+
+    def _update_calculated_fields(self):
+        if not all([self.subdivision_level_input, self.region_resolution_input, self.vertex_distance_input,
+                    self.planet_radius_label, self.base_elevation_label]): return
+        try:
+            res_str = self.region_resolution_input.currentText()
+            resolution = int(res_str.split('x')[0])
+            dist = self.vertex_distance_input.value()
+            region_side_m = resolution * dist
+            hex_area_m2 = (region_side_m ** 2) * (math.sqrt(3) / 2)
+            subdiv_text = self.subdivision_level_input.currentText()
+            num_regions = int(subdiv_text.split(" ")[1].strip("()регинов"))
+            total_surface_area_m2 = num_regions * hex_area_m2
+            radius_m = math.sqrt(total_surface_area_m2 / (4 * math.pi))
+            radius_km = radius_m / 1000.0
+            base_elevation = radius_km * 3.1
+            self.planet_radius_label.setText(f"{radius_km:,.0f} км")
+            self.base_elevation_label.setText(f"{base_elevation:,.0f} м")
+        except Exception as e:
+            logger.error(f"Ошибка при расчете полей: {e}")
+            self.planet_radius_label.setText("Ошибка")
+            self.base_elevation_label.setText("Ошибка")
 
     @QtCore.Slot(object)
     def _on_render_settings_changed(self, new_settings: RenderSettings):
@@ -244,7 +281,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.project_manager.mark_dirty(True)
 
     def closeEvent(self, ev: QtGui.QCloseEvent):
-        self._save_app_settings() # <--- ДОБАВЛЕНО СОХРАНЕНИЕ НАСТРОЕК
+        self._save_app_settings()
         if self.project_manager.close_project_with_confirmation():
             ev.accept()
         else:
@@ -253,50 +290,19 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_apply_clicked(self):
         if self.right_outliner: self.right_outliner.set_busy(True)
         try:
-            target_node = self.graph.selected_nodes()[0] if self.graph and self.graph.selected_nodes() else self._last_selected_node
+            target_node = self.graph.selected_nodes()[
+                0] if self.graph and self.graph.selected_nodes() else self._last_selected_node
             if not target_node:
                 logger.warning("Нет выбранной ноды для превью. Рендер отменен.")
                 return
-
             logger.info(f"Рендеринг превью для ноды: '{target_node.name()}'")
-
             context = self.project_manager.collect_ui_context(for_preview=True)
-
-            try:
-                real_res_str = self.region_resolution_input.currentText()
-                real_res = int(real_res_str.split('x')[0])
-                real_vertex_dist = self.vertex_distance_input.value()
-                real_world_size_for_noise = real_res * real_vertex_dist
-            except Exception:
-                real_world_size_for_noise = context['WORLD_SIZE_METERS']
-
-            if self.ws_noise_box and self.ws_noise_box.isChecked():
-                from game_engine_restructured.numerics.fast_noise import fbm_grid_bipolar, fbm_amplitude
-                params = {
-                    "seed": self.ws_sphere_seed.value(),
-                    "coords_x": context['x_coords'], "coords_z": context['z_coords'],
-                    "freq0": 1.0 / (real_world_size_for_noise * self.ws_sphere_frequency.value() * 0.1),
-                    "octaves": int(self.ws_sphere_octaves.value()),
-                    "gain": self.ws_sphere_gain.value(),
-                    "ridge": self.ws_sphere_ridge.isChecked(),
-                }
-                raw_noise = fbm_grid_bipolar(**params)
-                max_amp = fbm_amplitude(params['gain'], params['octaves'])
-                if max_amp > 1e-9: raw_noise /= max_amp
-                world_fractal_noise = (raw_noise + 1.0) * 0.5
-            else:
-                world_fractal_noise = np.zeros_like(context["x_coords"], dtype=np.float32)
-
-            context["world_input_noise"] = world_fractal_noise
+            context["world_input_noise"] = np.zeros_like(context["x_coords"], dtype=np.float32)
             final_map_01 = run_graph(target_node, context)
-
             preview_max_height = context.get('max_height_m', 1000.0)
             final_map_meters = final_map_01 * preview_max_height
-
             if self.preview_widget:
-                preview_vertex_spacing = 1.0
-                self.preview_widget.update_mesh(final_map_meters, preview_vertex_spacing)
-
+                self.preview_widget.update_mesh(final_map_meters, 1.0)
         except Exception as e:
             logger.exception(f"Ошибка во время генерации: {e}")
             QtWidgets.QMessageBox.critical(self, "Ошибка генерации",
@@ -309,77 +315,61 @@ class MainWindow(QtWidgets.QMainWindow):
             self.right_outliner.apply_button.animateClick(10)
 
     def show_world_map(self):
-        if self.world_map_widget and self.world_map_widget.isVisible():
-            self.world_map_widget.activateWindow()
-            self.world_map_widget.raise_()
-            return
-
-        if self.world_map_widget is None:
-            self.world_map_widget = WorldMapWidget(self)
-            self.world_map_widget.generation_requested.connect(self._update_world_map_view)
-            self.world_map_widget.map_label.map_clicked.connect(self._on_world_map_clicked)
-
-        self.world_map_widget.show()
-
-        if self.world_map_widget.map_label.pixmap() is None:
+        if self.central_tabs:
+            for i in range(self.central_tabs.count()):
+                if "Карта" in self.central_tabs.tabText(i):
+                    self.central_tabs.setCurrentIndex(i)
+                    break
+        if self.world_map_widget and (self.world_map_widget.map_view._pixmap_item.pixmap() is None):
             self._update_world_map_view()
-
-    @QtCore.Slot(float, float)
-    def on_region_selected_from_map(self, offset_x: float, offset_z: float):
-        if self.global_x_offset_input and self.global_z_offset_input:
-            self.global_x_offset_input.setValue(offset_x)
-            self.global_z_offset_input.setValue(offset_z)
-            self._on_apply_clicked()
 
     @QtCore.Slot()
     def _update_world_map_view(self):
-        if self.world_map_widget is None:
-            return
-
+        if self.world_map_widget is None: return
         self.world_map_widget.set_busy(True)
-        
-        sphere_params = {}
         try:
+            sea_level = self.ws_sea_level.value() if self.ws_sea_level else 0.4
             sphere_params = {
-                'frequency': self.ws_sphere_frequency.value(),
                 'octaves': int(self.ws_sphere_octaves.value()),
                 'gain': self.ws_sphere_gain.value(),
                 'ridge': self.ws_sphere_ridge.isChecked(),
                 'seed': self.ws_sphere_seed.value(),
-                'ocean_latitude': self.ws_ocean_latitude.value(),
-                'ocean_falloff': self.ws_ocean_falloff.value(),
             }
-        except AttributeError:
-            logger.warning("Не все виджеты настроек шума доступны. Карта мира может быть неверной.")
 
-        sea_level = 0.4
-        pixmap = generate_world_map_image(sphere_params, sea_level)
+            subdiv_text = self.subdivision_level_input.currentText()
+            subdivision_level = int(subdiv_text.split(" ")[0])
+
+            num_regions = int(subdiv_text.split(" ")[1].strip("()регинов"))
+            resolution = int(self.region_resolution_input.currentText().split('x')[0])
+            total_hex_pixels = num_regions * (resolution ** 2) * (math.sqrt(3) / 2)
+            relative_scale = self.ws_relative_scale.value()
+            sphere_params['frequency'] = 8.0 / (relative_scale * math.sqrt(total_hex_pixels / (1024 * 1024)))
+
+            planet_data = hex_map_logic.build_planet_data(subdivision_level)
+            layout = hex_map_logic.unfold_planet_layout_correctly(planet_data)
+            self.world_map_layout_info = {"layout": layout}
+
+            # --- ИЗМЕНЕНИЕ: Передаем subdivision_level в функцию отрисовки ---
+            pixmap = hex_map_logic.draw_unfolded_map(
+                layout, planet_data, sphere_params, sea_level,
+                subdivision_level=subdivision_level
+            )
+            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+        except Exception as e:
+            logger.error(f"Ошибка генерации карты мира: {e}", exc_info=True)
+            pixmap = None
 
         self.world_map_widget.set_map_pixmap(pixmap)
         self.world_map_widget.set_busy(False)
 
     @QtCore.Slot(float, float)
     def _on_world_map_clicked(self, u: float, v: float):
-        try:
-            context = self.project_manager.collect_ui_context(for_preview=True)
-            region_world_size = context.get('WORLD_SIZE_METERS', 5000.0)
-            offset_x, offset_z = calculate_offset_from_map_click(u, v, region_world_size)
-
-            if self.global_x_offset_input: self.global_x_offset_input.setValue(offset_x)
-            if self.global_z_offset_input: self.global_z_offset_input.setValue(offset_z)
-
-            self._on_apply_clicked()
-
-            if self.world_map_widget:
-                self.world_map_widget.activateWindow()
-
-        except Exception as e:
-            logger.error(f"Ошибка обработки клика по карте: {e}")
+        logger.info(f"Клик по карте: u={u:.3f}, v={v:.3f}. Логика телепортации будет добавлена.")
+        pass
 
     def _load_app_settings(self):
-        """Загружает настройки UI (рендер, положение окон) при старте."""
         settings = QtCore.QSettings("WorldForge", "Editor")
-        
         render_data_str = settings.value("render_settings")
         if render_data_str and isinstance(render_data_str, str):
             try:
@@ -392,9 +382,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 logger.error(f"Не удалось загрузить настройки рендера: {e}")
 
     def _save_app_settings(self):
-        """Сохраняет настройки UI при выходе."""
         settings = QtCore.QSettings("WorldForge", "Editor")
-        
         try:
             render_data = asdict(self.render_settings)
             settings.setValue("render_settings", json.dumps(render_data))

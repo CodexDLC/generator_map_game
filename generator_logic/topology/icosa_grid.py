@@ -65,8 +65,9 @@ def build_hexplanet(f: int, lon0_deg: float = 18.0) -> Dict[str, object]:
     minx,miny = xy_net[:,0].min(), xy_net[:,1].min()
     xy_net[:,0] -= minx; xy_net[:,1] -= miny
     maxx,maxy = xy_net[:,0].max(), xy_net[:,1].max()
-    if maxx > 1e-6: xy_net[:,0] /= maxx
-    if maxy > 1e-6: xy_net[:,1] /= maxy
+    scale = max(maxx, maxy)
+    if scale > 1e-6:
+        xy_net /= scale
 
     return {
         "centers_xyz": centers_xyz,
