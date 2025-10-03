@@ -17,14 +17,12 @@ from ...core.types import GenResult
 from ...core.export import write_raw_regional_layers
 
 # --- Утилиты и Аналитика ---
-from ..grid_utils import _apply_changes_to_chunks
-from ..grid_utils import region_base as _region_base
+from ..grid_utils import _apply_changes_to_chunks, region_base as _region_base
 from ..analytics.region_analysis import RegionAnalysis
 
 # --- "Специалисты" по генерации (каждый отвечает за свою задачу) ---
 from ...algorithms.terrain.terrain import generate_elevation_region
 from ...algorithms.climate.climate import generate_climate_maps
-# --- ИСПРАВЛЕННЫЕ ИМПОРТЫ ---
 from ...algorithms.surfaces import classify_initial_terrain, apply_slope_textures, apply_beach_sand
 from ...algorithms.hydrology import apply_sea_level, generate_highland_lakes, generate_rivers
 

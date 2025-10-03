@@ -1,6 +1,4 @@
-pygame
 opencv-python
-imageio
 opensimplex~=0.4.5.1
 Pillow~=11.3.0
 numpy~=2.3.3
@@ -22,3 +20,4 @@ types-psutil
 
 landlab
 
+PyOpenGL

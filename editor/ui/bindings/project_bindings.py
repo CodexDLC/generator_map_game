@@ -1,4 +1,4 @@
-# editor/ui_panels/project_binding.py
+# editor/ui/bindings/project_bindings.py
 import numpy as np
 import logging
 

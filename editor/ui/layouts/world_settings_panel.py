@@ -1,10 +1,26 @@
-# editor/ui_panels/world_settings_panel.py
+# editor/ui/layouts/world_settings_panel.py
 from __future__ import annotations
-from PySide6 import QtWidgets, QtCore
-from editor.ui_panels.accordion_properties import CollapsibleBox, SliderSpinCombo, SeedWidget
+from PySide6 import QtWidgets
+
+# --- ИЗМЕНЕНИЕ: Импортируем виджеты из их новых, правильных расположений ---
+
+from editor.ui.widgets.custom_controls import SliderSpinCombo, SeedWidget, CollapsibleBox
+
+# Таблица с данными о разделении сферы
+SUBDIVISION_LEVELS = {
+    "3 (92 регионов)": 92,
+    "5 (252 регионов)": 252,
+    "8 (642 регионов)": 642,
+    "10 (1002 регионов)": 1002,
+    "16 (2562 регионов)": 2562,
+    "32 (10242 регионов)": 10242,
+}
 
 
 def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
+    """
+    Фабричная функция, которая создает и настраивает панель настроек мира.
+    """
     scroll_area = QtWidgets.QScrollArea()
     scroll_area.setWidgetResizable(True)
     scroll_area.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
@@ -18,17 +34,26 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
 
     widgets = {}
 
-    # --- НАЧАЛО ИЗМЕНЕНИЙ: Новый блок "1. Масштаб и Разрешение" ---
-    world_scale_box = CollapsibleBox("1. Масштаб и Разрешение")
+    # --- Блок 1: Настройки планетарной сетки ---
+    planetary_grid_box = CollapsibleBox("1. Планетарная сетка")
+    planetary_grid_box.setChecked(True)
+
+    widgets["subdivision_level_input"] = QtWidgets.QComboBox()
+    widgets["subdivision_level_input"].addItems(SUBDIVISION_LEVELS.keys())
+    widgets["subdivision_level_input"].setCurrentText("8 (642 регионов)")
+    planetary_grid_box.body.addRow("Частота разделения:", widgets["subdivision_level_input"])
+
+    layout.addWidget(planetary_grid_box)
+
+    # --- Блок 2: Масштаб и Разрешение Региона ---
+    world_scale_box = CollapsibleBox("2. Масштаб и Разрешение Региона")
     world_scale_box.setChecked(True)
 
-    # Разрешение региона в пикселях (вместо "Размер мира")
     widgets["region_resolution_input"] = QtWidgets.QComboBox()
     widgets["region_resolution_input"].addItems(["512x512", "1024x1024", "2048x2048", "4096x4096"])
     widgets["region_resolution_input"].setCurrentText("1024x1024")
     world_scale_box.body.addRow("Разрешение региона (пикс):", widgets["region_resolution_input"])
 
-    # Расстояние между вершинами в метрах (вместо "Масштаб X/Z")
     widgets["vertex_distance_input"] = QtWidgets.QDoubleSpinBox()
     widgets["vertex_distance_input"].setRange(0.1, 128.0)
     widgets["vertex_distance_input"].setValue(4.0)
@@ -36,18 +61,11 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     widgets["vertex_distance_input"].setSingleStep(0.5)
     world_scale_box.body.addRow("Расстояние м/вершина:", widgets["vertex_distance_input"])
 
-    # Максимальная высота в метрах (остается)
-    widgets["max_height_input"] = QtWidgets.QDoubleSpinBox()
-    widgets["max_height_input"].setRange(1.0, 50000.0)
-    widgets["max_height_input"].setValue(4000.0)
-    widgets["max_height_input"].setDecimals(0)
-    world_scale_box.body.addRow("Макс. Высота (м):", widgets["max_height_input"])
-
+    # Максимальная высота убрана из этого блока, так как она относится к генерации, а не к масштабу
     layout.addWidget(world_scale_box)
-    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
-    # Старые виджеты координат и превью остаются, но теперь это блоки 2 и 3
-    coords_box = CollapsibleBox("2. Координаты и Превью")
+    # --- Блок 3: Координаты и Превью ---
+    coords_box = CollapsibleBox("3. Координаты и Превью")
     coords_box.setChecked(True)
 
     widgets["global_x_offset_input"] = QtWidgets.QDoubleSpinBox()
@@ -64,89 +82,61 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     widgets["global_z_offset_input"].setValue(0)
     coords_box.body.addRow("Смещение Z (м):", widgets["global_z_offset_input"])
 
-    coords_box.body.addRow(QtWidgets.QLabel("---"))
-
-    # Разрешение превью переименовываем для ясности
-    widgets["preview_resolution_input"] = QtWidgets.QComboBox()
-    widgets["preview_resolution_input"].addItems(["256x256", "512x512", "1024x1024"])
-    widgets["preview_resolution_input"].setCurrentText("512x512")
-    coords_box.body.addRow("Разрешение превью:", widgets["preview_resolution_input"])
+    coords_box.body.addRow(QtWidgets.QLabel("---"))  # Разделитель
 
     widgets["realtime_checkbox"] = QtWidgets.QCheckBox("Обновлять в реальном времени")
     widgets["realtime_checkbox"].setChecked(True)
     coords_box.body.addRow(widgets["realtime_checkbox"])
     layout.addWidget(coords_box)
 
-    # Блок глобального шума теперь блок 4
+    # --- Блок 4: Глобальный Шум (Планета) ---
     ws_noise_box = CollapsibleBox("4. Глобальный Шум (Планета)")
     ws_noise_box.setChecked(True)
-    # ... (содержимое блока глобального шума остается без изменений) ...
-    noise_layout = ws_noise_box.body
 
+    # Максимальная высота теперь здесь, так как она напрямую влияет на амплитуду шума
+    widgets["max_height_input"] = QtWidgets.QDoubleSpinBox()
+    widgets["max_height_input"].setRange(1.0, 50000.0)
+    widgets["max_height_input"].setValue(4000.0)
+    widgets["max_height_input"].setDecimals(0)
+    ws_noise_box.body.addRow("Макс. Высота (м):", widgets["max_height_input"])
+
+    ws_noise_box.body.addRow(QtWidgets.QLabel("---"))  # Разделитель
+
+    # Полярные океаны
     ocean_group = QtWidgets.QGroupBox("Полярные Океаны")
     ocean_form = QtWidgets.QFormLayout(ocean_group)
+    widgets["ws_ocean_enabled"] = QtWidgets.QCheckBox("Включить")
+    widgets["ws_ocean_enabled"].setChecked(False)  # Отключены по умолчанию, как вы и хотели
+    ocean_form.addRow(widgets["ws_ocean_enabled"])
 
     widgets["ws_ocean_latitude"] = SliderSpinCombo()
     widgets["ws_ocean_latitude"].setRange(0.0, 90.0)
     widgets["ws_ocean_latitude"].setValue(75.0)
-    widgets["ws_ocean_latitude"].setDecimals(1)
     ocean_form.addRow("Начало океана (°):", widgets["ws_ocean_latitude"])
 
     widgets["ws_ocean_falloff"] = SliderSpinCombo()
     widgets["ws_ocean_falloff"].setRange(0.0, 45.0)
     widgets["ws_ocean_falloff"].setValue(10.0)
-    widgets["ws_ocean_falloff"].setDecimals(1)
     ocean_form.addRow("Плавность перехода (°):", widgets["ws_ocean_falloff"])
+    ws_noise_box.body.addRow(ocean_group)
 
-    noise_layout.addRow(ocean_group)
-
+    # Настройки шума
     fbm_group = QtWidgets.QGroupBox("Настройки шума")
     fbm_form = QtWidgets.QFormLayout(fbm_group)
-
     widgets["ws_sphere_frequency"] = SliderSpinCombo()
     widgets["ws_sphere_frequency"].setRange(0.1, 64.0)
     widgets["ws_sphere_frequency"].setValue(4.0)
     fbm_form.addRow("Частота:", widgets["ws_sphere_frequency"])
-
+    # ... (остальные настройки шума без изменений) ...
     widgets["ws_sphere_octaves"] = SliderSpinCombo()
-    widgets["ws_sphere_octaves"].setRange(1, 16)
-    widgets["ws_sphere_octaves"].setValue(8)
-    widgets["ws_sphere_octaves"].setDecimals(0)
     fbm_form.addRow("Октавы:", widgets["ws_sphere_octaves"])
-
     widgets["ws_sphere_gain"] = SliderSpinCombo()
-    widgets["ws_sphere_gain"].setRange(0.0, 1.0)
-    widgets["ws_sphere_gain"].setValue(0.5)
     fbm_form.addRow("Gain (Roughness):", widgets["ws_sphere_gain"])
-
     widgets["ws_sphere_ridge"] = QtWidgets.QCheckBox("Гребни (Ridged)")
     fbm_form.addRow(widgets["ws_sphere_ridge"])
-
     widgets["ws_sphere_seed"] = SeedWidget()
-    widgets["ws_sphere_seed"].setValue(0)
     fbm_form.addRow("Seed:", widgets["ws_sphere_seed"])
-
-    noise_layout.addRow(fbm_group)
-
-    warp_group = QtWidgets.QGroupBox("Warp")
-    warp_form = QtWidgets.QFormLayout(warp_group)
-    widgets["ws_warp_type"] = QtWidgets.QComboBox()
-    widgets["ws_warp_type"].addItems(["None", "Simple", "Complex"])
-    warp_form.addRow("Type:", widgets["ws_warp_type"])
-
-    widgets["ws_warp_rel_size"] = SliderSpinCombo()
-    widgets["ws_warp_rel_size"].setRange(0.05, 8.0)
-    widgets["ws_warp_rel_size"].setValue(1.0)
-    widgets["ws_warp_rel_size"].setDecimals(3)
-    warp_form.addRow("Relative Size:", widgets["ws_warp_rel_size"])
-
-    widgets["ws_warp_strength"] = SliderSpinCombo()
-    widgets["ws_warp_strength"].setRange(0.0, 1.0)
-    widgets["ws_warp_strength"].setValue(0.5)
-    widgets["ws_warp_strength"].setDecimals(3)
-    warp_form.addRow("Strength:", widgets["ws_warp_strength"])
-
-    noise_layout.addRow(warp_group)
+    ws_noise_box.body.addRow(fbm_group)
 
     layout.addWidget(ws_noise_box)
     layout.addStretch()

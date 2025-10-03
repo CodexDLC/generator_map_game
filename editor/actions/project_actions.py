@@ -218,3 +218,22 @@ def on_delete_project(main_window) -> None:
             QtWidgets.QMessageBox.critical(main_window, "Ошибка удаления", msg)
             # Попытаемся восстановить путь, если удаление не удалось
             pm.current_project_path = str(project_path)
+
+def show_project_manager(parent=None) -> str | None:
+    msg_box = QtWidgets.QMessageBox(parent)
+    msg_box.setWindowTitle("Project Manager")
+    msg_box.setText("Welcome to WorldForge Editor.")
+    msg_box.setInformativeText("Do you want to create a new project or open an existing one?")
+    new_button = msg_box.addButton("New Project", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+    open_button = msg_box.addButton("Open Project", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+    msg_box.addButton("Cancel", QtWidgets.QMessageBox.ButtonRole.RejectRole)
+
+    msg_box.exec()
+
+    clicked_button = msg_box.clickedButton()
+    if clicked_button == new_button:
+        return on_new_project(parent)
+    elif clicked_button == open_button:
+        return on_open_project(parent)
+    else:
+        return None

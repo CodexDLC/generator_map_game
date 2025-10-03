@@ -3,24 +3,30 @@ from __future__ import annotations
 import logging
 import traceback
 from typing import Optional, Dict, Any
+from dataclasses import asdict
+import json
 
 import numpy as np
 from PySide6 import QtWidgets, QtCore, QtGui
 from editor.graph.graph_runner import run_graph
-from editor.ui_panels.accordion_properties import create_properties_widget, SliderSpinCombo, SeedWidget, CollapsibleBox
-from editor.ui_panels.central_graph import create_bottom_work_area_v2
-from editor.ui_panels.menu import build_menus
-from editor.ui_panels.node_inspector import make_node_inspector_widget
-from editor.ui_panels.region_presets_panel import make_region_presets_widget
-from editor.ui_panels.shortcuts import install_shortcuts
-from editor.widgets.preview_widget import Preview3DWidget
+
+# --- ИСПРАВЛЕННЫЕ ИМПОРТЫ ---
+from editor.ui.layouts.properties_panel import create_properties_widget
+from editor.ui.widgets.custom_controls import SliderSpinCombo, SeedWidget, CollapsibleBox
+from editor.ui.layouts.central_layout import create_bottom_work_area_v2
+from editor.ui.layouts.main_menu import build_menus
+from editor.ui.layouts.node_inspector_panel import make_node_inspector_widget
+from editor.ui.layouts.presets_panel import make_region_presets_widget
+from editor.ui.bindings.shortcuts import install_shortcuts
+from editor.ui.widgets.preview_widget import Preview3DWidget
+from editor.ui.layouts.world_settings_panel import make_world_settings_widget
+from editor.ui.layouts.render_panel import make_render_panel_widget
+from editor.core.render_settings import RenderSettings
+from editor.ui.layouts.world_map_window import WorldMapWidget
+from editor.logic.world_map_logic import generate_world_map_image, calculate_offset_from_map_click
+
 from editor.core.project_manager import ProjectManager
 from editor.actions import preset_actions
-from editor.ui_panels.world_settings_panel import make_world_settings_widget
-from editor.ui_panels.render_panel import make_render_panel_widget
-from editor.core.render_settings import RenderSettings
-# --- НОВЫЙ ИМПОРТ ---
-from editor.ui_panels.world_map_widget import WorldMapWidget
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +51,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.presets_widget: 'RegionPresetsWidget' | None = None
         self._last_selected_node = None
         self.world_map_widget: WorldMapWidget | None = None
+        self.render_panel = None # Инициализируем, чтобы избежать AttributeError
 
         # --- АТРИБУТЫ ДЛЯ НАСТРОЕК МИРА (V2) ---
         self.region_resolution_input: QtWidgets.QComboBox | None = None
@@ -55,6 +62,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.preview_resolution_input: QtWidgets.QComboBox | None = None
         self.realtime_checkbox: QtWidgets.QCheckBox | None = None
         self.ws_noise_box: CollapsibleBox | None = None
+        self.world_seed_input: SeedWidget | None = None
 
         # --- АТРИБУТЫ ДЛЯ СФЕРИЧЕСКОГО ШУМА ---
         self.ws_sphere_radius: QtWidgets.QDoubleSpinBox | None = None
@@ -74,6 +82,8 @@ class MainWindow(QtWidgets.QMainWindow):
         install_shortcuts(self)
         if project_path:
             self.project_manager.load_project(project_path)
+            
+        self._load_app_settings() # <--- ДОБАВЛЕНА ЗАГРУЗКА НАСТРОЕК
 
     def _build_ui(self) -> None:
         try:
@@ -128,7 +138,7 @@ class MainWindow(QtWidgets.QMainWindow):
         return tabs
 
     def _connect_components(self):
-        # --- ИЗМЕНЕНИЕ: Подключаем новые виджеты ---
+        if self.world_seed_input: self.world_seed_input.editingFinished.connect(self._trigger_preview_update)
         if self.region_resolution_input: self.region_resolution_input.currentIndexChanged.connect(self._trigger_preview_update)
         if self.vertex_distance_input: self.vertex_distance_input.editingFinished.connect(self._trigger_preview_update)
         if self.max_height_input: self.max_height_input.editingFinished.connect(self._trigger_preview_update)
@@ -136,8 +146,6 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.global_z_offset_input: self.global_z_offset_input.editingFinished.connect(self._trigger_preview_update)
         if self.preview_resolution_input: self.preview_resolution_input.currentIndexChanged.connect(self._trigger_preview_update)
         if self.ws_noise_box: self.ws_noise_box.toggled.connect(self._trigger_preview_update)
-
-        # --- ПОДКЛЮЧЕНИЯ ДЛЯ СФЕРИЧЕСКОГО ШУМА ---
         if self.ws_sphere_frequency: self.ws_sphere_frequency.editingFinished.connect(self._trigger_preview_update)
         if self.ws_sphere_octaves: self.ws_sphere_octaves.editingFinished.connect(self._trigger_preview_update)
         if self.ws_sphere_gain: self.ws_sphere_gain.editingFinished.connect(self._trigger_preview_update)
@@ -176,14 +184,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @QtCore.Slot()
     def _trigger_preview_update(self):
-        if self.realtime_checkbox.isChecked():
+        if self.realtime_checkbox and self.realtime_checkbox.isChecked():
             self._on_apply_clicked()
 
     @QtCore.Slot(list)
     def _on_node_selection_changed(self, selected_nodes):
         if selected_nodes:
             self._last_selected_node = selected_nodes[0]
-            if self.realtime_checkbox.isChecked():
+            if self.realtime_checkbox and self.realtime_checkbox.isChecked():
                 self._on_apply_clicked()
 
     def get_project_data(self) -> Dict[str, Any] | None:
@@ -215,17 +223,19 @@ class MainWindow(QtWidgets.QMainWindow):
         if preset_info:
             project_data["active_preset_name"] = preset_name
             preset_actions.load_preset_into_graph(self, preset_info)
-            self.presets_widget.select_preset(preset_name)
+            if self.presets_widget:
+                self.presets_widget.select_preset(preset_name)
             self._mark_dirty()
 
     def action_create_preset_from_dialog(self, _preset_name_from_field: str):
         preset_actions.handle_new_preset(self)
 
     def action_delete_preset_by_name(self, preset_name: str):
-        items = self.presets_widget.list.findItems(preset_name, QtCore.Qt.MatchFlag.MatchExactly)
-        if items:
-            self.presets_widget.list.setCurrentItem(items[0])
-            preset_actions.handle_delete_preset(self)
+        if self.presets_widget:
+            items = self.presets_widget.list.findItems(preset_name, QtCore.Qt.MatchFlag.MatchExactly)
+            if items:
+                self.presets_widget.list.setCurrentItem(items[0])
+                preset_actions.handle_delete_preset(self)
 
     def action_save_active_preset(self):
         preset_actions.handle_save_active_preset(self)
@@ -234,6 +244,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.project_manager.mark_dirty(True)
 
     def closeEvent(self, ev: QtGui.QCloseEvent):
+        self._save_app_settings() # <--- ДОБАВЛЕНО СОХРАНЕНИЕ НАСТРОЕК
         if self.project_manager.close_project_with_confirmation():
             ev.accept()
         else:
@@ -242,7 +253,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_apply_clicked(self):
         if self.right_outliner: self.right_outliner.set_busy(True)
         try:
-            target_node = self.graph.selected_nodes()[0] if self.graph.selected_nodes() else self._last_selected_node
+            target_node = self.graph.selected_nodes()[0] if self.graph and self.graph.selected_nodes() else self._last_selected_node
             if not target_node:
                 logger.warning("Нет выбранной ноды для превью. Рендер отменен.")
                 return
@@ -251,24 +262,19 @@ class MainWindow(QtWidgets.QMainWindow):
 
             context = self.project_manager.collect_ui_context(for_preview=True)
 
-            # --- НАЧАЛО ИСПРАВЛЕНИЯ: Рассчитываем реальный размер мира для консистентности шума ---
             try:
                 real_res_str = self.region_resolution_input.currentText()
                 real_res = int(real_res_str.split('x')[0])
                 real_vertex_dist = self.vertex_distance_input.value()
-                # Это реальный размер региона в метрах, он не зависит от разрешения превью
                 real_world_size_for_noise = real_res * real_vertex_dist
             except Exception:
-                # В случае ошибки используем размер из контекста превью
                 real_world_size_for_noise = context['WORLD_SIZE_METERS']
-            # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
-            if self.ws_noise_box.isChecked():
+            if self.ws_noise_box and self.ws_noise_box.isChecked():
                 from game_engine_restructured.numerics.fast_noise import fbm_grid_bipolar, fbm_amplitude
                 params = {
                     "seed": self.ws_sphere_seed.value(),
                     "coords_x": context['x_coords'], "coords_z": context['z_coords'],
-                    # --- ИЗМЕНЕНИЕ: Используем РЕАЛЬНЫЙ размер для расчета частоты ---
                     "freq0": 1.0 / (real_world_size_for_noise * self.ws_sphere_frequency.value() * 0.1),
                     "octaves": int(self.ws_sphere_octaves.value()),
                     "gain": self.ws_sphere_gain.value(),
@@ -302,22 +308,96 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.right_outliner and self.right_outliner.apply_button:
             self.right_outliner.apply_button.animateClick(10)
 
-    # --- НОВЫЕ МЕТОДЫ В КОНЦЕ КЛАССА ---
-
     def show_world_map(self):
-        ''' Открывает или показывает окно с картой мира. '''
+        if self.world_map_widget and self.world_map_widget.isVisible():
+            self.world_map_widget.activateWindow()
+            self.world_map_widget.raise_()
+            return
+
         if self.world_map_widget is None:
             self.world_map_widget = WorldMapWidget(self)
-            self.world_map_widget.map_label.region_selected.connect(self.on_region_selected_from_map)
+            self.world_map_widget.generation_requested.connect(self._update_world_map_view)
+            self.world_map_widget.map_label.map_clicked.connect(self._on_world_map_clicked)
 
         self.world_map_widget.show()
-        self.world_map_widget.activateWindow()
-        self.world_map_widget.raise_()
+
+        if self.world_map_widget.map_label.pixmap() is None:
+            self._update_world_map_view()
 
     @QtCore.Slot(float, float)
     def on_region_selected_from_map(self, offset_x: float, offset_z: float):
-        ''' Обновляет смещения в UI и запускает перерисовку. '''
         if self.global_x_offset_input and self.global_z_offset_input:
             self.global_x_offset_input.setValue(offset_x)
             self.global_z_offset_input.setValue(offset_z)
             self._on_apply_clicked()
+
+    @QtCore.Slot()
+    def _update_world_map_view(self):
+        if self.world_map_widget is None:
+            return
+
+        self.world_map_widget.set_busy(True)
+        
+        sphere_params = {}
+        try:
+            sphere_params = {
+                'frequency': self.ws_sphere_frequency.value(),
+                'octaves': int(self.ws_sphere_octaves.value()),
+                'gain': self.ws_sphere_gain.value(),
+                'ridge': self.ws_sphere_ridge.isChecked(),
+                'seed': self.ws_sphere_seed.value(),
+                'ocean_latitude': self.ws_ocean_latitude.value(),
+                'ocean_falloff': self.ws_ocean_falloff.value(),
+            }
+        except AttributeError:
+            logger.warning("Не все виджеты настроек шума доступны. Карта мира может быть неверной.")
+
+        sea_level = 0.4
+        pixmap = generate_world_map_image(sphere_params, sea_level)
+
+        self.world_map_widget.set_map_pixmap(pixmap)
+        self.world_map_widget.set_busy(False)
+
+    @QtCore.Slot(float, float)
+    def _on_world_map_clicked(self, u: float, v: float):
+        try:
+            context = self.project_manager.collect_ui_context(for_preview=True)
+            region_world_size = context.get('WORLD_SIZE_METERS', 5000.0)
+            offset_x, offset_z = calculate_offset_from_map_click(u, v, region_world_size)
+
+            if self.global_x_offset_input: self.global_x_offset_input.setValue(offset_x)
+            if self.global_z_offset_input: self.global_z_offset_input.setValue(offset_z)
+
+            self._on_apply_clicked()
+
+            if self.world_map_widget:
+                self.world_map_widget.activateWindow()
+
+        except Exception as e:
+            logger.error(f"Ошибка обработки клика по карте: {e}")
+
+    def _load_app_settings(self):
+        """Загружает настройки UI (рендер, положение окон) при старте."""
+        settings = QtCore.QSettings("WorldForge", "Editor")
+        
+        render_data_str = settings.value("render_settings")
+        if render_data_str and isinstance(render_data_str, str):
+            try:
+                render_data = json.loads(render_data_str)
+                self.render_settings = RenderSettings.from_dict(render_data)
+                if self.render_panel:
+                    self.render_panel.set_settings(self.render_settings)
+                logger.info("Настройки рендера успешно загружены.")
+            except Exception as e:
+                logger.error(f"Не удалось загрузить настройки рендера: {e}")
+
+    def _save_app_settings(self):
+        """Сохраняет настройки UI при выходе."""
+        settings = QtCore.QSettings("WorldForge", "Editor")
+        
+        try:
+            render_data = asdict(self.render_settings)
+            settings.setValue("render_settings", json.dumps(render_data))
+            logger.info("Настройки рендера сохранены.")
+        except Exception as e:
+            logger.error(f"Не удалось сохранить настройки рендера: {e}")

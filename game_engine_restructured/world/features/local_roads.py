@@ -5,8 +5,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ...core.preset import Preset
 
-# --- НАЧАЛО ИЗМЕНЕНИЙ ---
-
 from ...core.types import GenResult
 from ..context import Region
 from ..grid_utils import region_base
@@ -14,8 +12,6 @@ from ...algorithms.pathfinding.routers import BaseRoadRouter
 from ...algorithms.pathfinding.network import apply_paths_to_grid, find_path_network
 from ...algorithms.pathfinding.policies import make_road_policy
 from ...core.grid.hex import HexGridSpec
-
-# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
 
 def build_local_roads(result: GenResult, region: Region, preset: Preset) -> None:
@@ -64,13 +60,5 @@ def build_local_roads(result: GenResult, region: Region, preset: Preset) -> None
         print(f"[ROADS][WARN] chunk={chunk_key} Could not connect waypoints.")
         return
 
-    # --- ИЗМЕНЕНИЕ: Отключаем выравнивание рельефа ---
-    # for path in paths:
-    #     if path:
-    #         carve_ramp_along_path(
-    #             height_grid, path, width=7
-    #         )
-
-    # Оставляем только "раскраску" дороги
     apply_paths_to_grid(surface_grid, nav_grid, overlay_grid, paths, width=3)
     print(f"[ROADS] chunk={chunk_key} Successfully applied paths.")

@@ -1,4 +1,4 @@
-# editor/ui_panels/render_panel.py
+# editor/ui/render_panel.py
 from __future__ import annotations
 from typing import Callable
 from PySide6 import QtWidgets, QtCore
@@ -77,6 +77,23 @@ class RenderPanel(QtWidgets.QWidget):
         self.auto = QtWidgets.QCheckBox("Auto frame")
         self.auto.setChecked(self.s.auto_frame)
         lay.addWidget(self.auto)
+
+        lay.addWidget(
+            QtWidgets.QFrame(self, frameShape=QtWidgets.QFrame.Shape.HLine, frameShadow=QtWidgets.QFrame.Shadow.Sunken))
+
+        # --- Разрешение превью ---
+        prev_res_row = QtWidgets.QHBoxLayout()
+        prev_res_row.addWidget(QtWidgets.QLabel("Разрешение превью:"))
+        # Важно: виджет должен быть доступен из main_window
+        self._mw = parent # Сохраняем ссылку на main_window
+        self._mw.preview_resolution_input = QtWidgets.QComboBox()
+        self._mw.preview_resolution_input.addItems(["256x256", "512x512", "1024x1024"])
+        self._mw.preview_resolution_input.setCurrentText("512x512")
+        prev_res_row.addWidget(self._mw.preview_resolution_input, 1)
+        lay.addLayout(prev_res_row)
+
+        lay.addWidget(
+            QtWidgets.QFrame(self, frameShape=QtWidgets.QFrame.Shape.HLine, frameShadow=QtWidgets.QFrame.Shadow.Sunken))
 
         # --- НОВОЕ: блок цвета ---
         grp = QtWidgets.QGroupBox("Цвет (предпросмотр)")

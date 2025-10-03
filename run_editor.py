@@ -12,7 +12,7 @@ from PySide6 import QtWidgets
 from editor.core.main_window import MainWindow
 from editor.core.setup_logging import setup_logging
 from editor.core.theme import APP_STYLE_SHEET
-from editor.core.project_manager import show_project_manager
+from editor.actions.project_actions import show_project_manager
 
 logger = logging.getLogger(__name__)
 
