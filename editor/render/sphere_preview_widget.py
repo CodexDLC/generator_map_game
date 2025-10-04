@@ -20,18 +20,18 @@ VS_CODE = """
 #version 330 core
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in float aHeight;
-layout (location = 2) in vec3 aColor; // <-- НОВЫЙ АТРИБУТ: цвет вершины
+layout (location = 2) in vec3 aColor;
 
 uniform mat4 mvp;
 
 out vec3 v_normal;
-out vec3 v_color; // <-- Передаем цвет во фрагментный шейдер
+out vec3 v_color;
 
 void main()
 {
     gl_Position = mvp * vec4(aPos, 1.0);
     v_normal = normalize(aPos);
-    v_color = aColor; // <-- Просто передаем цвет дальше
+    v_color = aColor;
 }
 """
 
@@ -40,14 +40,18 @@ FS_CODE = """
 out vec4 FragColor;
 
 in vec3 v_normal;
-in vec3 v_color; // <-- Получаем цвет от вершинного шейдера
+in vec3 v_color;
 
 void main()
 {
-    // Применяем простое освещение для объема к полученному цвету
+    // --- НАЧАЛО ИЗМЕНЕНИЙ: Более мягкое, рассеянное освещение ---
     vec3 lightDir = normalize(vec3(0.6, 0.4, 0.7));
     float diffuse = max(dot(v_normal, lightDir), 0.0);
-    vec3 lighting = vec3(0.4) + vec3(0.6) * diffuse;
+
+    // Раньше было: 0.4 ambient + 0.6 diffuse
+    // Теперь: 0.8 ambient + 0.2 diffuse. Свет стал гораздо мягче.
+    vec3 lighting = vec3(0.8) + vec3(0.2) * diffuse;
+    // --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
     vec3 final_color = v_color * lighting;
 
@@ -66,19 +70,28 @@ class SpherePreviewWidget(QOpenGLWidget):
         self._shader_program = None
         self._vbo = None
         self._height_vbo = None
-        self._color_vbo = None  # <-- НОВЫЙ БУФЕР для цветов
+        self._color_vbo = None
         self._ibo = None
         self._line_ibo = None
 
         self._vertices = np.array([], dtype=np.float32)
         self._heights = np.array([], dtype=np.float32)
-        self._colors = np.array([], dtype=np.float32)  # <-- Новый массив для цветов
+        self._colors = np.array([], dtype=np.float32)
         self._indices = np.array([], dtype=np.uint32)
         self._line_indices = np.array([], dtype=np.uint32)
+
+        self._planet_data = None  # Хранилище для данных о гексах
 
         self._cam_distance = 2.5
         self._rotation = QtGui.QQuaternion()
         self._last_mouse_pos = QtCore.QPoint()
+
+
+    def set_planet_data(self, data: dict):
+        self._planet_data = data
+
+    def get_planet_data(self) -> dict | None:
+        return self._planet_data
 
     def set_sea_level(self, sea_level: float):
         self._sea_level = max(0.0, min(1.0, sea_level))
@@ -143,45 +156,78 @@ class SpherePreviewWidget(QOpenGLWidget):
         mvp = proj * view
         GL.glUniformMatrix4fv(GL.glGetUniformLocation(self._shader_program, "mvp"), 1, GL_FALSE, mvp.data())
 
-        GL.glEnableVertexAttribArray(0)  # aPos
+        GL.glEnableVertexAttribArray(0)
         GL.glBindBuffer(GL_ARRAY_BUFFER, self._vbo)
         GL.glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
 
-        GL.glEnableVertexAttribArray(1)  # aHeight
+        GL.glEnableVertexAttribArray(1)
         GL.glBindBuffer(GL_ARRAY_BUFFER, self._height_vbo)
         GL.glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 0, None)
 
-        GL.glEnableVertexAttribArray(2)  # aColor
+        GL.glEnableVertexAttribArray(2)
         GL.glBindBuffer(GL_ARRAY_BUFFER, self._color_vbo)
         GL.glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, None)
 
-        # === PASS 1: Fill ===
         GL.glEnable(GL_POLYGON_OFFSET_FILL)
         GL.glPolygonOffset(1.0, 1.0)
         GL.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self._ibo)
         GL.glDrawElements(GL_TRIANGLES, self._indices.size, GL_UNSIGNED_INT, None)
         GL.glDisable(GL_POLYGON_OFFSET_FILL)
 
-        # === PASS 2: Lines ===
         GL.glLineWidth(2.0)
-        # Для линий мы отключаем атрибут цвета и используем сплошной черный
         GL.glDisableVertexAttribArray(2)
-        GL.glVertexAttrib3f(2, 0.05, 0.05, 0.05)  # Задаем сплошной черный цвет для aColor
+        GL.glVertexAttrib3f(2, 0.05, 0.05, 0.05)
 
         GL.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self._line_ibo)
         GL.glDrawElements(GL_LINES, self._line_indices.size, GL_UNSIGNED_INT, None)
 
-        # Cleanup
         GL.glLineWidth(1.0)
         GL.glDisableVertexAttribArray(0)
         GL.glDisableVertexAttribArray(1)
-        # GL.glDisableVertexAttribArray(2) уже вызван
 
     def resizeGL(self, w: int, h: int):
         GL.glViewport(0, 0, w, h)
 
     def mousePressEvent(self, event: QtGui.QMouseEvent):
         self._last_mouse_pos = event.position().toPoint()
+
+        # --- НАЧАЛО ИЗМЕНЕНИЙ: Логика определения клика ---
+        if self._planet_data is None or 'centers_xyz' not in self._planet_data:
+            return
+
+        centers_xyz = self._planet_data['centers_xyz']
+        if centers_xyz is None or centers_xyz.shape[0] == 0:
+            return
+
+        # Получаем матрицы трансформации для проекции 3D -> 2D
+        proj = self.view.camera.get_projection_matrix()
+        view_transform = self.view.camera.transform
+
+        # Трансформируем центры гексов в экранные координаты
+        projected = view_transform.map(centers_xyz)
+        projected = proj.map(projected)
+
+        # Нормализуем в диапазон [-1, 1]
+        w = projected[:, 3]
+        projected[:, 0] /= w
+        projected[:, 1] /= w
+
+        # Переводим в пиксельные координаты виджета
+        widget_size = self.size()
+        screen_coords = np.column_stack([
+            (projected[:, 0] + 1) * 0.5 * widget_size.width(),
+            (1 - (projected[:, 1] + 1) * 0.5) * widget_size.height()
+        ])
+
+        # Находим ближайший к клику центр
+        mouse_pos = np.array([event.position().x(), event.position().y()])
+        distances = np.linalg.norm(screen_coords - mouse_pos, axis=1)
+
+        closest_idx = np.argmin(distances)
+
+        # Отправляем сигнал с ID найденного гекса
+        self.cell_picked.emit(int(closest_idx))
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
     def mouseMoveEvent(self, event: QtGui.QMouseEvent):
         dx = event.position().toPoint().x() - self._last_mouse_pos.x()
@@ -194,8 +240,8 @@ class SpherePreviewWidget(QOpenGLWidget):
         self._last_mouse_pos = event.position().toPoint()
 
     def wheelEvent(self, event: QtGui.QWheelEvent):
-        self._cam_distance -= event.angleDelta().y() / 240.0
-        self._cam_distance = max(1.1, min(self._cam_distance, 20.0))
+        new_distance = self._cam_distance - event.angleDelta().y() / 240.0
+        self._cam_distance = max(0.1, min(new_distance, 20.0))
         self.update()
 
     def compile_shader(self, shader_type, shader_source):

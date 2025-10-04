@@ -28,7 +28,7 @@ def global_sphere_noise_wrapper(context: dict, sphere_params: dict, **kwargs) ->
 
     world_seed = int(context.get('project', {}).get('seed', 0))
     seed_offset = int(sphere_params.get('seed', 0))
-    main_seed = (world_seed ^ seed_offset) & 0xFFFFFFFF
+    main_seed = int(sphere_params.get('seed', 0)) & 0xFFFFFFFF
     frequency = float(sphere_params.get('frequency', 1.0))
 
     # Масштабируем координаты для получения нужной частоты шума

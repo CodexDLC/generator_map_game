@@ -4,12 +4,11 @@ from PySide6 import QtWidgets, QtCore
 
 from editor.ui.widgets.custom_controls import CollapsibleBox, SliderSpinCombo, SeedWidget
 
-# Константы (остаются без изменений)
 SUBDIVISION_LEVELS = {
     "3 (92 регионов)": 92, "5 (252 регионов)": 252, "8 (642 регионов)": 642,
     "10 (1002 регионов)": 1002, "16 (2562 регионов)": 2562, "32 (10242 регионов)": 10242,
 }
-ALLOWED_RESOLUTIONS = ["2048x2048", "4096x4096", "8192x8192", "16384x16384"]
+ALLOWED_RESOLUTIONS = ["256x256", "512x512", "1024x1024", "2048x2048", "4096x4096"]
 MAX_SIDE_METERS = 65536.0
 
 
@@ -30,9 +29,9 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
 
     widgets = {}
 
-    # --- ЕДИНЫЙ БЛОК ДЛЯ ВСЕХ НАСТРОЕК ---
+    # --- БЛОК 1: ГЛОБАЛЬНЫЕ НАСТРОЙКИ ---
     world_box = CollapsibleBox("Глобальные Настройки")
-    world_box.setChecked(True)  # По умолчанию раскрыт
+    world_box.setChecked(True)
 
     # --- Группа 1: Топология и Масштаб ---
     world_box.body.addRow(QtWidgets.QLabel("<b>Топология и Масштаб</b>"))
@@ -54,7 +53,7 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
 
     widgets["max_height_input"] = QtWidgets.QDoubleSpinBox()
     widgets["max_height_input"].setRange(1.0, 50000.0)
-    widgets["max_height_input"].setValue(8000.0)
+    widgets["max_height_input"].setValue(4000.0)
     widgets["max_height_input"].setDecimals(0)
     world_box.body.addRow("Макс. Высота (м):", widgets["max_height_input"])
 
@@ -62,32 +61,44 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     world_box.body.addRow(QtWidgets.QLabel("---"))
     world_box.body.addRow(QtWidgets.QLabel("<b>Форма Планеты (Глобальный Шум)</b>"))
 
+    widgets["ws_base_elevation_pct"] = SliderSpinCombo()
+    widgets["ws_base_elevation_pct"].setRange(0.1, 1.0)
+    widgets["ws_base_elevation_pct"].setValue(0.5)
+    world_box.body.addRow("Перепад высот (% от макс):", widgets["ws_base_elevation_pct"])
+
     widgets["ws_sea_level"] = SliderSpinCombo()
     widgets["ws_sea_level"].setRange(0.0, 1.0)
     widgets["ws_sea_level"].setValue(0.4)
-    world_box.body.addRow("Уровень моря (карта):", widgets["ws_sea_level"])
+    world_box.body.addRow("Уровень моря (% от перепада):", widgets["ws_sea_level"])
 
     widgets["ws_relative_scale"] = SliderSpinCombo()
     widgets["ws_relative_scale"].setRange(0.01, 1.0)
     widgets["ws_relative_scale"].setValue(0.25)
     world_box.body.addRow("Масштаб континентов:", widgets["ws_relative_scale"])
 
-    widgets["ws_sphere_octaves"] = SliderSpinCombo()
-    widgets["ws_sphere_octaves"].setRange(1, 16)
-    widgets["ws_sphere_octaves"].setValue(8)
-    widgets["ws_sphere_octaves"].setDecimals(0)
-    world_box.body.addRow("Октавы:", widgets["ws_sphere_octaves"])
+    widgets["ws_octaves"] = SliderSpinCombo()
+    widgets["ws_octaves"].setRange(1, 16)
+    widgets["ws_octaves"].setValue(8)
+    widgets["ws_octaves"].setDecimals(0)
+    world_box.body.addRow("Октавы:", widgets["ws_octaves"])
 
-    widgets["ws_sphere_gain"] = SliderSpinCombo()
-    widgets["ws_sphere_gain"].setRange(0.0, 1.0)
-    widgets["ws_sphere_gain"].setValue(0.5)
-    world_box.body.addRow("Gain (Roughness):", widgets["ws_sphere_gain"])
+    widgets["ws_gain"] = SliderSpinCombo()
+    widgets["ws_gain"].setRange(0.0, 1.0)
+    widgets["ws_gain"].setValue(0.5)
+    world_box.body.addRow("Gain (Roughness):", widgets["ws_gain"])
 
-    widgets["ws_sphere_ridge"] = QtWidgets.QCheckBox("Гребни (Ridged)")
-    world_box.body.addRow("", widgets["ws_sphere_ridge"])
+    widgets["ws_power"] = SliderSpinCombo()
+    widgets["ws_power"].setRange(0.1, 5.0)
+    widgets["ws_power"].setValue(1.0)
+    world_box.body.addRow("Power:", widgets["ws_power"])
 
-    widgets["ws_sphere_seed"] = SeedWidget()
-    world_box.body.addRow("Seed:", widgets["ws_sphere_seed"])
+    widgets["ws_warp_strength"] = SliderSpinCombo()
+    widgets["ws_warp_strength"].setRange(0.0, 1.0)
+    widgets["ws_warp_strength"].setValue(0.2)
+    world_box.body.addRow("Warp Strength:", widgets["ws_warp_strength"])
+
+    widgets["ws_seed"] = SeedWidget()
+    world_box.body.addRow("Seed:", widgets["ws_seed"])
 
     # --- Группа 3: Вычисляемые Параметры ---
     world_box.body.addRow(QtWidgets.QLabel("---"))
@@ -102,9 +113,28 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     world_box.body.addRow("<i>Базовый перепад высот:</i>", widgets["base_elevation_label"])
 
     layout.addWidget(world_box)
+
+    # --- БЛОК 2: НАСТРОЙКИ ПРЕВЬЮ ---
+    preview_box = CollapsibleBox("Настройки Превью")
+    preview_box.setChecked(True)
+
+    widgets["preview_resolution_input"] = QtWidgets.QComboBox()
+    widgets["preview_resolution_input"].addItems(["256x256", "512x512", "1024x1024"])
+    widgets["preview_resolution_input"].setCurrentText("512x512")
+    preview_box.body.addRow("Разрешение превью:", widgets["preview_resolution_input"])
+
+    widgets["region_id_label"] = QtWidgets.QLabel("0")
+    preview_box.body.addRow("ID Региона:", widgets["region_id_label"])
+
+    widgets["region_center_x_label"] = QtWidgets.QLabel("0.0")
+    preview_box.body.addRow("Центр X (сфер. коорд.):", widgets["region_center_x_label"])
+
+    widgets["region_center_z_label"] = QtWidgets.QLabel("0.0")
+    preview_box.body.addRow("Центр Z (сфер. коорд.):", widgets["region_center_z_label"])
+
+    layout.addWidget(preview_box)
     layout.addStretch()
 
-    # Сохраняем ссылку на сам CollapsibleBox для main_window
     widgets["ws_noise_box"] = world_box
 
     return scroll_area, widgets

@@ -10,6 +10,7 @@ from pathlib import Path
 from PySide6 import QtWidgets
 
 from editor.graph.graph_utils import create_default_graph_session
+from editor.ui.bindings.project_bindings import collect_project_data_from_ui
 
 logger = logging.getLogger(__name__)
 
@@ -134,11 +135,11 @@ def _status_msg(main_window, text: str, msec: int = 4000) -> None:
     except Exception:
         QtWidgets.QMessageBox.information(main_window, "Статус", text)
 
+
 def on_save_project(main_window, data_to_write: dict = None) -> None:
     logger.info("Action triggered: on_save_project.")
 
     if not main_window.project_manager.current_project_path:
-        logger.warning("Project save skipped: No project loaded.")
         _status_msg(main_window, "Проект не загружен.", 3000)
         return
 
@@ -146,26 +147,27 @@ def on_save_project(main_window, data_to_write: dict = None) -> None:
         project_file_path = Path(main_window.project_manager.current_project_path) / "project.json"
 
         final_data = {}
-
         if data_to_write:
             logger.debug("Saving project with provided data (programmatic save).")
             final_data = data_to_write
         else:
             logger.debug("Saving project with data from UI (manual save).")
+            # Читаем существующий файл, чтобы не потерять данные (например, пресеты)
             with open(project_file_path, "r", encoding="utf-8") as f:
-                existing_data = json.load(f)
+                final_data = json.load(f)
 
-            project_data_from_ui = main_window.project_manager.collect_ui_context()
+            # Собираем актуальные настройки из интерфейса
+            ui_settings = collect_project_data_from_ui(main_window)
 
-            existing_data.update(project_data_from_ui)
-            if "global_noise" in existing_data and "global_noise" in project_data_from_ui:
-                 existing_data["global_noise"].update(project_data_from_ui["global_noise"])
-
-            final_data = existing_data
+            # Обновляем данные новыми настройками из UI
+            final_data.update(ui_settings)
 
         _atomic_write_json(project_file_path, final_data)
 
-        logger.info(f"Project saved successfully to: {project_file_path}")
+        # Обновляем данные в памяти и снимаем флаг "не сохранено"
+        main_window.project_manager.current_project_data = final_data
+        main_window.project_manager.mark_dirty(False)
+
         _status_msg(main_window, f"Проект сохранен: {project_file_path}", 4000)
 
     except Exception as e:

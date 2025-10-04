@@ -1,11 +1,56 @@
 # editor/ui/bindings/project_bindings.py
 import numpy as np
 import logging
+from PySide6 import QtCore
 
 logger = logging.getLogger(__name__)
 
+def collect_project_data_from_ui(mw) -> dict:
+    """Собирает все глобальные настройки из UI для сохранения в project.json."""
+    return {
+        "world_topology": {
+            "subdivision": mw.subdivision_level_input.currentText(),
+            "resolution": mw.region_resolution_input.currentText(),
+            "vertex_distance": mw.vertex_distance_input.value(),
+            "max_height": mw.max_height_input.value(),
+        },
+        "global_noise": {
+            # --- ИСПРАВЛЕНИЕ: Добавлены все новые поля ---
+            "base_elevation_pct": mw.ws_base_elevation_pct.value(),
+            "sea_level_pct": mw.ws_sea_level.value(),
+            "scale": mw.ws_relative_scale.value(),
+            "octaves": int(mw.ws_octaves.value()),
+            "gain": mw.ws_gain.value(),
+            "power": mw.ws_power.value(),
+            "warp_strength": mw.ws_warp_strength.value(),
+            "seed": mw.ws_seed.value(),
+        }
+    }
+
+
 def apply_project_to_ui(mw, data: dict) -> None:
-    pass # Эта функция больше не нужна
+    """Применяет загруженные данные из project.json к виджетам в UI."""
+    logger.debug("Applying project data to UI.")
+    topo = data.get("world_topology", {})
+    noise = data.get("global_noise", {})
+
+    mw.subdivision_level_input.setCurrentText(topo.get("subdivision", "8 (642 регионов)"))
+    mw.region_resolution_input.setCurrentText(topo.get("resolution", "4096x4096"))
+    mw.vertex_distance_input.setValue(topo.get("vertex_distance", 1.0))
+    mw.max_height_input.setValue(topo.get("max_height", 4000.0))
+
+    # --- ИСПРАВЛЕНИЕ: Добавлены все новые поля ---
+    mw.ws_base_elevation_pct.setValue(noise.get("base_elevation_pct", 0.5))
+    mw.ws_sea_level.setValue(noise.get("sea_level_pct", 0.4))
+    mw.ws_relative_scale.setValue(noise.get("scale", 0.25))
+    mw.ws_octaves.setValue(noise.get("octaves", 8))
+    mw.ws_gain.setValue(noise.get("gain", 0.5))
+    mw.ws_power.setValue(noise.get("power", 1.0))
+    mw.ws_warp_strength.setValue(noise.get("warp_strength", 0.2))
+    mw.ws_seed.setValue(noise.get("seed", 12345))
+
+    QtCore.QTimer.singleShot(0, mw._update_dynamic_ranges)
+
 
 def collect_context_from_ui(mw, for_preview: bool = True) -> dict:
     """
@@ -21,17 +66,14 @@ def collect_context_from_ui(mw, for_preview: bool = True) -> dict:
 
         vertex_distance = mw.vertex_distance_input.value()
         max_height = mw.max_height_input.value()
-        
-        # --- ИЗМЕНЕНИЕ: Берем смещение из сохраненного состояния, а не из UI ---
+
         offset_x, offset_z = mw.current_world_offset
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-        
+
     except (AttributeError, ValueError, IndexError) as e:
         logger.error(f"Ошибка чтения настроек из UI: {e}")
         resolution, vertex_distance, max_height = 512, 1.0, 1000.0
         offset_x, offset_z = 0.0, 0.0
 
-    # Логика "умного превью" остается без изменений
     if for_preview:
         preview_vertex_distance = 1.0
         preview_max_height = max_height / vertex_distance if vertex_distance > 0 else max_height
@@ -53,5 +95,4 @@ def collect_context_from_ui(mw, for_preview: bool = True) -> dict:
         "z_coords": z_coords,
         "WORLD_SIZE_METERS": world_size_meters,
         "max_height_m": preview_max_height,
-        # ... остальные поля контекста
     }

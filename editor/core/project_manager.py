@@ -83,7 +83,8 @@ class ProjectManager:
             self.load_project(new_path)
 
     def open_project(self):
-        path_to_open = on_open_project(self._mw)
+        path_to_open = show_project_manager()
+
         if path_to_open:
             if self.close_project_with_confirmation():
                 self.load_project(path_to_open)
