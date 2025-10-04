@@ -12,6 +12,7 @@ from PySide6 import QtWidgets, QtCore, QtGui
 
 # --- Импорты ---
 from editor.graph.graph_runner import run_graph
+from editor.logic import planet_view_logic
 from editor.ui.layouts.properties_panel import create_properties_widget
 from editor.ui.widgets.custom_controls import SliderSpinCombo, SeedWidget, CollapsibleBox
 from editor.ui.layouts.central_layout import create_bottom_work_area_v2
@@ -23,12 +24,14 @@ from editor.ui.widgets.preview_widget import Preview3DWidget
 from editor.ui.layouts.world_settings_panel import make_world_settings_widget, MAX_SIDE_METERS
 from editor.ui.layouts.render_panel import make_render_panel_widget
 from editor.core.render_settings import RenderSettings
-from editor.ui.layouts.world_map_window import WorldMapWidget
-from editor.logic import hex_map_logic
+from editor.render.sphere_preview_widget import SpherePreviewWidget
+# --- ИЗМЕНЕНИЕ: Добавляем недостающие импорты ---
+
 from editor.core.project_manager import ProjectManager
 from editor.actions import preset_actions
 
 logger = logging.getLogger(__name__)
+
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -45,7 +48,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # --- Инициализация всех атрибутов UI ---
         self.graph: 'CustomNodeGraph' | None = None
         self.preview_widget: Preview3DWidget | None = None
-        self.world_map_widget: WorldMapWidget | None = None
+        self.planet_widget: SpherePreviewWidget | None = None
         self.central_tabs: QtWidgets.QTabWidget | None = None
         self.props_bin: QtWidgets.QWidget | None = None
         self.right_outliner: 'RightOutlinerWidget' | None = None
@@ -70,7 +73,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ws_sphere_ridge: QtWidgets.QCheckBox | None = None
         self.ws_sphere_seed: SeedWidget | None = None
 
-        self.world_map_layout_info: dict = {}
+        self.update_planet_btn: QtWidgets.QPushButton | None = None
+
         self.current_world_offset = (0.0, 0.0)
         self._last_selected_node = None
 
@@ -90,10 +94,24 @@ class MainWindow(QtWidgets.QMainWindow):
             self.preview_widget = QtWidgets.QLabel("Preview widget failed to load")
             self.preview_widget.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
 
-        self.world_map_widget = WorldMapWidget(self)
+        self.planet_widget = SpherePreviewWidget(self)
+
+        planet_container = QtWidgets.QWidget()
+        planet_layout = QtWidgets.QVBoxLayout(planet_container)
+        planet_layout.setContentsMargins(0, 0, 0, 0)
+        planet_layout.setSpacing(6)
+        planet_layout.addWidget(self.planet_widget, 1)
+
+        planet_bottom_bar = QtWidgets.QHBoxLayout()
+        planet_bottom_bar.setContentsMargins(8, 0, 8, 8)
+        planet_bottom_bar.addStretch()
+        self.update_planet_btn = QtWidgets.QPushButton("Обновить Планету")
+        planet_bottom_bar.addWidget(self.update_planet_btn)
+        planet_layout.addLayout(planet_bottom_bar)
+
         self.central_tabs = QtWidgets.QTabWidget()
         self.central_tabs.addTab(self.preview_widget, "3D Превью")
-        self.central_tabs.addTab(self.world_map_widget, "Карта Мира (Атлас)")
+        self.central_tabs.addTab(planet_container, "Планета")
 
         bottom_work_area, self.graph, self.left_palette, self.right_outliner = create_bottom_work_area_v2(self)
         tabs_left = self._create_left_tabs()
@@ -118,7 +136,6 @@ class MainWindow(QtWidgets.QMainWindow):
         tabs.setDocumentMode(True)
         world_settings_panel, ws_widgets = make_world_settings_widget(self)
 
-        # ИСПРАВЛЕНИЕ: Просто присваиваем все виджеты без условий
         for name, widget in ws_widgets.items():
             setattr(self, name, widget)
 
@@ -140,22 +157,24 @@ class MainWindow(QtWidgets.QMainWindow):
         return tabs
 
     def _connect_components(self):
-        # Подключения для динамического UI и карты
         if self.region_resolution_input: self.region_resolution_input.currentIndexChanged.connect(
             self._update_dynamic_ranges)
         if self.vertex_distance_input: self.vertex_distance_input.valueChanged.connect(self._update_calculated_fields)
-        if self.subdivision_level_input: self.subdivision_level_input.currentIndexChanged.connect(
-            self._update_calculated_fields)
 
-        # Подключения для перерисовки карты
-        if self.ws_sea_level: self.ws_sea_level.editingFinished.connect(self._update_world_map_view)
-        if self.ws_relative_scale: self.ws_relative_scale.editingFinished.connect(self._update_world_map_view)
-        if self.ws_sphere_octaves: self.ws_sphere_octaves.editingFinished.connect(self._update_world_map_view)
-        if self.ws_sphere_gain: self.ws_sphere_gain.editingFinished.connect(self._update_world_map_view)
-        if self.ws_sphere_ridge: self.ws_sphere_ridge.toggled.connect(self._update_world_map_view)
-        if self.ws_sphere_seed: self.ws_sphere_seed.editingFinished.connect(self._update_world_map_view)
+        # --- ИЗМЕНЕНИЕ: Добавляем вызов _update_planet_view при смене уровня подразделения ---
+        if self.subdivision_level_input:
+            self.subdivision_level_input.currentIndexChanged.connect(self._update_calculated_fields)
+            self.subdivision_level_input.currentIndexChanged.connect(self._update_planet_view)
 
-        # Подключения графа и панелей
+        # Подключаем сигналы для обновления планеты
+        if self.update_planet_btn: self.update_planet_btn.clicked.connect(self._update_planet_view)
+        if self.ws_sea_level: self.ws_sea_level.editingFinished.connect(self._update_planet_view)
+        if self.ws_relative_scale: self.ws_relative_scale.editingFinished.connect(self._update_planet_view)
+        if self.ws_sphere_octaves: self.ws_sphere_octaves.editingFinished.connect(self._update_planet_view)
+        if self.ws_sphere_gain: self.ws_sphere_gain.editingFinished.connect(self._update_planet_view)
+        if self.ws_sphere_ridge: self.ws_sphere_ridge.toggled.connect(self._update_planet_view)
+        if self.ws_sphere_seed: self.ws_sphere_seed.editingFinished.connect(self._update_planet_view)
+
         if self.graph:
             if self.props_bin: self.props_bin.set_graph(self.graph, self)
             if self.node_inspector: self.node_inspector.bind_graph(self.graph)
@@ -169,9 +188,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.presets_widget.create_from_current_requested.connect(self.action_create_preset_from_dialog)
             self.presets_widget.delete_requested.connect(self.action_delete_preset_by_name)
             self.presets_widget.save_as_requested.connect(self.action_save_active_preset)
-        if self.world_map_widget:
-            self.world_map_widget.generation_requested.connect(self._update_world_map_view)
-            self.world_map_widget.map_view.map_clicked.connect(self._on_world_map_clicked)
 
         QtCore.QTimer.singleShot(0, self._update_dynamic_ranges)
 
@@ -189,8 +205,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_calculated_fields(self):
         if not all([self.subdivision_level_input, self.region_resolution_input, self.vertex_distance_input,
-                    self.planet_radius_label, self.base_elevation_label]): return
+                    self.planet_radius_label, self.base_elevation_label, self.max_height_input]): return
         try:
+            # Расчет радиуса планеты (без изменений)
             res_str = self.region_resolution_input.currentText()
             resolution = int(res_str.split('x')[0])
             dist = self.vertex_distance_input.value()
@@ -201,9 +218,15 @@ class MainWindow(QtWidgets.QMainWindow):
             total_surface_area_m2 = num_regions * hex_area_m2
             radius_m = math.sqrt(total_surface_area_m2 / (4 * math.pi))
             radius_km = radius_m / 1000.0
-            base_elevation = radius_km * 3.1
             self.planet_radius_label.setText(f"{radius_km:,.0f} км")
+
+            # --- ИСПРАВЛЕННАЯ ЛОГИКА РАСЧЕТА ---
+            # Базовый перепад высот теперь - это 30% от Максимальной высоты.
+            # Это дает интуитивно понятную связь между параметрами.
+            max_h = self.max_height_input.value()
+            base_elevation = max_h * 0.3
             self.base_elevation_label.setText(f"{base_elevation:,.0f} м")
+
         except Exception as e:
             logger.error(f"Ошибка при расчете полей: {e}")
             self.planet_radius_label.setText("Ошибка")
@@ -314,59 +337,45 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.right_outliner and self.right_outliner.apply_button:
             self.right_outliner.apply_button.animateClick(10)
 
-    def show_world_map(self):
+    # --- ИЗМЕНЕНИЕ: Новый метод для открытия вкладки "Планета" ---
+    def show_planet_view(self):
         if self.central_tabs:
             for i in range(self.central_tabs.count()):
-                if "Карта" in self.central_tabs.tabText(i):
+                if self.central_tabs.tabText(i) == "Планета":
                     self.central_tabs.setCurrentIndex(i)
+                    # Если виджет еще не был отрисован, запускаем обновление
+                    if self.planet_widget and self.planet_widget._vbo is None:
+                        self._update_planet_view()
                     break
-        if self.world_map_widget and (self.world_map_widget.map_view._pixmap_item.pixmap() is None):
-            self._update_world_map_view()
 
     @QtCore.Slot()
-    def _update_world_map_view(self):
-        if self.world_map_widget is None: return
-        self.world_map_widget.set_busy(True)
+    def _update_planet_view(self):
+        if self.update_planet_btn: self.update_planet_btn.setEnabled(False)
+        QtWidgets.QApplication.processEvents()
+
         try:
-            sea_level = self.ws_sea_level.value() if self.ws_sea_level else 0.4
-            sphere_params = {
-                'octaves': int(self.ws_sphere_octaves.value()),
-                'gain': self.ws_sphere_gain.value(),
-                'ridge': self.ws_sphere_ridge.isChecked(),
-                'seed': self.ws_sphere_seed.value(),
+            # 1. Собираем АКТУАЛЬНЫЕ настройки из UI в словарь
+            world_settings = {
+                'subdivision_level': int(self.subdivision_level_input.currentText().split(" ")[0]),
+                'disp_scale': 0.05,
+                # --- ИСПРАВЛЕНИЕ: Считываем значение с каждого виджета ---
+                'sea_level': self.ws_sea_level.value(),
+                'sphere_params': {
+                    'octaves': int(self.ws_sphere_octaves.value()),
+                    'gain': self.ws_sphere_gain.value(),
+                    'ridge': self.ws_sphere_ridge.isChecked(),
+                    'seed': self.ws_sphere_seed.value(),
+                    'frequency': 1.0 / (self.ws_relative_scale.value() * 4.0)
+                }
             }
 
-            subdiv_text = self.subdivision_level_input.currentText()
-            subdivision_level = int(subdiv_text.split(" ")[0])
-
-            num_regions = int(subdiv_text.split(" ")[1].strip("()регинов"))
-            resolution = int(self.region_resolution_input.currentText().split('x')[0])
-            total_hex_pixels = num_regions * (resolution ** 2) * (math.sqrt(3) / 2)
-            relative_scale = self.ws_relative_scale.value()
-            sphere_params['frequency'] = 8.0 / (relative_scale * math.sqrt(total_hex_pixels / (1024 * 1024)))
-
-            planet_data = hex_map_logic.build_planet_data(subdivision_level)
-            layout = hex_map_logic.unfold_planet_layout_correctly(planet_data)
-            self.world_map_layout_info = {"layout": layout}
-
-            # --- ИЗМЕНЕНИЕ: Передаем subdivision_level в функцию отрисовки ---
-            pixmap = hex_map_logic.draw_unfolded_map(
-                layout, planet_data, sphere_params, sea_level,
-                subdivision_level=subdivision_level
-            )
-            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+            # 2. Передаем собранные настройки в модуль логики
+            planet_view_logic.update_planet_widget(self.planet_widget, world_settings)
 
         except Exception as e:
-            logger.error(f"Ошибка генерации карты мира: {e}", exc_info=True)
-            pixmap = None
-
-        self.world_map_widget.set_map_pixmap(pixmap)
-        self.world_map_widget.set_busy(False)
-
-    @QtCore.Slot(float, float)
-    def _on_world_map_clicked(self, u: float, v: float):
-        logger.info(f"Клик по карте: u={u:.3f}, v={v:.3f}. Логика телепортации будет добавлена.")
-        pass
+            QtWidgets.QMessageBox.critical(self, "Ошибка", f"Не удалось обновить 3D-планету: {e}")
+        finally:
+            if self.update_planet_btn: self.update_planet_btn.setEnabled(True)
 
     def _load_app_settings(self):
         settings = QtCore.QSettings("WorldForge", "Editor")

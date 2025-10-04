@@ -49,7 +49,6 @@ def build_menus(main_window: "MainWindow") -> None:
 
     file_menu.addSeparator()
 
-    # --- ИЗМЕНЕНИЕ: Добавляем действие удаления проекта ---
     delete_project_action = file_menu.addAction("Удалить проект...")
     delete_project_action.triggered.connect(lambda: on_delete_project(main_window))
 
@@ -60,9 +59,10 @@ def build_menus(main_window: "MainWindow") -> None:
 
     # --- Меню "Вид" ---
     view_menu = menu_bar.addMenu("&Вид")
-    
-    map_action = view_menu.addAction("Карта Мира...")
-    map_action.triggered.connect(main_window.show_world_map)
+
+    # --- ИЗМЕНЕНИЕ: Обновляем текст и привязку к новому методу ---
+    map_action = view_menu.addAction("Планета...")
+    map_action.triggered.connect(main_window.show_planet_view)
 
     # --- Меню "Помощь" ---
     help_menu = menu_bar.addMenu("&Помощь")
