@@ -1,7 +1,7 @@
 # ==============================================================================
-# Файл: game_engine_restructured/numerics/fast_noise.py (ВЕРСИЯ 2.3 - Parallel Fix)
-# ИСПРАВЛЕНИЕ: Отключено распараллеливание для fbm_grid_3d, чтобы избежать
-#              внутренней ошибки компилятора Numba и артефактов на сфере.
+# Файл: game_engine_restructured/numerics/fast_noise.py (ВЕРСИЯ 2.5 - Typing Fix)
+# ИСПРАВЛЕНИЕ: Убрана ошибочная условная логика в fbm_grid_3d,
+#              которая приводила к ошибке типизации в Numba.
 # ==============================================================================
 from __future__ import annotations
 import numpy as np
@@ -149,8 +149,6 @@ def fbm_grid_bipolar(
     return output
 
 
-# --- CHANGE HERE ---
-# Removed `parallel=True` to avoid the Numba compiler bug
 @njit(cache=True, fastmath=True)
 def fbm_grid_3d(
         seed: int,
@@ -166,10 +164,13 @@ def fbm_grid_3d(
     H, W = coords_x.shape
     output = np.empty_like(coords_x, dtype=F32)
 
-    # Use a regular `range` since `parallel=False`
     for j in range(H):
         for i in range(W):
-            cx, cy, cz = coords_x[j, i], coords_y[j, i], coords_z[j, i]
+            # --- FIX: Always use 2D indexing as input arrays are guaranteed to be 2D. ---
+            cx = coords_x[j, i]
+            cy = coords_y[j, i]
+            cz = coords_z[j, i]
+            # --- END FIX ---
 
             amp, freq, total = F32(1.0), freq0, F32(0.0)
             for o in range(octaves):
@@ -179,6 +180,7 @@ def fbm_grid_3d(
                 total += amp * sample
                 freq *= lacunarity
                 amp *= gain
+
             output[j, i] = total
 
     max_amp = fbm_amplitude(gain, octaves)
@@ -186,3 +188,4 @@ def fbm_grid_3d(
         output /= max_amp
 
     return output
+

@@ -13,15 +13,28 @@ def global_sphere_noise_wrapper(context: dict, sphere_params: dict, **kwargs) ->
     if coords_xyz is None:
         raise ValueError("global_sphere_noise_wrapper теперь требует аргумент 'coords_xyz'")
 
+    # --- PATCH 1: Устойчивый wrapper для формы входных данных ---
+    xyz = np.asarray(coords_xyz, dtype=np.float32)
+    if xyz.ndim == 2 and xyz.shape[-1] == 3:
+        xyz = xyz[None, ...]  # (1, N, 3) — если пришёл батч точек
+    if xyz.ndim == 1 and xyz.shape[0] == 3:
+        xyz = xyz[None, None, :]  # (1, 1, 3) — одиночная точка
+
+    # Распаковка координат
+    coords_x = xyz[..., 0]
+    coords_y = xyz[..., 1]
+    coords_z = xyz[..., 2]
+    # --- END PATCH 1 ---
+
     world_seed = int(context.get('project', {}).get('seed', 0))
     seed_offset = int(sphere_params.get('seed', 0))
     main_seed = (world_seed ^ seed_offset) & 0xFFFFFFFF
     frequency = float(sphere_params.get('frequency', 1.0))
 
     # Масштабируем координаты для получения нужной частоты шума
-    coords_x = coords_xyz[..., 0] * frequency
-    coords_y = coords_xyz[..., 1] * frequency
-    coords_z = coords_xyz[..., 2] * frequency
+    coords_x = coords_x * frequency
+    coords_y = coords_y * frequency
+    coords_z = coords_z * frequency
 
     # Вызываем ядро генерации шума
     noise_np = fbm_grid_3d(
