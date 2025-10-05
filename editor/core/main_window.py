@@ -307,13 +307,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @QtCore.Slot(object)
     def _on_render_settings_changed(self, new_settings: RenderSettings):
-        old_hex = self.render_settings.height_exaggeration
-        new_hex = new_settings.height_exaggeration
         self.render_settings = new_settings
+        # Передаем новые настройки в ОБА виджета
         if self.preview_widget:
             self.preview_widget.apply_render_settings(new_settings)
-        if abs(old_hex - new_hex) > 1e-6:
-            self._on_apply_clicked()
+        if self.planet_widget and hasattr(self.planet_widget, 'set_render_settings'):
+            self.planet_widget.set_render_settings(new_settings)
+
 
     @QtCore.Slot()
     def _trigger_preview_update(self):
@@ -499,38 +499,10 @@ class MainWindow(QtWidgets.QMainWindow):
         QtWidgets.QApplication.processEvents()
 
         try:
-            # --- НАЧАЛО ИЗМЕНЕНИЙ: Полностью переработанная логика сбора настроек ---
-            # 1. Считываем радиус из UI и переводим в метры
-            radius_text = self.planet_radius_label.text().replace(" км", "").replace(",", "").replace(" ", "")
-            radius_km = float(radius_text) if radius_text and radius_text != 'Ошибка' else 1.0
-            radius_m = radius_km * 1000.0
-            if radius_m < 1.0:
-                raise ValueError("Радиус планеты слишком мал или не рассчитан.")
-
-            # 2. Считываем "Базовый перепад высот" из вычисляемого поля
-            elevation_text = self.base_elevation_label.text().replace(" м", "").replace(",", "").replace(" ", "")
-            base_elevation_m = float(elevation_text) if elevation_text and elevation_text != 'Ошибка' else 1000.0
-
-            # 3. Рассчитываем относительное смещение для 3D-модели
-            disp_scale = base_elevation_m / radius_m
-
-            # 4. Собираем все настройки для передачи в логику рендеринга
-            world_settings = {
-                'subdivision_level': int(self.subdivision_level_input.currentText().split(" ")[0]),
-                'disp_scale': disp_scale,
-                'sphere_params': {
-                    'octaves': int(self.ws_octaves.value()),
-                    'gain': self.ws_gain.value(),
-                    'seed': self.ws_seed.value(),
-                    'frequency': 1.0 / (self.ws_relative_scale.value() * 4.0),
-                    'sea_level_pct': self.ws_sea_level.value(),
-                    'power': self.ws_power.value(),
-                    'warp_strength': self.ws_warp_strength.value(),
-                }
-            }
-            # --- КОНЕЦ ИЗМЕНЕНИЙ ---
-
-            planet_view_logic.update_planet_widget(self.planet_widget, world_settings)
+            # Эта функция теперь находится в planet_view_logic
+            from editor.logic import planet_view_logic
+            # Просто вызываем новый оркестратор
+            planet_view_logic.orchestrate_planet_update(self)
 
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Ошибка",
