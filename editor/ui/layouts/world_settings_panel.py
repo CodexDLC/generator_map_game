@@ -41,6 +41,19 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     widgets["subdivision_level_input"].setCurrentText("8 (642 регионов)")
     world_box.body.addRow("Частота разделения:", widgets["subdivision_level_input"])
 
+    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+    widgets["planet_preview_detail_input"] = QtWidgets.QComboBox()
+    widgets["planet_preview_detail_input"].addItems([
+        "Низкая (2)", "Средняя (3)", "Высокая (4)"
+    ])
+    widgets["planet_preview_detail_input"].setCurrentText("Средняя (3)")
+    widgets["planet_preview_detail_input"].setToolTip(
+        "Уровень детализации 3D-вида планеты.\n"
+        "Высокие значения могут замедлить обновление."
+    )
+    world_box.body.addRow("Детализация планеты:", widgets["planet_preview_detail_input"])
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
     widgets["region_resolution_input"] = QtWidgets.QComboBox()
     widgets["region_resolution_input"].addItems(ALLOWED_RESOLUTIONS)
     widgets["region_resolution_input"].setCurrentText("4096x4096")
@@ -119,10 +132,8 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     preview_box.setChecked(True)
 
     widgets["preview_resolution_input"] = QtWidgets.QComboBox()
-    # --- НАЧАЛО ИСПРАВЛЕНИЯ: Убираем лишние разрешения ---
     widgets["preview_resolution_input"].addItems(["1024x1024", "2048x2048", "4096x4096"])
     widgets["preview_resolution_input"].setCurrentText("1024x1024")
-    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
     preview_box.body.addRow("Разрешение превью:", widgets["preview_resolution_input"])
 
     widgets["region_id_label"] = QtWidgets.QLabel("0")

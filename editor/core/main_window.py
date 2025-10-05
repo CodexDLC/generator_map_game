@@ -29,12 +29,8 @@ from editor.ui.layouts.world_settings_panel import make_world_settings_widget, M
 from editor.ui.layouts.render_panel import make_render_panel_widget
 from editor.core.render_settings import RenderSettings
 from editor.render.sphere_preview_widget import SpherePreviewWidget
-# --- ИЗМЕНЕНИЕ: Добавляем недостающие импорты ---
-
 from editor.core.project_manager import ProjectManager
 from editor.actions import preset_actions
-
-# --- НОВЫЙ ИМПОРТ ---
 from editor.nodes.height.io.world_input_node import WorldInputNode
 
 
@@ -62,6 +58,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.realtime_checkbox: QtWidgets.QCheckBox | None = None
 
         self.subdivision_level_input: QtWidgets.QComboBox | None = None
+        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+        self.planet_preview_detail_input: QtWidgets.QComboBox | None = None
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
         self.region_resolution_input: QtWidgets.QComboBox | None = None
         self.vertex_distance_input: QtWidgets.QDoubleSpinBox | None = None
         self.max_height_input: QtWidgets.QDoubleSpinBox | None = None
@@ -78,17 +77,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ws_warp_strength: SliderSpinCombo | None = None
         self.ws_seed: SeedWidget | None = None
 
-        # --- НОВЫЕ АТРИБУТЫ ---
         self.preview_resolution_input: QtWidgets.QComboBox | None = None
         self.region_id_label: QtWidgets.QLabel | None = None
         self.region_center_x_label: QtWidgets.QLabel | None = None
         self.region_center_z_label: QtWidgets.QLabel | None = None
 
         self.current_region_id: int = 0
-        # Смещение для генерации превью. Формат: (X, Z) в сферических координатах.
         self.current_world_offset = (0.0, 0.0)
-        # --- КОНЕЦ НОВЫХ АТРИБУТОВ ---
-
         self.update_planet_btn: QtWidgets.QPushButton | None = None
         self._last_selected_node = None
 
@@ -99,7 +94,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.project_manager.load_project(project_path)
         self._load_app_settings()
 
-        # --- Устанавливаем начальное состояние ---
         QtCore.QTimer.singleShot(0, lambda: self._on_cell_picked(0))
 
     def _build_ui(self) -> None:
@@ -174,7 +168,6 @@ class MainWindow(QtWidgets.QMainWindow):
         return tabs
 
     def _connect_components(self):
-        # --- Подключаем сигналы для обновления вычисляемых полей ---
         if self.region_resolution_input: self.region_resolution_input.currentIndexChanged.connect(
             self._update_dynamic_ranges)
         if self.vertex_distance_input: self.vertex_distance_input.valueChanged.connect(self._update_calculated_fields)
@@ -184,25 +177,23 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.ws_base_elevation_pct: self.ws_base_elevation_pct.editingFinished.connect(
             self._update_calculated_fields)
 
-        # --- Подключаем сигналы для обновления 3D-вида планеты ---
         if self.update_planet_btn: self.update_planet_btn.clicked.connect(self._update_planet_view)
 
-        # --- НАЧАЛО ИСПРАВЛЕНИЯ: ВОТ ЭТА СТРОКА БЫЛА ПОТЕРЯНА ---
         if self.planet_widget:
             self.planet_widget.cell_picked.connect(self._on_cell_picked)
-        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
-        # --- Подключаем все контролы к _mark_dirty ---
+        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
         planet_controls = [
-            self.subdivision_level_input, self.region_resolution_input, self.vertex_distance_input,
-            self.max_height_input, self.ws_base_elevation_pct, self.ws_sea_level,
-            self.ws_relative_scale, self.ws_octaves, self.ws_gain, self.ws_power,
-            self.ws_warp_strength, self.ws_seed
+            self.subdivision_level_input, self.planet_preview_detail_input, self.region_resolution_input,
+            self.vertex_distance_input, self.max_height_input, self.ws_base_elevation_pct,
+            self.ws_sea_level, self.ws_relative_scale, self.ws_octaves, self.ws_gain,
+            self.ws_power, self.ws_warp_strength, self.ws_seed
         ]
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
         for control in planet_controls:
             if not control: continue
 
-            # Обновляем планету, когда пользователь закончил изменение
             if hasattr(control, 'editingFinished'):
                 control.editingFinished.connect(self._update_planet_view)
             elif hasattr(control, 'valueChanged'):
@@ -210,7 +201,6 @@ class MainWindow(QtWidgets.QMainWindow):
             elif hasattr(control, 'currentIndexChanged'):
                 control.currentIndexChanged.connect(self._update_planet_view)
 
-            # Помечаем проект как "грязный" при любом изменении
             if hasattr(control, 'editingFinished'):
                 control.editingFinished.connect(self._mark_dirty)
             elif hasattr(control, 'valueChanged'):
@@ -218,7 +208,6 @@ class MainWindow(QtWidgets.QMainWindow):
             elif hasattr(control, 'currentIndexChanged'):
                 control.currentIndexChanged.connect(self._mark_dirty)
 
-        # Остальные подключения (граф, аутлайнер и т.д.)
         if self.graph:
             if self.props_bin: self.props_bin.set_graph(self.graph, self)
             if self.node_inspector: self.node_inspector.bind_graph(self.graph)
@@ -226,7 +215,6 @@ class MainWindow(QtWidgets.QMainWindow):
             if self.left_palette: self.left_palette.bind_graph(self.graph)
             QtCore.QTimer.singleShot(0, self.graph.finalize_setup)
             self.graph.selection_changed.connect(self._on_node_selection_changed)
-            # Помечаем проект как грязный при изменении структуры графа
             self.graph.structure_changed.connect(self._mark_dirty)
 
         if self.right_outliner: self.right_outliner.apply_clicked.connect(self._on_apply_clicked)
@@ -241,23 +229,18 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @QtCore.Slot(int)
     def _on_cell_picked(self, cell_id: int):
-        """Вызывается при клике на гекс в 3D-виде планеты."""
         logger.info(f"Выбран регион (гекс) с ID: {cell_id}")
         self.current_region_id = cell_id
 
         planet_data = getattr(self.planet_widget, '_planet_data', None)
         if planet_data and 'centers_xyz' in planet_data:
-            # Получаем 3D-координаты центра этого гекса
             center_xyz = planet_data['centers_xyz'][cell_id]
-            # Для превью мы используем X и Z как смещение на плоской карте
             self.current_world_offset = (float(center_xyz[0]), float(center_xyz[2]))
 
-            # Обновляем UI
             if self.region_id_label: self.region_id_label.setText(str(cell_id))
             if self.region_center_x_label: self.region_center_x_label.setText(f"{self.current_world_offset[0]:.3f}")
             if self.region_center_z_label: self.region_center_z_label.setText(f"{self.current_world_offset[1]:.3f}")
 
-            # Автоматически запускаем перерисовку превью для выбранного региона
             self._trigger_preview_update()
 
 
@@ -278,7 +261,6 @@ class MainWindow(QtWidgets.QMainWindow):
                     self.planet_radius_label, self.base_elevation_label, self.max_height_input,
                     self.ws_base_elevation_pct]): return
         try:
-            # Расчет радиуса планеты (без изменений)
             res_str = self.region_resolution_input.currentText()
             resolution = int(res_str.split('x')[0])
             dist = self.vertex_distance_input.value()
@@ -293,12 +275,10 @@ class MainWindow(QtWidgets.QMainWindow):
             radius_km = radius_m / 1000.0
             self.planet_radius_label.setText(f"{radius_km:,.0f} км")
 
-            # --- ИЗМЕНЕННАЯ ЛОГИКА РАСЧЕТА ПЕРЕПАДА ВЫСОТ ---
             max_h = self.max_height_input.value()
             base_elevation_percent = self.ws_base_elevation_pct.value()
             base_elevation = max_h * base_elevation_percent
             self.base_elevation_label.setText(f"{base_elevation:,.0f} м")
-            # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
         except Exception as e:
             logger.error(f"Ошибка при расчете полей: {e}")
@@ -308,7 +288,6 @@ class MainWindow(QtWidgets.QMainWindow):
     @QtCore.Slot(object)
     def _on_render_settings_changed(self, new_settings: RenderSettings):
         self.render_settings = new_settings
-        # Передаем новые настройки в ОБА виджета
         if self.preview_widget:
             self.preview_widget.apply_render_settings(new_settings)
         if self.planet_widget and hasattr(self.planet_widget, 'set_render_settings'):
@@ -384,7 +363,6 @@ class MainWindow(QtWidgets.QMainWindow):
             ev.ignore()
 
     def _on_apply_clicked(self):
-        """Главная функция генерации превью."""
         if self.right_outliner: self.right_outliner.set_busy(True)
         try:
             target_node = self.graph.selected_nodes()[
@@ -395,10 +373,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
             logger.info(f"Рендеринг превью для ноды: '{target_node.name()}'")
 
-            # 1. Собираем базовый контекст (разрешение, размеры и т.д.)
             context = self.project_manager.collect_ui_context(for_preview=True)
 
-            # 2. Собираем параметры для глобального шума из UI
             sphere_params = {
                 'octaves': int(self.ws_octaves.value()),
                 'gain': self.ws_gain.value(),
@@ -408,10 +384,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 'warp_strength': self.ws_warp_strength.value(),
             }
 
-            # 3. Генерируем "развёртку" глобального шума для выбранного региона
-            # Создаем сетку координат для превью, центрированную на выбранной точке
             resolution = int(self.preview_resolution_input.currentText().split('x')[0])
-            size_m = 2.0  # Условный размер "окна" проекции на единичной сфере
+            size_m = 2.0
             half = size_m / 2.0
 
             offset_x, offset_z = self.current_world_offset
@@ -420,7 +394,6 @@ class MainWindow(QtWidgets.QMainWindow):
             z_range = np.linspace(offset_z - half, offset_z + half, resolution, dtype=np.float32)
             x_coords, z_coords = np.meshgrid(x_range, z_range)
 
-            # Вычисляем Y-координату на сфере, чтобы получить правильные 3D-координаты
             d_sq = x_coords ** 2 + z_coords ** 2
             y_coords = np.sqrt(np.maximum(0.0, 1.0 - d_sq))
 
@@ -432,10 +405,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 coords_xyz=coords_for_noise
             )
 
-            # 4. Помещаем сгенерированный шум в контекст для ноды WorldInput
             context["world_input_noise"] = base_noise.astype(np.float32)
 
-            # --- НАЧАЛО НОВОГО КОДА: РАСЧЕТ СТАТИСТИКИ ---
             if np.any(base_noise):
                 preview_max_height = context.get('max_height_m', 1000.0)
                 min_norm = np.min(base_noise)
@@ -449,16 +420,12 @@ class MainWindow(QtWidgets.QMainWindow):
                     'max_m': max_norm * preview_max_height,
                     'mean_m': mean_norm * preview_max_height,
                 }
-                # Находим ноду WorldInput и прикрепляем к ней статистику
                 if self.graph:
                     for node in self.graph.all_nodes():
                         if isinstance(node, WorldInputNode):
-                            # Предполагаем, что в графе только одна такая нода
                             node.output_stats = stats
                             break
-            # --- КОНЕЦ НОВОГО КОДА ---
 
-            # 5. Запускаем граф, который начнется с этого шума
             final_map_01 = run_graph(target_node, context)
 
             preview_max_height = context.get('max_height_m', 1000.0)
@@ -466,8 +433,6 @@ class MainWindow(QtWidgets.QMainWindow):
             if self.preview_widget:
                 self.preview_widget.update_mesh(final_map_meters, 1.0)
 
-            # --- ОБНОВЛЕНИЕ ИНСПЕКТОРА ---
-            # После вычисления обновляем инспектор, чтобы он показал свежие данные
             if self.node_inspector:
                 self.node_inspector.refresh_from_selection()
 
@@ -482,14 +447,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.right_outliner and self.right_outliner.apply_button:
             self.right_outliner.apply_button.animateClick(10)
 
-    # --- ИЗМЕНЕНИЕ: Новый метод для открытия вкладки "Планета" ---
     def show_planet_view(self):
         if self.central_tabs:
             for i in range(self.central_tabs.count()):
                 if self.central_tabs.tabText(i) == "Планета":
                     self.central_tabs.setCurrentIndex(i)
-                    # Если виджет еще не был отрисован, запускаем обновление
-                    if self.planet_widget and self.planet_widget._vbo is None:
+                    if self.planet_widget and self.planet_widget._vbo_pos is None:
                         self._update_planet_view()
                     break
 
@@ -499,9 +462,7 @@ class MainWindow(QtWidgets.QMainWindow):
         QtWidgets.QApplication.processEvents()
 
         try:
-            # Эта функция теперь находится в planet_view_logic
             from editor.logic import planet_view_logic
-            # Просто вызываем новый оркестратор
             planet_view_logic.orchestrate_planet_update(self)
 
         except Exception as e:
