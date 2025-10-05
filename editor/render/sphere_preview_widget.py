@@ -52,7 +52,7 @@ void main()
 {
         if (u_is_line) {
             // ФИКС: Серые линии для контраста на heightmap (не белые/красные, не чёрные на тьме)
-            FragColor = vec4(0.8, 0.8, 0.8, 1.0);
+            FragColor = vec4(0.0, 1.0, 0.5, 1.0);
         }else {
         // Расчет простого диффузного освещения (модель Ламберта)
         vec3 normal = normalize(v_normal_view);
