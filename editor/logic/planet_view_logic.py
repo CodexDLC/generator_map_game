@@ -5,8 +5,10 @@ import numpy as np
 from PySide6 import QtGui, QtWidgets
 import traceback
 
+from editor.core.render_settings import RenderSettings
+from editor.render_palettes import map_palette_cpu
 from generator_logic.topology.icosa_grid import build_hexplanet
-from generator_logic.terrain.global_sphere_noise import global_sphere_noise_wrapper
+
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +30,9 @@ def get_colors_from_heights(heights: np.ndarray, stops: np.ndarray) -> np.ndarra
     return np.stack([red, green, blue], axis=-1).astype(np.float32)
 
 
-def _generate_faceted_geometry(planet_data: dict, sphere_params: dict, disp_scale: float, context: dict) -> tuple[
+def _generate_faceted_geometry(planet_data: dict, sphere_params: dict, disp_scale: float, context: dict, render_settings: 'RenderSettings') -> tuple[
     np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    from generator_logic.terrain.global_sphere_noise import global_sphere_noise_wrapper
+    from generator_logic.terrain.global_sphere_noise import get_noise_for_sphere_view
 
     polys_lonlat = planet_data['cell_polys_lonlat_rad']
 
@@ -55,25 +57,10 @@ def _generate_faceted_geometry(planet_data: dict, sphere_params: dict, disp_scal
         vertex_counter += num_poly_verts
     all_poly_verts_3d = np.array(all_poly_verts_3d, dtype=np.float32)
 
-    warp_strength = sphere_params.get('warp_strength', 0.0)
-    if warp_strength > 0.0:
-        base_seed = sphere_params.get('seed', 0)
-        warp_context = {'project': {'seed': base_seed ^ 12345}}
-        warp_params = {'frequency': 0.5, 'octaves': 2, 'gain': 0.5}
-
-        offset_x = global_sphere_noise_wrapper(warp_context, warp_params, coords_xyz=all_poly_verts_3d)
-        warp_params['seed'] = base_seed + 1
-        offset_y = global_sphere_noise_wrapper(warp_context, warp_params, coords_xyz=all_poly_verts_3d)
-        warp_params['seed'] = base_seed + 2
-        offset_z = global_sphere_noise_wrapper(warp_context, warp_params, coords_xyz=all_poly_verts_3d)
-
-        offsets = np.stack([offset_x, offset_y, offset_z], axis=-1) * warp_strength
-        warped_coords = all_poly_verts_3d + offsets
-        warped_coords /= np.linalg.norm(warped_coords, axis=1, keepdims=True)
-    else:
-        warped_coords = all_poly_verts_3d
-
-    heights_per_vertex = global_sphere_noise_wrapper(context, sphere_params, coords_xyz=warped_coords)
+    heights_per_vertex = get_noise_for_sphere_view(
+        sphere_params,
+        coords_xyz=all_poly_verts_3d
+    )
     if heights_per_vertex.ndim > 1:
         heights_per_vertex = heights_per_vertex.ravel()
 
@@ -82,11 +69,8 @@ def _generate_faceted_geometry(planet_data: dict, sphere_params: dict, disp_scal
         heights_per_vertex = np.power(heights_per_vertex, power)
 
     sea_level_pct = sphere_params.get('sea_level_pct', 0.4)
-    current_stops = HEIGHT_STOPS.copy()
-    current_stops[1] = max(0.0, sea_level_pct - 0.01)
-    current_stops[2] = sea_level_pct
-
-    colors_per_vertex = get_colors_from_heights(heights_per_vertex, current_stops)
+    palette_name = render_settings.palette_name
+    colors_per_vertex = map_palette_cpu(heights_per_vertex, palette_name, sea_level_pct=sea_level_pct)
 
     displaced_vertices = all_poly_verts_3d * (1.0 + disp_scale * (heights_per_vertex - 0.5))[:, np.newaxis]
 
@@ -97,7 +81,7 @@ def _generate_faceted_geometry(planet_data: dict, sphere_params: dict, disp_scal
             colors_per_vertex.astype(np.float32))
 
 
-def update_planet_widget(planet_widget, world_settings: dict):
+def update_planet_widget(planet_widget, world_settings: dict, render_settings: RenderSettings):
     """
     Главная функция-оркестратор. Собирает данные и обновляет 3D-виджет планеты.
     """
@@ -120,8 +104,16 @@ def update_planet_widget(planet_widget, world_settings: dict):
             planet_widget.set_planet_data(planet_data)
 
         context = {'project': {'seed': sphere_params.get('seed', 0)}}
-        V, F_fill, I_lines, V_heights, V_colors = _generate_faceted_geometry(planet_data, sphere_params, disp_scale,
-                                                                             context)
+
+        # --- ИСПРАВЛЕНИЕ: Добавляем недостающий аргумент 'render_settings' в вызов ---
+        V, F_fill, I_lines, V_heights, V_colors = _generate_faceted_geometry(
+            planet_data,
+            sphere_params,
+            disp_scale,
+            context,
+            render_settings
+        )
+
         planet_widget.set_geometry(V, F_fill, I_lines, V_heights, V_colors)
 
         logger.info("3D-вид планеты успешно обновлен (faceted).")

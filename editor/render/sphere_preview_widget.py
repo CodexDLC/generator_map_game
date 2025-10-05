@@ -73,14 +73,11 @@ class SpherePreviewWidget(QOpenGLWidget):
         self._indices = np.array([], dtype=np.uint32)
         self._line_indices = np.array([], dtype=np.uint32)
 
-        self._planet_data = None
+        self._planet_data = None  # Хранилище для данных о гексах
 
         self._cam_distance = 2.5
         self._rotation = QtGui.QQuaternion()
         self._last_mouse_pos = QtCore.QPoint()
-
-        self._proj_matrix = QtGui.QMatrix4x4()
-        self._view_matrix = QtGui.QMatrix4x4()
 
     def set_planet_data(self, data: dict):
         self._planet_data = data
@@ -91,8 +88,8 @@ class SpherePreviewWidget(QOpenGLWidget):
     def set_geometry(self, vertices: np.ndarray, fill_indices: np.ndarray, line_indices: np.ndarray,
                      vertex_heights: np.ndarray, vertex_colors: np.ndarray):
         self.makeCurrent()
-        if self._vbo is not None:
-            GL.glDeleteBuffers(5, [self._vbo, self._height_vbo, self._color_vbo, self._ibo, self._line_ibo])
+        if self._vbo is not None: GL.glDeleteBuffers(5, [self._vbo, self._height_vbo, self._color_vbo, self._ibo,
+                                                         self._line_ibo])
         self._vbo, self._height_vbo, self._color_vbo, self._ibo, self._line_ibo = None, None, None, None, None
 
         self._vertices = vertices if vertices is not None else np.array([], dtype=np.float32)
@@ -120,38 +117,41 @@ class SpherePreviewWidget(QOpenGLWidget):
             self._vbo = GL.glGenBuffers(1)
             GL.glBindBuffer(GL_ARRAY_BUFFER, self._vbo)
             GL.glBufferData(GL_ARRAY_BUFFER, self._vertices.nbytes, self._vertices, GL_STATIC_DRAW)
-            # ... (остальной код создания буферов)
+
             self._height_vbo = GL.glGenBuffers(1)
             GL.glBindBuffer(GL_ARRAY_BUFFER, self._height_vbo)
             GL.glBufferData(GL_ARRAY_BUFFER, self._heights.nbytes, self._heights, GL_STATIC_DRAW)
+
             self._color_vbo = GL.glGenBuffers(1)
             GL.glBindBuffer(GL_ARRAY_BUFFER, self._color_vbo)
             GL.glBufferData(GL_ARRAY_BUFFER, self._colors.nbytes, self._colors, GL_STATIC_DRAW)
+
             self._ibo = GL.glGenBuffers(1)
             GL.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self._ibo)
             GL.glBufferData(GL_ELEMENT_ARRAY_BUFFER, self._indices.nbytes, self._indices, GL_STATIC_DRAW)
+
             self._line_ibo = GL.glGenBuffers(1)
             GL.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self._line_ibo)
             GL.glBufferData(GL_ELEMENT_ARRAY_BUFFER, self._line_indices.nbytes, self._line_indices, GL_STATIC_DRAW)
 
         GL.glUseProgram(self._shader_program)
 
-        self._proj_matrix = QtGui.QMatrix4x4()
-        self._proj_matrix.perspective(45.0, self.width() / max(1, self.height()), 0.1, 100.0)
-
-        self._view_matrix = QtGui.QMatrix4x4()
-        self._view_matrix.translate(0.0, 0.0, -self._cam_distance)
-        self._view_matrix.rotate(self._rotation)
-
-        mvp = self._proj_matrix * self._view_matrix
+        proj = QtGui.QMatrix4x4();
+        proj.perspective(45.0, self.width() / max(1, self.height()), 0.1, 100.0)
+        view = QtGui.QMatrix4x4();
+        view.translate(0.0, 0.0, -self._cam_distance);
+        view.rotate(self._rotation)
+        mvp = proj * view
         GL.glUniformMatrix4fv(GL.glGetUniformLocation(self._shader_program, "mvp"), 1, GL_FALSE, mvp.data())
 
         GL.glEnableVertexAttribArray(0)
         GL.glBindBuffer(GL_ARRAY_BUFFER, self._vbo)
         GL.glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
+
         GL.glEnableVertexAttribArray(1)
         GL.glBindBuffer(GL_ARRAY_BUFFER, self._height_vbo)
         GL.glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 0, None)
+
         GL.glEnableVertexAttribArray(2)
         GL.glBindBuffer(GL_ARRAY_BUFFER, self._color_vbo)
         GL.glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, None)
@@ -179,7 +179,7 @@ class SpherePreviewWidget(QOpenGLWidget):
     def mousePressEvent(self, event: QtGui.QMouseEvent):
         self._last_mouse_pos = event.position().toPoint()
 
-        # --- НАЧАЛО НОВОЙ, ПРАВИЛЬНОЙ ЛОГИКИ PICKING (RAYCASTING) ---
+        # --- НАЧАЛО ИСПРАВЛЕНИЯ: Полностью переписанная логика определения клика ---
         if self._planet_data is None or 'centers_xyz' not in self._planet_data:
             return
 
@@ -187,44 +187,52 @@ class SpherePreviewWidget(QOpenGLWidget):
         if centers_xyz is None or centers_xyz.shape[0] == 0:
             return
 
-        # 1. Unproject: Преобразуем 2D клик мыши в 3D луч в мировых координатах
-        pos = event.position()
+        # 1. Получаем матрицы проекции и вида, которые использовались для рендеринга
+        proj = QtGui.QMatrix4x4()
+        proj.perspective(45.0, self.width() / max(1, self.height()), 0.1, 100.0)
+        view = QtGui.QMatrix4x4()
+        view.translate(0.0, 0.0, -self._cam_distance)
+        view.rotate(self._rotation)
 
-        # Для unproject нужна Y-координата, инвертированная относительно окна
-        win_y = self.height() - pos.y()
+        # 2. Инвертируем их, чтобы преобразовывать из координат экрана в мировые
+        inv_proj, ok_proj = proj.inverted()
+        inv_view, ok_view = view.inverted()
+        if not (ok_proj and ok_view):
+            return
 
-        viewport = QtCore.QRect(0, 0, self.width(), self.height())
+        # 3. Нормализуем координаты клика мыши в диапазон [-1, 1]
+        x = (2.0 * event.position().x()) / self.width() - 1.0
+        y = 1.0 - (2.0 * event.position().y()) / self.height()
 
-        # Используем встроенную функцию unproject, она математически корректна
-        near_world = QtGui.QVector3D(pos.x(), win_y, 0.0).unproject(self._view_matrix, self._proj_matrix, viewport)
-        far_world = QtGui.QVector3D(pos.x(), win_y, 1.0).unproject(self._view_matrix, self._proj_matrix, viewport)
+        # 4. "Отменяем" проекцию, чтобы получить направление луча в пространстве вида
+        ray_eye = inv_proj.map(QtGui.QVector4D(x, y, -1.0, 1.0))
+        ray_eye = QtGui.QVector4D(ray_eye.x(), ray_eye.y(), -1.0, 0.0)
 
-        # 2. Определяем начало и направление луча
-        inverted_view, _ = self._view_matrix.inverted()
-        ray_origin = inverted_view.map(QtGui.QVector3D(0, 0, 0))
-        ray_direction = (far_world - near_world).normalized()
+        # 5. "Отменяем" трансформацию вида, чтобы получить направление луча в мировом пространстве
+        ray_world = inv_view.map(ray_eye).toVector3D().normalized()
+        camera_pos = inv_view.map(QtGui.QVector3D(0, 0, 0))
 
-        # 3. Находим пересечение луча со сферой (радиус 1.0, центр в 0,0,0)
-        oc = ray_origin
-        b = 2.0 * QtGui.QVector3D.dotProduct(oc, ray_direction)
+        # 6. Находим пересечение луча со сферой (радиус = 1.0)
+        oc = camera_pos - QtGui.QVector3D(0, 0, 0)
+        b = QtGui.QVector3D.dotProduct(oc, ray_world)
         c = QtGui.QVector3D.dotProduct(oc, oc) - 1.0
-        discriminant = b * b - 4 * c
-
+        discriminant = b * b - c
         if discriminant < 0:
             return  # Луч не пересекает сферу
 
-        t = (-b - math.sqrt(discriminant)) / 2.0
-        intersection_point_3d = ray_origin + t * ray_direction
+        # 7. Находим точку пересечения
+        intersection_dist = -b - math.sqrt(discriminant)
+        intersection_point = camera_pos + ray_world * intersection_dist
 
-        # 4. Находим ближайший центр гексагона к точке пересечения НА СФЕРЕ
-        intersection_np = np.array([intersection_point_3d.x(), intersection_point_3d.y(), intersection_point_3d.z()],
+        # 8. Находим ближайший центр гекса к точке пересечения
+        intersection_np = np.array([intersection_point.x(), intersection_point.y(), intersection_point.z()],
                                    dtype=np.float32)
         distances_sq = np.sum((centers_xyz - intersection_np) ** 2, axis=1)
         closest_idx = np.argmin(distances_sq)
 
-        # 5. Отправляем сигнал с правильным ID
+        # 9. Отправляем сигнал
         self.cell_picked.emit(int(closest_idx))
-        # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
+        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
     def mouseMoveEvent(self, event: QtGui.QMouseEvent):
         dx = event.position().toPoint().x() - self._last_mouse_pos.x()

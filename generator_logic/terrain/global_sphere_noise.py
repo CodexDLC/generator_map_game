@@ -3,41 +3,28 @@ import numpy as np
 from game_engine_restructured.numerics.fast_noise import fbm_grid_3d
 
 
-def global_sphere_noise_wrapper(context: dict, sphere_params: dict, **kwargs) -> np.ndarray:
+def _calculate_base_noise(sphere_params: dict, coords_xyz: np.ndarray) -> np.ndarray:
     """
-    Генерирует 3D FBM шум для переданного набора 3D координат.
-    Возвращает нормализованный массив [0..1].
+    Внутренняя функция: генерирует "сырой" 3D FBM шум в диапазоне [-1, 1].
     """
-    # Получаем 3D координаты из нового, обязательного аргумента
-    coords_xyz = kwargs.get("coords_xyz")
-    if coords_xyz is None:
-        raise ValueError("global_sphere_noise_wrapper теперь требует аргумент 'coords_xyz'")
-
-    # --- PATCH 1: Устойчивый wrapper для формы входных данных ---
     xyz = np.asarray(coords_xyz, dtype=np.float32)
     if xyz.ndim == 2 and xyz.shape[-1] == 3:
-        xyz = xyz[None, ...]  # (1, N, 3) — если пришёл батч точек
+        xyz = xyz[None, ...]
     if xyz.ndim == 1 and xyz.shape[0] == 3:
-        xyz = xyz[None, None, :]  # (1, 1, 3) — одиночная точка
+        xyz = xyz[None, None, :]
 
-    # Распаковка координат
     coords_x = xyz[..., 0]
     coords_y = xyz[..., 1]
     coords_z = xyz[..., 2]
-    # --- END PATCH 1 ---
 
-    world_seed = int(context.get('project', {}).get('seed', 0))
-    seed_offset = int(sphere_params.get('seed', 0))
     main_seed = int(sphere_params.get('seed', 0)) & 0xFFFFFFFF
     frequency = float(sphere_params.get('frequency', 1.0))
 
-    # Масштабируем координаты для получения нужной частоты шума
-    coords_x = coords_x * frequency
-    coords_y = coords_y * frequency
-    coords_z = coords_z * frequency
+    coords_x *= frequency
+    coords_y *= frequency
+    coords_z *= frequency
 
-    # Вызываем ядро генерации шума
-    noise_np = fbm_grid_3d(
+    return fbm_grid_3d(
         seed=main_seed,
         coords_x=coords_x, coords_y=coords_y, coords_z=coords_z,
         freq0=1.0,
@@ -46,9 +33,34 @@ def global_sphere_noise_wrapper(context: dict, sphere_params: dict, **kwargs) ->
         ridge=bool(sphere_params.get('ridge', False))
     )
 
-    # Нормализуем результат в диапазон [0..1]
-    mn, mx = float(np.nanmin(noise_np)), float(np.nanmax(noise_np))
-    if mx > mn:
-        noise_np = (noise_np - mn) / (mx - mn)
 
-    return np.clip(noise_np, 0.0, 1.0).astype(np.float32)
+def get_noise_for_sphere_view(sphere_params: dict, coords_xyz: np.ndarray) -> np.ndarray:
+    """
+    Функция для 3D-вида всей планеты.
+    Рассчитывает шум и растягивает его на локальный диапазон [0, 1] для
+    максимальной контрастности отображения.
+    """
+    noise_bipolar = _calculate_base_noise(sphere_params, coords_xyz)
+
+    # Растягиваем локальный диапазон для красивой картинки
+    mn, mx = float(np.nanmin(noise_bipolar)), float(np.nanmax(noise_bipolar))
+    if mx > mn:
+        noise_01 = (noise_bipolar - mn) / (mx - mn)
+    else:
+        noise_01 = np.zeros_like(noise_bipolar)
+
+    return np.clip(noise_01, 0.0, 1.0).astype(np.float32)
+
+
+def get_noise_for_region_preview(sphere_params: dict, coords_xyz: np.ndarray) -> np.ndarray:
+    """
+    Функция для превью одного региона (плейна).
+    Возвращает "честный" кусок глобального шума, преобразованный в [0, 1]
+    без локального растягивания.
+    """
+    noise_bipolar = _calculate_base_noise(sphere_params, coords_xyz)
+
+    # "Честное" преобразование диапазона [-1, 1] в [0, 1]
+    noise_01 = (noise_bipolar + 1.0) * 0.5
+
+    return np.clip(noise_01, 0.0, 1.0).astype(np.float32)

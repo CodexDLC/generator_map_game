@@ -18,6 +18,7 @@ from NodeGraphQt import BaseNode
 from editor.nodes._helpers import node_ui as UIH
 # --- ИЗМЕНЕНИЕ: Импортируем новую функцию ---
 from editor.nodes._helpers import cache_utils as CU
+
 # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 logger = logging.getLogger(__name__)
@@ -29,9 +30,7 @@ class GeneratorNode(BaseNode):
     def __init__(self):
         super().__init__()
         self._prop_meta: Dict[str, dict] = {}
-        # --- НАЧАЛО ИЗМЕНЕНИЯ ---
         self._seed_history: Dict[str, List[int]] = {}
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         self._onnode_widgets: List[Any] = []
         self._compact: bool = True
         self._description_text: str = "Описание для этой ноды не задано."
@@ -39,9 +38,11 @@ class GeneratorNode(BaseNode):
         self._is_dirty: bool = True
         self._result_cache: Any = None
         self._rev: int = 0
-        # --- ИЗМЕНЕНИЕ: Меняем _last_sig на _last_signature для ясности ---
         self._last_signature: Tuple[Any, ...] | None = None
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+        # --- НОВОЕ ПОЛЕ ДЛЯ СТАТИСТИКИ ---
+        self.output_stats: Dict[str, Any] = {}
+
         self._apply_tooltips_to_node()
         self._deferred_init_tooltips()
 
@@ -59,6 +60,7 @@ class GeneratorNode(BaseNode):
         history.insert(0, seed)
 
         self._seed_history[name] = history[:15]
+
     # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     def add_seed_input(self, name, label, tab='Params', group=None):
@@ -87,7 +89,6 @@ class GeneratorNode(BaseNode):
                           tab=tab, compact=self._compact)
 
         self.set_property(name, initial_seed, push_undo=False)
-
 
     def set_compact(self, compact: bool):
         self._compact = bool(compact)
@@ -347,11 +348,11 @@ class GeneratorNode(BaseNode):
         # 4. Сохраняем новый результат и сигнатуру в кэш
         self._result_cache = result
         self._last_signature = full_signature
-        self._is_dirty = False # Сбрасываем флаг
+        self._is_dirty = False  # Сбрасываем флаг
 
         return self._result_cache
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     def _compute(self, context: dict):
         raise NotImplementedError(

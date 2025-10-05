@@ -1,15 +1,11 @@
-# ==============================================================================
-# Файл: editor/ui/node_inspector_panel.py
-# ВЕРСИЯ 2.1 (ИСПРАВЛЕНИЕ): Исправлена установка цвета.
-# - Метод _pick_color теперь корректно преобразует объект QColor
-#   в кортеж (r, g, b), который ожидает библиотека NodeGraphQt.
-#   Это решает проблему с TypeError при перерисовке ноды.
-# ==============================================================================
-
+# editor/ui/layouts/node_inspector_panel.py
 from __future__ import annotations
 from typing import Optional
 
 from PySide6 import QtWidgets, QtCore, QtGui
+
+# --- НОВЫЙ ИМПОРТ ---
+from editor.nodes.height.io.world_input_node import WorldInputNode
 
 
 class NodeInspectorWidget(QtWidgets.QWidget):
@@ -58,6 +54,34 @@ class NodeInspectorWidget(QtWidgets.QWidget):
         clr_row.addStretch(1)
         form.addRow("Color:", clr_row)
 
+        # --- НОВЫЙ БЛОК ДЛЯ СТАТИСТИКИ ---
+        self._stats_box = QtWidgets.QGroupBox("Статистика Выхода")
+        stats_layout = QtWidgets.QFormLayout(self._stats_box)
+        stats_layout.setLabelAlignment(QtCore.Qt.AlignRight)
+
+        self._stat_min_norm = QtWidgets.QLabel("")
+        self._stat_max_norm = QtWidgets.QLabel("")
+        self._stat_mean_norm = QtWidgets.QLabel("")
+        stats_layout.addRow("Мин [0..1]:", self._stat_min_norm)
+        stats_layout.addRow("Макс [0..1]:", self._stat_max_norm)
+        stats_layout.addRow("Среднее [0..1]:", self._stat_mean_norm)
+
+        # Добавим разделитель для наглядности
+        line = QtWidgets.QFrame()
+        line.setFrameShape(QtWidgets.QFrame.HLine)
+        line.setFrameShadow(QtWidgets.QFrame.Sunken)
+        stats_layout.addRow(line)
+
+        self._stat_min_m = QtWidgets.QLabel("")
+        self._stat_max_m = QtWidgets.QLabel("")
+        self._stat_mean_m = QtWidgets.QLabel("")
+        stats_layout.addRow("Мин (м):", self._stat_min_m)
+        stats_layout.addRow("Макс (м):", self._stat_max_m)
+        stats_layout.addRow("Среднее (м):", self._stat_mean_m)
+
+        root.addWidget(self._stats_box)
+        # --- КОНЕЦ НОВОГО БЛОКА ---
+
         ports_box = QtWidgets.QGroupBox("Порты")
         root.addWidget(ports_box, 1)
         ports_lay = QtWidgets.QHBoxLayout(ports_box)
@@ -94,7 +118,6 @@ class NodeInspectorWidget(QtWidgets.QWidget):
             g.node_selection_changed.connect(self.refresh_from_selection)
             g.node_deleted.connect(self.refresh_from_selection)
             g.node_created.connect(self.refresh_from_selection)
-            # Добавим подписку на изменение имени, чтобы обновлять инспектор
             if hasattr(g, 'node_renamed'):
                 g.node_renamed.connect(lambda node, name: self.refresh_from_selection())
         except Exception:
@@ -102,7 +125,8 @@ class NodeInspectorWidget(QtWidgets.QWidget):
         self._graph_hooks_installed = True
 
     def _update_enabled(self, enabled: bool) -> None:
-        for w in (self._name_edit, self._color_btn, self._inputs, self._outputs):
+        # Добавляем self._stats_box в список
+        for w in (self._name_edit, self._color_btn, self._inputs, self._outputs, self._stats_box):
             w.setEnabled(enabled)
         self._empty_lbl.setVisible(not enabled)
 
@@ -119,6 +143,7 @@ class NodeInspectorWidget(QtWidgets.QWidget):
             self._inputs.clear()
             self._outputs.clear()
             self._update_enabled(False)
+            self._stats_box.setVisible(False) # Скрываем блок статистики
             return
 
         n = sel[0]
@@ -132,6 +157,20 @@ class NodeInspectorWidget(QtWidgets.QWidget):
         color_tuple = n.color()
         if isinstance(color_tuple, (list, tuple)) and len(color_tuple) >= 3:
             self._apply_color_btn(f"rgb({color_tuple[0]}, {color_tuple[1]}, {color_tuple[2]})")
+
+        # --- НОВАЯ ЛОГИКА ОТОБРАЖЕНИЯ СТАТИСТИКИ ---
+        stats = getattr(n, 'output_stats', None)
+        is_world_input = isinstance(n, WorldInputNode)
+
+        self._stats_box.setVisible(is_world_input and bool(stats))
+        if is_world_input and stats:
+            self._stat_min_norm.setText(f"{stats.get('min_norm', 0.0):.4f}")
+            self._stat_max_norm.setText(f"{stats.get('max_norm', 0.0):.4f}")
+            self._stat_mean_norm.setText(f"{stats.get('mean_norm', 0.0):.4f}")
+            self._stat_min_m.setText(f"{stats.get('min_m', 0.0):.2f} м")
+            self._stat_max_m.setText(f"{stats.get('max_m', 0.0):.2f} м")
+            self._stat_mean_m.setText(f"{stats.get('mean_m', 0.0):.2f} м")
+        # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
 
         self._fill_ports(n)
         self._update_enabled(True)
@@ -147,25 +186,16 @@ class NodeInspectorWidget(QtWidgets.QWidget):
         n = self._node
         if not n: return
 
-        # Получаем текущий цвет в формате QColor для диалога
         current_color_tuple = n.color()
         initial_color = QtGui.QColor(*current_color_tuple)
 
-        # Открываем диалог выбора цвета
         new_color_obj = QtWidgets.QColorDialog.getColor(initial_color, self, "Цвет ноды")
 
         if not new_color_obj.isValid():
             return
 
-        # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
-        # Преобразуем объект QColor в кортеж (r, g, b)
         new_color_tuple = (new_color_obj.red(), new_color_obj.green(), new_color_obj.blue())
-
-        # Устанавливаем цвет ноды, передавая кортеж, а не объект QColor
         n.set_color(*new_color_tuple)
-        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-
-        # Обновляем цвет кнопки в инспекторе
         self._apply_color_btn(new_color_obj.name())
 
     def _fill_ports(self, n):
@@ -182,7 +212,6 @@ class NodeInspectorWidget(QtWidgets.QWidget):
                 it.setToolTip("\n".join(tips))
             return it
 
-        # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
         inputs = n.inputs()
         if inputs:
             for p in inputs.values():
