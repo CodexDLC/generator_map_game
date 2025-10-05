@@ -2,9 +2,11 @@
 import logging
 import math
 import numpy as np
-from PySide6 import QtGui
+from PySide6 import QtGui, QtWidgets
+import traceback
 
 from generator_logic.topology.icosa_grid import build_hexplanet
+from generator_logic.terrain.global_sphere_noise import global_sphere_noise_wrapper
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +55,6 @@ def _generate_faceted_geometry(planet_data: dict, sphere_params: dict, disp_scal
         vertex_counter += num_poly_verts
     all_poly_verts_3d = np.array(all_poly_verts_3d, dtype=np.float32)
 
-    # --- НАЧАЛО ИСПРАВЛЕНИЯ: исправлена ошибка с неопределенной переменной _seed ---
     warp_strength = sphere_params.get('warp_strength', 0.0)
     if warp_strength > 0.0:
         base_seed = sphere_params.get('seed', 0)
@@ -61,7 +62,6 @@ def _generate_faceted_geometry(planet_data: dict, sphere_params: dict, disp_scal
         warp_params = {'frequency': 0.5, 'octaves': 2, 'gain': 0.5}
 
         offset_x = global_sphere_noise_wrapper(warp_context, warp_params, coords_xyz=all_poly_verts_3d)
-        # Для каждого канала смещения используем свой уникальный сид
         warp_params['seed'] = base_seed + 1
         offset_y = global_sphere_noise_wrapper(warp_context, warp_params, coords_xyz=all_poly_verts_3d)
         warp_params['seed'] = base_seed + 2
@@ -72,7 +72,6 @@ def _generate_faceted_geometry(planet_data: dict, sphere_params: dict, disp_scal
         warped_coords /= np.linalg.norm(warped_coords, axis=1, keepdims=True)
     else:
         warped_coords = all_poly_verts_3d
-    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
     heights_per_vertex = global_sphere_noise_wrapper(context, sphere_params, coords_xyz=warped_coords)
     if heights_per_vertex.ndim > 1:
@@ -117,10 +116,8 @@ def update_planet_widget(planet_widget, world_settings: dict):
         if not planet_data:
             raise RuntimeError("Failed to generate planet data.")
 
-        # --- НАЧАЛО ИЗМЕНЕНИЙ: Сохраняем данные о планете в виджет ---
         if hasattr(planet_widget, 'set_planet_data'):
             planet_widget.set_planet_data(planet_data)
-        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
         context = {'project': {'seed': sphere_params.get('seed', 0)}}
         V, F_fill, I_lines, V_heights, V_colors = _generate_faceted_geometry(planet_data, sphere_params, disp_scale,
@@ -132,3 +129,45 @@ def update_planet_widget(planet_widget, world_settings: dict):
     except Exception as e:
         logger.exception(f"Ошибка при обновлении 3D-вида планеты: {e}")
         raise
+
+
+def orchestrate_planet_update(main_window):
+    """Собирает данные из UI и запускает обновление 3D-вида планеты."""
+    if main_window.update_planet_btn: main_window.update_planet_btn.setEnabled(False)
+    QtWidgets.QApplication.processEvents()
+
+    try:
+        radius_text = main_window.planet_radius_label.text().replace(" км", "").replace(",", "").replace(" ", "")
+        radius_km = float(radius_text) if radius_text and radius_text != 'Ошибка' else 1.0
+        radius_m = radius_km * 1000.0
+        if radius_m < 1.0:
+            raise ValueError("Радиус планеты слишком мал или не рассчитан.")
+
+        elevation_text = main_window.base_elevation_label.text().replace(" м", "").replace(",", "").replace(" ", "")
+        base_elevation_m = float(elevation_text) if elevation_text and elevation_text != 'Ошибка' else 1000.0
+        disp_scale = base_elevation_m / radius_m
+
+        scale_value = main_window.ws_relative_scale.value()
+        frequency = 1.0 + (scale_value * 9.0)
+
+        world_settings = {
+            'subdivision_level': int(main_window.subdivision_level_input.currentText().split(" ")[0]),
+            'disp_scale': disp_scale,
+            'sphere_params': {
+                'octaves': int(main_window.ws_octaves.value()),
+                'gain': main_window.ws_gain.value(),
+                'seed': main_window.ws_seed.value(),
+                'frequency': frequency,
+                'sea_level_pct': main_window.ws_sea_level.value(),
+                'power': main_window.ws_power.value(),
+                'warp_strength': main_window.ws_warp_strength.value(),
+            }
+        }
+
+        update_planet_widget(main_window.planet_widget, world_settings)
+
+    except Exception as e:
+        QtWidgets.QMessageBox.critical(main_window, "Ошибка",
+                                       f"Не удалось обновить 3D-планету: {e}\n{traceback.format_exc()}")
+    finally:
+        if main_window.update_planet_btn: main_window.update_planet_btn.setEnabled(True)

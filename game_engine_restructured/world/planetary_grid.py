@@ -28,6 +28,7 @@ class PlanetaryGrid:
     Управляет логической сеткой планеты на основе икосаэдра.
     Отвечает за преобразование координат из 2D "развертки" в 3D пространство на сфере.
     """
+
     def __init__(self, radius_m: float):
         self.radius = float(radius_m)
 
@@ -36,10 +37,15 @@ class PlanetaryGrid:
         Возвращает базисные векторы для указанной грани икосаэдра.
         Это позволяет нам "развернуть" треугольную грань на плоскость.
         """
-        if not (0 <= face_index < len(ICO_FACES)):
+        # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+        # Гарантируем, что индекс всегда будет в допустимом диапазоне [0, 19]
+        safe_index = face_index % len(ICO_FACES)
+        if not (0 <= safe_index < len(ICO_FACES)):
             raise ValueError("Неверный индекс грани икосаэдра.")
 
-        p0_idx, p1_idx, p2_idx = ICO_FACES[face_index]
+        p0_idx, p1_idx, p2_idx = ICO_FACES[safe_index]
+        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
         p0, p1, p2 = ICO_VERTICES[p0_idx], ICO_VERTICES[p1_idx], ICO_VERTICES[p2_idx]
 
         origin = p0

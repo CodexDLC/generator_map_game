@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 
 def collect_project_data_from_ui(mw) -> dict:
     """Собирает все глобальные настройки из UI для сохранения в project.json."""
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ: Добавлены все недостающие поля ---
     return {
         "world_topology": {
             "subdivision": mw.subdivision_level_input.currentText(),
@@ -15,7 +16,6 @@ def collect_project_data_from_ui(mw) -> dict:
             "max_height": mw.max_height_input.value(),
         },
         "global_noise": {
-            # --- ИСПРАВЛЕНИЕ: Добавлены все новые поля ---
             "base_elevation_pct": mw.ws_base_elevation_pct.value(),
             "sea_level_pct": mw.ws_sea_level.value(),
             "scale": mw.ws_relative_scale.value(),
@@ -26,6 +26,7 @@ def collect_project_data_from_ui(mw) -> dict:
             "seed": mw.ws_seed.value(),
         }
     }
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
 
 def apply_project_to_ui(mw, data: dict) -> None:
@@ -39,7 +40,7 @@ def apply_project_to_ui(mw, data: dict) -> None:
     mw.vertex_distance_input.setValue(topo.get("vertex_distance", 1.0))
     mw.max_height_input.setValue(topo.get("max_height", 4000.0))
 
-    # --- ИСПРАВЛЕНИЕ: Добавлены все новые поля ---
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ: Добавлено применение всех полей при загрузке ---
     mw.ws_base_elevation_pct.setValue(noise.get("base_elevation_pct", 0.5))
     mw.ws_sea_level.setValue(noise.get("sea_level_pct", 0.4))
     mw.ws_relative_scale.setValue(noise.get("scale", 0.25))
@@ -48,6 +49,7 @@ def apply_project_to_ui(mw, data: dict) -> None:
     mw.ws_power.setValue(noise.get("power", 1.0))
     mw.ws_warp_strength.setValue(noise.get("warp_strength", 0.2))
     mw.ws_seed.setValue(noise.get("seed", 12345))
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
     QtCore.QTimer.singleShot(0, mw._update_dynamic_ranges)
 
@@ -67,32 +69,22 @@ def collect_context_from_ui(mw, for_preview: bool = True) -> dict:
         vertex_distance = mw.vertex_distance_input.value()
         max_height = mw.max_height_input.value()
 
-        offset_x, offset_z = mw.current_world_offset
+        # Эта часть больше не используется для генерации координат, но может быть полезна
+        offset_x, offset_z = 0.0, 0.0
 
     except (AttributeError, ValueError, IndexError) as e:
         logger.error(f"Ошибка чтения настроек из UI: {e}")
         resolution, vertex_distance, max_height = 512, 1.0, 1000.0
         offset_x, offset_z = 0.0, 0.0
 
-    if for_preview:
-        preview_vertex_distance = 1.0
-        preview_max_height = max_height / vertex_distance if vertex_distance > 0 else max_height
-        world_size_meters = resolution * preview_vertex_distance
-    else:
-        world_size_meters = resolution * vertex_distance
-        preview_max_height = max_height
-
-    half_size = world_size_meters / 2.0
-    x_min, x_max = offset_x - half_size, offset_x + half_size
-    z_min, z_max = offset_z - half_size, offset_z + half_size
-
-    x_range = np.linspace(x_min, x_max, resolution, dtype=np.float32)
-    z_range = np.linspace(z_min, z_max, resolution, dtype=np.float32)
-    x_coords, z_coords = np.meshgrid(x_range, z_range)
+    # Создаем фиктивные координаты, так как реальные создаются в preview_logic
+    x_coords = np.zeros((resolution, resolution), dtype=np.float32)
+    z_coords = np.zeros((resolution, resolution), dtype=np.float32)
 
     return {
         "x_coords": x_coords,
         "z_coords": z_coords,
-        "WORLD_SIZE_METERS": world_size_meters,
-        "max_height_m": preview_max_height,
+        "WORLD_SIZE_METERS": resolution * vertex_distance,
+        "max_height_m": max_height,
+        "project": mw.project_manager.current_project_data if mw.project_manager else {}
     }

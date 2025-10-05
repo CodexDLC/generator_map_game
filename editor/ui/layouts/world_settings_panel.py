@@ -8,7 +8,7 @@ SUBDIVISION_LEVELS = {
     "3 (92 регионов)": 92, "5 (252 регионов)": 252, "8 (642 регионов)": 642,
     "10 (1002 регионов)": 1002, "16 (2562 регионов)": 2562, "32 (10242 регионов)": 10242,
 }
-ALLOWED_RESOLUTIONS = ["256x256", "512x512", "1024x1024", "2048x2048", "4096x4096"]
+ALLOWED_RESOLUTIONS = ["1024x1024", "2048x2048", "4096x4096"]
 MAX_SIDE_METERS = 65536.0
 
 
@@ -119,8 +119,10 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     preview_box.setChecked(True)
 
     widgets["preview_resolution_input"] = QtWidgets.QComboBox()
-    widgets["preview_resolution_input"].addItems(["256x256", "512x512", "1024x1024"])
-    widgets["preview_resolution_input"].setCurrentText("512x512")
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ: Убираем лишние разрешения ---
+    widgets["preview_resolution_input"].addItems(["1024x1024", "2048x2048", "4096x4096"])
+    widgets["preview_resolution_input"].setCurrentText("1024x1024")
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
     preview_box.body.addRow("Разрешение превью:", widgets["preview_resolution_input"])
 
     widgets["region_id_label"] = QtWidgets.QLabel("0")

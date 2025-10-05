@@ -89,14 +89,7 @@ class ProjectManager:
             if self.close_project_with_confirmation():
                 self.load_project(path_to_open)
 
-    def save_project(self) -> bool:
-        # Эта функция теперь вызывается из project_actions, но оставим ее для целостности
-        if not self.current_project_path:
-            self._status_msg("Проект не загружен, сохранение отменено.", 3000)
-            return False
-        # ... (логика сохранения)
-        self.mark_dirty(False)
-        return True
+    # --- ИЗМЕНЕНИЕ: Удалена некорректная функция save_project ---
 
     def close_project_with_confirmation(self) -> bool:
         if not self.is_dirty:
@@ -107,7 +100,8 @@ class ProjectManager:
                                              QtWidgets.QMessageBox.StandardButton.Discard |
                                              QtWidgets.QMessageBox.StandardButton.Cancel)
         if res == QtWidgets.QMessageBox.StandardButton.Save:
-            return self.save_project()
+            # --- ИЗМЕНЕНИЕ: Теперь вызывается правильный метод сохранения из MainWindow ---
+            return self._mw.save_project()
         elif res == QtWidgets.QMessageBox.StandardButton.Discard:
             return True
         else:  # Cancel
