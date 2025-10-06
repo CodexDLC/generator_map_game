@@ -196,29 +196,54 @@ def _generate_hex_sphere_geometry(
 
 
 def orchestrate_planet_update(main_window):
-    if main_window.update_planet_btn: main_window.update_planet_btn.setEnabled(False)
+    """
+    Обновляет предпросмотр планеты.
+    По умолчанию включает AUTO-режим: целевой пик-ту-пик рельефа = 0.3% радиуса (землеподобно).
+    Учёт уровня моря: реальный размах над морем = disp_scale * (1 - sea_level).
+    """
+    if main_window.update_planet_btn:
+        main_window.update_planet_btn.setEnabled(False)
     QtWidgets.QApplication.processEvents()
+
     try:
+        # --- Радиус планеты ---
         radius_text = main_window.planet_radius_label.text().replace(" км", "").replace(",", "").replace(" ", "")
         radius_km = float(radius_text) if radius_text and radius_text != 'Ошибка' else 1.0
         radius_m = radius_km * 1000.0
-        if radius_m < 1.0: raise ValueError("Радиус планеты слишком мал или не рассчитан.")
+        if radius_m < 1.0:
+            raise ValueError("Радиус планеты слишком мал или не рассчитан.")
 
-        elevation_text = main_window.base_elevation_label.text().replace(" м", "").replace(",", "").replace(" ", "")
-        base_elevation_m = float(elevation_text) if elevation_text and elevation_text != 'Ошибка' else 1000.0
-        disp_scale = base_elevation_m / radius_m
+        # --- Уровень моря (0..1). Если вдруг пришли проценты, приводим к доле. ---
+        sea_val = float(main_window.ws_sea_level.value())
+        sea_level = sea_val * 0.01 if sea_val > 1.0 else sea_val
+        sea_level = max(0.0, min(0.99, sea_level))  # страховка: не даём 1.0
 
-        logger.info(
-            f"Preview scale: radius_km={radius_km:.3f} ({radius_m:.1f} m), "
-            f"base_elevation_m={base_elevation_m:.1f} => disp_scale={disp_scale:.6f}"
-        )
+        # --- AUTO пресет «Земля»: Δr_target = 0.3% радиуса ---
+        delta_r_target = 0.003  # 0.3% от радиуса, пик-ту-пик
+        # disp_scale таков, чтобы над морем мы получили ровно delta_r_target
+        disp_scale = delta_r_target / max(1e-6, (1.0 - sea_level))
+        eq_base_elevation_m = delta_r_target * radius_m  # эквивалентный пик-ту-пик в метрах
 
+        # --- Параметры шума для предпросмотра (как было) ---
         scale_value = main_window.ws_relative_scale.value()
         frequency = 1.0 + (scale_value * 9.0)
+
+        # Детализация предпросмотра из комбо «Средняя (3)» и т.п.
         detail_text = main_window.planet_preview_detail_input.currentText()
         subdivision_level = int(detail_text.split("(")[1].replace(")", ""))
+
+        # Детализация гекса-сетки (чтобы не ломать твою логику)
+        subdivision_level_grid = int(main_window.subdivision_level_input.currentText().split(" ")[0])
+
+        logger.info(
+            "Relief mode: AUTO(Earth 0.3%%). radius_km=%.3f (%.1f m), sea=%.3f -> "
+            "Δr_target=%.6f (~%.3f%%), disp_scale=%.6f, eq_base_elevation≈%.1f m"
+            % (radius_km, radius_m, sea_level, delta_r_target, delta_r_target*100.0,
+               disp_scale, eq_base_elevation_m)
+        )
+
         world_settings = {
-            'subdivision_level': int(main_window.subdivision_level_input.currentText().split(" ")[0]),
+            'subdivision_level': subdivision_level_grid,
             'disp_scale': disp_scale,
             'sphere_params': {
                 'octaves': int(main_window.ws_octaves.value()),
@@ -226,15 +251,22 @@ def orchestrate_planet_update(main_window):
                 'seed': main_window.ws_seed.value(),
                 'frequency': frequency,
                 'power': main_window.ws_power.value(),
-                'sea_level_pct': main_window.ws_sea_level.value(),
+                'sea_level_pct': sea_level,
             }
         }
+
         update_planet_widget(main_window.planet_widget, world_settings, main_window.render_settings, subdivision_level)
+
     except Exception as e:
-        QtWidgets.QMessageBox.critical(main_window, "Ошибка",
-                                       f"Не удалось обновить 3D-планету: {e}\n{traceback.format_exc()}")
+        QtWidgets.QMessageBox.critical(
+            main_window,
+            "Ошибка",
+            f"Не удалось обновить 3D-планету: {e}\n{traceback.format_exc()}"
+        )
     finally:
-        if main_window.update_planet_btn: main_window.update_planet_btn.setEnabled(True)
+        if main_window.update_planet_btn:
+            main_window.update_planet_btn.setEnabled(True)
+
 
 
 def update_planet_widget(planet_widget, world_settings: dict, render_settings: RenderSettings, subdivision_level: int):

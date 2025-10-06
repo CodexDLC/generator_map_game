@@ -37,31 +37,24 @@ void main() {
 
 FS_CODE = """
 #version 330 core
+
+uniform int u_is_line;     // 1 = рисуем линии, 0 = рельеф
+
+in vec3 v_color;           // цвет от палитры (из VS)
+in vec3 v_normal;          // игнорируем для unlit
+
 out vec4 FragColor;
 
-in vec3 v_normal_view;
-in vec3 v_pos_view;
-in vec3 v_color;
-
-uniform vec3 u_light_dir_view;
-uniform float u_ambient;
-uniform float u_diffuse;
-uniform bool u_is_line;
-
-void main()
-{
-        if (u_is_line) {
-            // ФИКС: Серые линии для контраста на heightmap (не белые/красные, не чёрные на тьме)
-            FragColor = vec4(0.0, 1.0, 0.5, 1.0);
-        }else {
-        // Расчет простого диффузного освещения (модель Ламберта)
-        vec3 normal = normalize(v_normal_view);
-        float diff = max(dot(normal, normalize(u_light_dir_view)), 0.0);
-
-        // Смешиваем основной цвет с интенсивностью света
-        vec3 final_color = v_color * (u_ambient + u_diffuse * diff);
-        FragColor = vec4(final_color, 1.0);
+void main() {
+    // ЛИНИИ: чисто чёрные, без освещения
+    if (u_is_line == 1) {
+        FragColor = vec4(0.0, 0.0, 0.0, 1.0);   // ЧЁРНЫЙ
+        return;
     }
+
+    // РЕЛЬЕФ: полностью рассеянный (unlit) — ни диффуза, ни хайлайтов
+    vec3 base = clamp(v_color, 0.0, 1.0);
+    FragColor = vec4(base, 1.0);
 }
 """
 
