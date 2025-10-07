@@ -1,9 +1,8 @@
-# editor/ui/render_panel.py
+# editor/ui/layouts/render_panel.py
 from __future__ import annotations
 from typing import Callable
 from PySide6 import QtWidgets, QtCore
 
-# Обновленные импорты
 from editor.core.render_settings import RenderSettings, RENDER_PRESETS
 from editor.render_palettes import PALETTES
 
@@ -81,21 +80,8 @@ class RenderPanel(QtWidgets.QWidget):
         lay.addWidget(
             QtWidgets.QFrame(self, frameShape=QtWidgets.QFrame.Shape.HLine, frameShadow=QtWidgets.QFrame.Shadow.Sunken))
 
-        # --- Разрешение превью ---
-        prev_res_row = QtWidgets.QHBoxLayout()
-        prev_res_row.addWidget(QtWidgets.QLabel("Разрешение превью:"))
-        # Важно: виджет должен быть доступен из main_window
-        self._mw = parent # Сохраняем ссылку на main_window
-        self._mw.preview_resolution_input = QtWidgets.QComboBox()
-        self._mw.preview_resolution_input.addItems(["256x256", "512x512", "1024x1024"])
-        self._mw.preview_resolution_input.setCurrentText("512x512")
-        prev_res_row.addWidget(self._mw.preview_resolution_input, 1)
-        lay.addLayout(prev_res_row)
+        # --- Блок выбора разрешения был убран отсюда ---
 
-        lay.addWidget(
-            QtWidgets.QFrame(self, frameShape=QtWidgets.QFrame.Shape.HLine, frameShadow=QtWidgets.QFrame.Shadow.Sunken))
-
-        # --- НОВОЕ: блок цвета ---
         grp = QtWidgets.QGroupBox("Цвет (предпросмотр)")
         v = QtWidgets.QVBoxLayout(grp)
 
@@ -144,7 +130,6 @@ class RenderPanel(QtWidgets.QWidget):
         self.apply_btn.clicked.connect(self._apply_preset)
         self.mode.currentTextChanged.connect(self._emit_changes)
 
-        # Новые сигналы
         self.use_palette.toggled.connect(self._emit_changes)
         self.palette.currentTextChanged.connect(self._emit_changes)
         self.use_slope.toggled.connect(self._emit_changes)
@@ -173,8 +158,6 @@ class RenderPanel(QtWidgets.QWidget):
         self.s.fov = float(self.fov.value())
         self.s.auto_frame = bool(self.auto.isChecked())
         self.s.light_mode = self.mode.currentText()
-
-        # Новые поля
         self.s.use_palette = bool(self.use_palette.isChecked())
         self.s.palette_name = self.palette.currentText()
         self.s.use_slope_darkening = bool(self.use_slope.isChecked())
@@ -199,8 +182,6 @@ class RenderPanel(QtWidgets.QWidget):
             self.fov.setValue(self.s.fov)
             self.auto.setChecked(self.s.auto_frame)
             self.mode.setCurrentText(self.s.light_mode)
-
-            # Новые поля
             self.use_palette.setChecked(settings.use_palette)
             self.palette.setCurrentText(settings.palette_name)
             self.use_slope.setChecked(settings.use_slope_darkening)
@@ -213,14 +194,12 @@ class RenderPanel(QtWidgets.QWidget):
         self._emit_changes()
 
 
-# Фабрика для V2 архитектуры
 def make_render_panel_widget(main_window, settings: RenderSettings, on_changed: Callable) -> RenderPanel:
     panel = RenderPanel(settings, main_window)
     panel.changed.connect(on_changed)
     return panel
 
 
-# Фабрика для V1/Legacy архитектуры
 def create_render_dock(main_window, settings: RenderSettings, on_changed: Callable) -> QtWidgets.QDockWidget:
     dock = QtWidgets.QDockWidget("Рендер", main_window)
     panel = RenderPanel(settings, dock)

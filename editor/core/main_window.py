@@ -58,9 +58,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.realtime_checkbox: QtWidgets.QCheckBox | None = None
 
         self.subdivision_level_input: QtWidgets.QComboBox | None = None
-        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
         self.planet_preview_detail_input: QtWidgets.QComboBox | None = None
-        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
         self.region_resolution_input: QtWidgets.QComboBox | None = None
         self.vertex_distance_input: QtWidgets.QDoubleSpinBox | None = None
         self.max_height_input: QtWidgets.QDoubleSpinBox | None = None
@@ -83,7 +81,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.region_center_z_label: QtWidgets.QLabel | None = None
 
         self.current_region_id: int = 0
-        self.current_world_offset = (0.0, 0.0, 1.0)
+        self.current_world_offset = (0.0, 0.0, 1.0)  # Вектор, смотрящий вверх
         self.update_planet_btn: QtWidgets.QPushButton | None = None
         self._last_selected_node = None
 
@@ -94,7 +92,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.project_manager.load_project(project_path)
         self._load_app_settings()
 
+        # Инициализируем превью для региона 0 по умолчанию
         QtCore.QTimer.singleShot(0, lambda: self._on_cell_picked(0))
+
 
     def _build_ui(self) -> None:
         try:
@@ -106,7 +106,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.preview_widget.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
 
         self.planet_widget = SpherePreviewWidget(self)
-
+        # ... (остальная часть _build_ui без изменений) ...
         planet_container = QtWidgets.QWidget()
         planet_layout = QtWidgets.QVBoxLayout(planet_container)
         planet_layout.setContentsMargins(0, 0, 0, 0)
@@ -142,6 +142,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(main_splitter)
         self._connect_components()
 
+
     def _create_left_tabs(self) -> QtWidgets.QTabWidget:
         tabs = QtWidgets.QTabWidget()
         tabs.setDocumentMode(True)
@@ -168,6 +169,7 @@ class MainWindow(QtWidgets.QMainWindow):
         return tabs
 
     def _connect_components(self):
+        # ... (остальная часть _connect_components без изменений) ...
         if self.region_resolution_input: self.region_resolution_input.currentIndexChanged.connect(
             self._update_dynamic_ranges)
         if self.vertex_distance_input: self.vertex_distance_input.valueChanged.connect(self._update_calculated_fields)
@@ -181,7 +183,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if self.planet_widget:
             self.planet_widget.cell_picked.connect(self._on_cell_picked)
-
         # --- НАЧАЛО ИЗМЕНЕНИЙ ---
         planet_controls = [
             self.subdivision_level_input, self.planet_preview_detail_input, self.region_resolution_input,
@@ -190,7 +191,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.ws_power, self.ws_warp_strength, self.ws_seed
         ]
         # --- КОНЕЦ ИЗМЕНЕНИЙ ---
-
         for control in planet_controls:
             if not control: continue
 
@@ -231,19 +231,23 @@ class MainWindow(QtWidgets.QMainWindow):
         logger.info(f"Выбран регион (гекс) с ID: {cell_id}")
         self.current_region_id = cell_id
 
+        # --- НАЧАЛО ИЗМЕНЕНИЙ: Сохраняем 3D-вектор ---
         planet_data = getattr(self.planet_widget, '_planet_data', None)
         if planet_data and 'centers_xyz' in planet_data and cell_id < len(planet_data['centers_xyz']):
             center_xyz = planet_data['centers_xyz'][cell_id]
             # Сохраняем полный 3D-вектор
             self.current_world_offset = tuple(center_xyz.tolist())
 
+            # Обновляем UI, используя компоненты вектора
             if self.region_id_label: self.region_id_label.setText(str(cell_id))
             if self.region_center_x_label: self.region_center_x_label.setText(f"{self.current_world_offset[0]:.3f}")
-            if self.region_center_z_label: self.region_center_z_label.setText(f"{self.current_world_offset[2]:.3f}")
+            if self.region_center_z_label: self.region_center_z_label.setText(f"{self.current_world_offset[2]:.3f}") # Используем Z, а не Y
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
-            self._trigger_preview_update()
+        # Запускаем обновление превью
+        self._trigger_preview_update()
 
-
+    # ... (остальные методы без изменений) ...
     def _update_dynamic_ranges(self):
         if not (self.region_resolution_input and self.vertex_distance_input): return
         res_str = self.region_resolution_input.currentText()
@@ -319,7 +323,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.project_manager.open_project()
 
     def save_project(self) -> bool:
-        return self.project_manager.save_project()
+        if self.project_manager:
+            return self.project_manager.save_project()
+        return False
+
 
     def _load_presets_list(self):
         if not self.presets_widget or not self.project_manager.current_project_data: return

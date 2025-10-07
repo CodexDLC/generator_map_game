@@ -41,7 +41,6 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     widgets["subdivision_level_input"].setCurrentText("8 (642 регионов)")
     world_box.body.addRow("Частота разделения:", widgets["subdivision_level_input"])
 
-    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
     widgets["planet_preview_detail_input"] = QtWidgets.QComboBox()
     widgets["planet_preview_detail_input"].addItems([
         "Низкая (2)", "Средняя (3)", "Высокая (4)"
@@ -52,7 +51,6 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
         "Высокие значения могут замедлить обновление."
     )
     world_box.body.addRow("Детализация планеты:", widgets["planet_preview_detail_input"])
-    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
     widgets["region_resolution_input"] = QtWidgets.QComboBox()
     widgets["region_resolution_input"].addItems(ALLOWED_RESOLUTIONS)
@@ -130,11 +128,9 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     # --- БЛОК 2: НАСТРОЙКИ ПРЕВЬЮ ---
     preview_box = CollapsibleBox("Настройки Превью")
     preview_box.setChecked(True)
-
-    widgets["preview_resolution_input"] = QtWidgets.QComboBox()
-    widgets["preview_resolution_input"].addItems(["1024x1024", "2048x2048", "4096x4096"])
-    widgets["preview_resolution_input"].setCurrentText("1024x1024")
-    preview_box.body.addRow("Разрешение превью:", widgets["preview_resolution_input"])
+    # Удаляем отсюда виджет выбора разрешения
+    # widgets["preview_resolution_input"] = QtWidgets.QComboBox()
+    # ...
 
     widgets["region_id_label"] = QtWidgets.QLabel("0")
     preview_box.body.addRow("ID Региона:", widgets["region_id_label"])
