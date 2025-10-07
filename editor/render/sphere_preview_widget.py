@@ -9,10 +9,11 @@ from OpenGL import GL
 from OpenGL.GL import *
 
 from editor.core.render_settings import RenderSettings
+from generator_logic.topology.icosa_grid import nearest_cell_by_xyz
 
 logger = logging.getLogger(__name__)
 
-# --- НАЧАЛО ИЗМЕНЕНИЙ: Обновленные шейдеры с расчетом освещения ---
+# --- Шейдеры (VS_CODE, FS_CODE) остаются без изменений ---
 VS_CODE = """
 #version 330 core
 layout (location = 0) in vec3 aPos;
@@ -59,7 +60,7 @@ void main() {
 """
 
 
-# --- КОНЕЦ ИЗМЕНЕНИЙ ---
+# ---------------------------------------------------------
 
 
 class SpherePreviewWidget(QOpenGLWidget):
@@ -112,7 +113,6 @@ class SpherePreviewWidget(QOpenGLWidget):
 
         GL.glClearColor(0.1, 0.1, 0.15, 1.0)
 
-    # --- НАЧАЛО ИЗМЕНЕНИЙ: Обновленная функция отрисовки ---
     def paintGL(self):
         GL.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         if self._shader_program is None or self._vertices.size == 0: return
@@ -145,13 +145,11 @@ class SpherePreviewWidget(QOpenGLWidget):
         s = self._render_settings
         az_rad = math.radians(s.light_azimuth_deg)
         alt_rad = math.radians(s.light_altitude_deg)
-        # Направление источника света в мировых координатах
         light_dir_world = QtGui.QVector3D(
             math.cos(alt_rad) * math.sin(az_rad),
             math.cos(alt_rad) * math.cos(az_rad),
             math.sin(alt_rad)
         )
-        # Преобразуем направление света в σύстему координат камеры
         light_dir_view = view.mapVector(light_dir_world).normalized()
         GL.glUniform3f(GL.glGetUniformLocation(self._shader_program, "u_light_dir_view"), light_dir_view.x(),
                        light_dir_view.y(), light_dir_view.z())
@@ -165,56 +163,96 @@ class SpherePreviewWidget(QOpenGLWidget):
         GL.glBindBuffer(GL_ARRAY_BUFFER, self._vbo_col)
         GL.glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, None)
 
-        # 1. Рисуем заполненные полигоны
         GL.glUniform1i(GL.glGetUniformLocation(self._shader_program, "u_is_line"), 0)
         GL.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self._ibo_fill)
         GL.glDrawElements(GL_TRIANGLES, self._fill_indices.size, GL_UNSIGNED_INT, None)
 
-        # 2. Рисуем линии гексов поверх
         GL.glUniform1i(GL.glGetUniformLocation(self._shader_program, "u_is_line"), 1)
-        GL.glLineWidth(2.0)  # Толще — лучше видно на рельефе (было 1.0)
+        GL.glLineWidth(2.0)
         GL.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self._ibo_lines)
         GL.glDrawElements(GL_LINES, self._line_indices.size, GL_UNSIGNED_INT, None)
 
         GL.glDisableVertexAttribArray(0)
         GL.glDisableVertexAttribArray(2)
 
-    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
-
     def resizeGL(self, w: int, h: int):
         GL.glViewport(0, 0, w, h)
 
     def mousePressEvent(self, event: QtGui.QMouseEvent):
+        """
+        ФИНАЛЬНАЯ ВЕРСИЯ: Использует математически корректный raycasting
+        для точного определения точки клика на 3D-сфере.
+        """
         self._last_mouse_pos = event.position().toPoint()
-        if self._planet_data is None or 'centers_xyz' not in self._planet_data: return
-        centers_xyz = self._planet_data['centers_xyz']
-        if centers_xyz is None or centers_xyz.shape[0] == 0: return
+        if self._planet_data is None or 'centers_xyz' not in self._planet_data or self._vertices.size == 0:
+            return
+
+        # --- НАЧАЛО ФИНАЛЬНОГО ИСПРАВЛЕНИЯ ---
+
+        # Шаг 1: Вычисляем средний радиус видимой геометрии.
+        average_radius = float(np.mean(np.linalg.norm(self._vertices, axis=1)))
+        if average_radius < 0.1:
+            average_radius = 1.0
+
+        # Шаг 2: Получаем матрицы проекции и вида, как они есть в момент клика.
         proj = QtGui.QMatrix4x4()
         proj.perspective(45.0, self.width() / max(1, self.height()), 0.1, 100.0)
         view = QtGui.QMatrix4x4()
         view.translate(0.0, 0.0, -self._cam_distance)
         view.rotate(self._rotation)
-        inv_proj, ok_proj = proj.inverted()
-        inv_view, ok_view = view.inverted()
-        if not (ok_proj and ok_view): return
-        x = (2.0 * event.position().x()) / self.width() - 1.0
-        y = 1.0 - (2.0 * event.position().y()) / self.height()
-        ray_eye = inv_proj.map(QtGui.QVector4D(x, y, -1.0, 1.0))
-        ray_eye = QtGui.QVector4D(ray_eye.x(), ray_eye.y(), -1.0, 0.0)
-        ray_world = inv_view.map(ray_eye).toVector3D().normalized()
-        camera_pos = inv_view.map(QtGui.QVector3D(0, 0, 0))
-        oc = camera_pos - QtGui.QVector3D(0, 0, 0)
-        b = QtGui.QVector3D.dotProduct(oc, ray_world)
-        c = QtGui.QVector3D.dotProduct(oc, oc) - 1.0
+
+        # Шаг 3: "Раз-проектируем" точку клика, чтобы получить луч в мировых координатах.
+        inv_view_proj, invertible = (proj * view).inverted()
+        if not invertible:
+            logger.warning("Матрица вида-проекции не обратима.")
+            return
+
+        x_ndc = (2.0 * event.position().x()) / self.width() - 1.0
+        y_ndc = 1.0 - (2.0 * event.position().y()) / self.height()
+
+        # Точка на ближней плоскости отсечения в мировых координатах
+        near_point_h = inv_view_proj.map(QtGui.QVector4D(x_ndc, y_ndc, -1.0, 1.0))
+        # Точка на дальней плоскости отсечения в мировых координатах
+        far_point_h = inv_view_proj.map(QtGui.QVector4D(x_ndc, y_ndc, 1.0, 1.0))
+
+        if near_point_h.w() == 0.0 or far_point_h.w() == 0.0:
+            logger.warning("W-координата равна нулю при раз-проектировании.")
+            return
+
+        ray_origin = near_point_h.toVector3D() / near_point_h.w()
+        far_point = far_point_h.toVector3D() / far_point_h.w()
+        ray_dir = (far_point - ray_origin).normalized()
+
+        # Шаг 4: Находим пересечение этого луча со сферой, используя ВЫЧИСЛЕННЫЙ РАДИУС.
+        oc = ray_origin
+        b = QtGui.QVector3D.dotProduct(oc, ray_dir)
+        c = QtGui.QVector3D.dotProduct(oc, oc) - average_radius * average_radius
         discriminant = b * b - c
-        if discriminant < 0: return
+
+        if discriminant < 0:
+            logger.debug("Луч не пересек сферу.")
+            return
+
         intersection_dist = -b - math.sqrt(discriminant)
-        intersection_point = camera_pos + ray_world * intersection_dist
-        intersection_np = np.array([intersection_point.x(), intersection_point.y(), intersection_point.z()],
+        intersection_point_3d = ray_origin + ray_dir * intersection_dist
+
+        # Шаг 5: Находим ближайший центр гекса.
+        intersection_np = np.array([intersection_point_3d.x(), intersection_point_3d.y(), intersection_point_3d.z()],
                                    dtype=np.float32)
-        distances_sq = np.sum((centers_xyz - intersection_np) ** 2, axis=1)
-        closest_idx = np.argmin(distances_sq)
+
+        logger.debug(f"Клик: {event.position().toPoint()}, Точка на сфере XYZ: {intersection_np}")
+
+        # Нормализуем вектор для сравнения с единичными векторами центров.
+        intersection_np /= np.linalg.norm(intersection_np)
+
+        closest_idx = nearest_cell_by_xyz(
+            intersection_np,
+            self._planet_data['centers_xyz']
+        )
+
+        logger.debug(f"Выбран ID региона: {closest_idx}")
         self.cell_picked.emit(int(closest_idx))
+
 
     def mouseMoveEvent(self, event: QtGui.QMouseEvent):
         dx = event.position().toPoint().x() - self._last_mouse_pos.x()

@@ -309,9 +309,35 @@ def uv_to_lonlat(u: float, v: float, lon0_rad: float) -> Tuple[float, float]:
     lat = v * math.pi - math.pi * 0.5
     return lon, lat
 
+
+
+
+# -----------------------
+# НОВЫЕ ФУНКЦИИ В КОНЦЕ ФАЙЛА
+# -----------------------
+
 def nearest_cell_by_lonlat(lon_rad: float, lat_rad: float, centers_lonlat_rad: np.ndarray) -> int:
+    """
+    Находит ближайшую ячейку по координатам на плоской карте lon/lat.
+    (Этот метод менее точен из-за искажений проекции).
+    """
     dlon = centers_lonlat_rad[:,0] - lon_rad
+    # Корректно обрабатываем "переход" через 180-й меридиан
     dlon = (dlon + math.pi) % (2.0 * math.pi) - math.pi
     dlat = centers_lonlat_rad[:,1] - lat_rad
     dist2 = dlon * dlon + dlat * dlat
     return int(np.argmin(dist2))
+
+def nearest_cell_by_xyz(p_xyz: np.ndarray, centers_xyz: np.ndarray) -> int:
+    """
+    Находит ближайший центр ячейки к точке на единичной сфере, используя скалярное произведение.
+    Это математически корректный и самый точный метод.
+
+    Args:
+        p_xyz: Нормализованный вектор (3,) точки на сфере.
+        centers_xyz: Массив (N, 3) нормализованных векторов центров ячеек.
+    """
+    # Скалярное произведение p_xyz на каждую строку в centers_xyz.
+    # Наибольшее значение соответствует наименьшему углу между векторами.
+    dot_products = np.dot(centers_xyz, p_xyz)
+    return int(np.argmax(dot_products))

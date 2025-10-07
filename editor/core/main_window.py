@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # --- Импорты ---
 from editor.graph.graph_runner import run_graph
-from editor.logic import planet_view_logic
+
 from editor.ui.layouts.properties_panel import create_properties_widget
 from editor.ui.widgets.custom_controls import SliderSpinCombo, SeedWidget, CollapsibleBox
 from editor.ui.layouts.central_layout import create_bottom_work_area_v2
@@ -83,7 +83,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.region_center_z_label: QtWidgets.QLabel | None = None
 
         self.current_region_id: int = 0
-        self.current_world_offset = (0.0, 0.0)
+        self.current_world_offset = (0.0, 0.0, 1.0)
         self.update_planet_btn: QtWidgets.QPushButton | None = None
         self._last_selected_node = None
 
@@ -226,20 +226,20 @@ class MainWindow(QtWidgets.QMainWindow):
 
         QtCore.QTimer.singleShot(0, self._update_dynamic_ranges)
 
-
     @QtCore.Slot(int)
     def _on_cell_picked(self, cell_id: int):
         logger.info(f"Выбран регион (гекс) с ID: {cell_id}")
         self.current_region_id = cell_id
 
         planet_data = getattr(self.planet_widget, '_planet_data', None)
-        if planet_data and 'centers_xyz' in planet_data:
+        if planet_data and 'centers_xyz' in planet_data and cell_id < len(planet_data['centers_xyz']):
             center_xyz = planet_data['centers_xyz'][cell_id]
-            self.current_world_offset = (float(center_xyz[0]), float(center_xyz[2]))
+            # Сохраняем полный 3D-вектор
+            self.current_world_offset = tuple(center_xyz.tolist())
 
             if self.region_id_label: self.region_id_label.setText(str(cell_id))
             if self.region_center_x_label: self.region_center_x_label.setText(f"{self.current_world_offset[0]:.3f}")
-            if self.region_center_z_label: self.region_center_z_label.setText(f"{self.current_world_offset[1]:.3f}")
+            if self.region_center_z_label: self.region_center_z_label.setText(f"{self.current_world_offset[2]:.3f}")
 
             self._trigger_preview_update()
 
@@ -363,85 +363,9 @@ class MainWindow(QtWidgets.QMainWindow):
             ev.ignore()
 
     def _on_apply_clicked(self):
-        if self.right_outliner: self.right_outliner.set_busy(True)
-        try:
-            target_node = self.graph.selected_nodes()[
-                0] if self.graph and self.graph.selected_nodes() else self._last_selected_node
-            if not target_node:
-                logger.warning("Нет выбранной ноды для превью. Рендер отменен.")
-                return
-
-            logger.info(f"Рендеринг превью для ноды: '{target_node.name()}'")
-
-            context = self.project_manager.collect_ui_context(for_preview=True)
-
-            sphere_params = {
-                'octaves': int(self.ws_octaves.value()),
-                'gain': self.ws_gain.value(),
-                'seed': self.ws_seed.value(),
-                'frequency': 1.0 / (self.ws_relative_scale.value() * 4.0),
-                'power': self.ws_power.value(),
-                'warp_strength': self.ws_warp_strength.value(),
-            }
-
-            resolution = int(self.preview_resolution_input.currentText().split('x')[0])
-            size_m = 2.0
-            half = size_m / 2.0
-
-            offset_x, offset_z = self.current_world_offset
-
-            x_range = np.linspace(offset_x - half, offset_x + half, resolution, dtype=np.float32)
-            z_range = np.linspace(offset_z - half, offset_z + half, resolution, dtype=np.float32)
-            x_coords, z_coords = np.meshgrid(x_range, z_range)
-
-            d_sq = x_coords ** 2 + z_coords ** 2
-            y_coords = np.sqrt(np.maximum(0.0, 1.0 - d_sq))
-
-            coords_for_noise = np.stack([x_coords, y_coords, z_coords], axis=-1)
-
-            base_noise = global_sphere_noise_wrapper(
-                context={'project': {'seed': sphere_params.get('seed', 0)}},
-                sphere_params=sphere_params,
-                coords_xyz=coords_for_noise
-            )
-
-            context["world_input_noise"] = base_noise.astype(np.float32)
-
-            if np.any(base_noise):
-                preview_max_height = context.get('max_height_m', 1000.0)
-                min_norm = np.min(base_noise)
-                max_norm = np.max(base_noise)
-                mean_norm = np.mean(base_noise)
-                stats = {
-                    'min_norm': min_norm,
-                    'max_norm': max_norm,
-                    'mean_norm': mean_norm,
-                    'min_m': min_norm * preview_max_height,
-                    'max_m': max_norm * preview_max_height,
-                    'mean_m': mean_norm * preview_max_height,
-                }
-                if self.graph:
-                    for node in self.graph.all_nodes():
-                        if isinstance(node, WorldInputNode):
-                            node.output_stats = stats
-                            break
-
-            final_map_01 = run_graph(target_node, context)
-
-            preview_max_height = context.get('max_height_m', 1000.0)
-            final_map_meters = final_map_01 * preview_max_height
-            if self.preview_widget:
-                self.preview_widget.update_mesh(final_map_meters, 1.0)
-
-            if self.node_inspector:
-                self.node_inspector.refresh_from_selection()
-
-        except Exception as e:
-            logger.exception(f"Ошибка во время генерации: {e}")
-            QtWidgets.QMessageBox.critical(self, "Ошибка генерации",
-                                           f"Произошла ошибка: {e}\n\n{traceback.format_exc()}")
-        finally:
-            if self.right_outliner: self.right_outliner.set_busy(False)
+        # Вместо всей старой логики - просто вызываем наш новый центральный обработчик
+        from editor.logic import preview_logic
+        preview_logic.generate_preview(self)
 
     def _trigger_apply(self) -> None:
         if self.right_outliner and self.right_outliner.apply_button:
