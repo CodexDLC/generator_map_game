@@ -6,6 +6,7 @@ import math
 import numpy as np
 from PySide6 import QtWidgets
 from scipy.spatial.transform import Rotation as R
+import cv2  # Импортируем OpenCV для изменения размера
 
 from editor.graph.graph_runner import run_graph
 from editor.utils.diag import diag_array
@@ -45,28 +46,25 @@ def _get_target_node_and_mode(main_window: MainWindow) -> Tuple[Optional[Generat
 def _prepare_context(main_window: MainWindow) -> Tuple[Dict[str, Any], int]:
     """
     Собирает базовый контекст и разрешение из UI.
+    ВЕРСИЯ ИСПРАВЛЕНИЯ: Теперь всегда используется 'region_resolution' для вычислений.
     """
     context = main_window.project_manager.collect_ui_context(for_preview=True)
 
-    # ИСПРАВЛЕНИЕ ОШИБКИ 'NoneType'
-    # Мы читаем разрешение из правильного виджета, который теперь должен быть доступен
     try:
-        # Пытаемся прочитать разрешение превью.
-        resolution_str = main_window.preview_resolution_input.currentText()
+        # ИСПРАВЛЕНИЕ: Используем разрешение региона для всех вычислений
+        resolution_str = main_window.region_resolution_input.currentText()
         resolution = int(resolution_str.split('x')[0])
     except (AttributeError, ValueError, IndexError):
-        # Если виджет не найден или пуст, используем безопасное значение по умолчанию.
-        logger.warning("Не удалось прочитать разрешение превью из UI. Используется значение по умолчанию: 512.")
-        resolution = 512
+        logger.warning("Не удалось прочитать разрешение региона из UI. Используется значение по умолчанию: 4096.")
+        resolution = 4096
 
     vertex_distance = main_window.vertex_distance_input.value()
     world_side_m = resolution * vertex_distance
 
     context['WORLD_SIZE_METERS'] = world_side_m
     logger.debug(
-        f"Собраны параметры: Resolution={resolution}px, VertexDistance={vertex_distance} м/пикс, WorldSide={world_side_m} м.")
+        f"Собраны параметры для ВЫЧИСЛЕНИЙ: Resolution={resolution}px, VertexDistance={vertex_distance} м/пикс, WorldSide={world_side_m} м.")
 
-    # Создаем координатные сетки в метрах один раз и с правильным разрешением
     x_meters = np.linspace(-world_side_m / 2.0, world_side_m / 2.0, resolution, dtype=np.float32)
     z_meters = np.linspace(-world_side_m / 2.0, world_side_m / 2.0, resolution, dtype=np.float32)
     context['x_coords'], context['z_coords'] = np.meshgrid(x_meters, z_meters)
@@ -83,18 +81,13 @@ def _generate_world_input(main_window: MainWindow, resolution: int, sphere_param
     target_center_vec /= np.linalg.norm(target_center_vec)
     logger.debug(f"Целевой вектор региона (ID: {main_window.current_region_id}): {target_center_vec}")
 
-    # 1. Создаем плоские сетки для X и Y в диапазоне [-1, 1] (наша плоскость проекции)
     x_norm = np.linspace(-1.0, 1.0, resolution, dtype=np.float32)
     y_norm = np.linspace(-1.0, 1.0, resolution, dtype=np.float32)
     xv_norm, yv_norm = np.meshgrid(x_norm, y_norm)
 
-    # 2. Вычисляем Z для полусферы, "смотрящей" вверх по оси Z.
-    # Точки за пределами единичного круга будут иметь Z=0.
     d_sq = xv_norm**2 + yv_norm**2
     zv_norm = np.sqrt(np.maximum(0.0, 1.0 - d_sq))
 
-    # 3. Рассчитываем поворот, чтобы "северный полюс" (0,0,1) нашей полусферы
-    # совместился с целевым вектором (направлением на выбранный регион).
     up_vec = np.array([0.0, 0.0, 1.0])
     axis = np.cross(up_vec, target_center_vec)
     angle = np.arccos(np.dot(up_vec, target_center_vec))
@@ -104,10 +97,7 @@ def _generate_world_input(main_window: MainWindow, resolution: int, sphere_param
     else:
         rotation = R.identity() if np.dot(up_vec, target_center_vec) > 0 else R.from_rotvec([1, 0, 0] * np.pi)
 
-    # 4. Собираем точки в правильном порядке: (X, Y, Z)
     points_to_rotate = np.stack([xv_norm, yv_norm, zv_norm], axis=-1)
-
-    # 5. Применяем поворот ко всем точкам и генерируем шум
     coords_for_noise = rotation.apply(points_to_rotate.reshape(-1, 3)).reshape(points_to_rotate.shape)
     base_noise = get_noise_for_region_preview(sphere_params=sphere_params, coords_xyz=coords_for_noise)
 
@@ -116,14 +106,14 @@ def _generate_world_input(main_window: MainWindow, resolution: int, sphere_param
 
     return base_noise.astype(np.float32)
 
+
 def _run_graph_and_update_ui(main_window: MainWindow, target_node: GeneratorNode, context: dict):
     """
-    Запускает вычисление графа и обновляет 3D-превью.
+    Запускает вычисление графа, уменьшает результат до разрешения превью и обновляет 3D-вид.
     """
     preview_max_height = context.get('max_height_m', 1000.0)
     vertex_distance = main_window.vertex_distance_input.value()
 
-    # Обновляем статистику для WorldInputNode
     if np.any(context["world_input_noise"]) and main_window.graph:
         base_noise = context["world_input_noise"]
         min_n, max_n, mean_n = np.min(base_noise), np.max(base_noise), np.mean(base_noise)
@@ -138,20 +128,30 @@ def _run_graph_and_update_ui(main_window: MainWindow, target_node: GeneratorNode
                 node.output_stats = stats
                 break
 
-    # --- НАЧАЛО ИЗМЕНЕНИЯ: Диагностика перед запуском графа ---
     diag_array(context.get("world_input_noise"), name="world_input_noise (before run_graph)")
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-
-    # Запускаем граф
     final_map_01 = run_graph(target_node, context)
     logger.debug(f"Граф успешно выполнен. Финальная карта: Shape: {final_map_01.shape}, "
                  f"min: {final_map_01.min():.4f}, max: {final_map_01.max():.4f}, mean: {final_map_01.mean():.4f}")
 
-    # Обновляем UI
-    final_map_meters = final_map_01 * preview_max_height
+    # --- ИСПРАВЛЕНИЕ: Логика даунскейлинга ---
+    try:
+        preview_res_str = main_window.preview_resolution_input.currentText()
+        preview_resolution = int(preview_res_str.split('x')[0])
+    except (AttributeError, ValueError, IndexError):
+        logger.warning("Не удалось прочитать разрешение превью. Используется 1024.")
+        preview_resolution = 1024
+
+    display_map_01 = final_map_01
+    if final_map_01.shape[0] > preview_resolution:
+        logger.debug(f"Уменьшение карты с {final_map_01.shape[0]}px до {preview_resolution}px для превью.")
+        display_map_01 = cv2.resize(final_map_01, (preview_resolution, preview_resolution), interpolation=cv2.INTER_LINEAR)
+
+    final_map_meters = display_map_01 * preview_max_height
     if main_window.preview_widget:
         main_window.preview_widget.update_mesh(final_map_meters, vertex_distance)
-        logger.debug(f"Меш в 3D превью обновлен. Vertex distance: {vertex_distance} м.")
+        logger.debug(f"Меш в 3D превью обновлен. Vertex distance: {vertex_distance} м., "
+                     f"Разрешение рендера: {display_map_01.shape[0]}x{display_map_01.shape[1]}px.")
+
     if main_window.node_inspector:
         main_window.node_inspector.refresh_from_selection()
 
@@ -178,8 +178,6 @@ def _has_world_input_ancestor(node: GeneratorNode, visited: Set[str] = None) -> 
     return False
 
 
-# --- Главная функция-оркестратор ---
-
 def generate_preview(main_window: MainWindow):
     """
     Главная функция-оркестратор для генерации превью.
@@ -188,15 +186,13 @@ def generate_preview(main_window: MainWindow):
         main_window.right_outliner.set_busy(True)
 
     try:
-        # 1. Определяем цель и режим работы
         target_node, is_global_mode = _get_target_node_and_mode(main_window)
         if not target_node:
             return
 
-        # 2. Готовим базовый контекст и получаем разрешение
+        # ИСПРАВЛЕНИЕ: `resolution` здесь - это полное разрешение для вычислений
         context, resolution = _prepare_context(main_window)
 
-        # 3. Генерируем входной шум в зависимости от режима
         if is_global_mode:
             sphere_params = context.get('project', {}).get('global_noise', {})
             base_noise = _generate_world_input(main_window, resolution, sphere_params)
@@ -205,8 +201,6 @@ def generate_preview(main_window: MainWindow):
             logger.debug("Для локального режима создан пустой (нулевой) world_input_noise.")
 
         context["world_input_noise"] = base_noise
-
-        # 4. Запускаем граф и обновляем интерфейс
         _run_graph_and_update_ui(main_window, target_node, context)
 
     except Exception as e:
