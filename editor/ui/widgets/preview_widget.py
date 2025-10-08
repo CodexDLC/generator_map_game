@@ -1,4 +1,4 @@
-# editor/widgets/preview_widget.py
+# editor/ui/widgets/preview_widget.py
 from __future__ import annotations
 import gc
 import logging
@@ -12,6 +12,7 @@ from editor.render_palettes import map_palette_cpu
 
 logger = logging.getLogger(__name__)
 
+
 def _normalize_01(z: np.ndarray) -> tuple[np.ndarray, float, float]:
     zmin = float(np.nanmin(z));
     zmax = float(np.nanmax(z))
@@ -19,6 +20,7 @@ def _normalize_01(z: np.ndarray) -> tuple[np.ndarray, float, float]:
         return np.zeros_like(z, dtype=np.float32), zmin, zmax
     out = (z - zmin) / (zmax - zmin)
     return out.astype(np.float32, copy=False), zmin, zmax
+
 
 def _dir_from_angles(az_deg: float, alt_deg: float) -> tuple[float, float, float]:
     az = math.radians(az_deg);
@@ -28,14 +30,15 @@ def _dir_from_angles(az_deg: float, alt_deg: float) -> tuple[float, float, float
     z = math.sin(alt)
     return (-x, -y, -z)
 
+
 class Preview3DWidget(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._mesh = None
-        self._globe = None            # MeshVisual для шара
-        self._hex_lines = None        # LineVisual для гекс-контуров
-        self._centers_xyz = None      # (N,3) float32 центры регионов (единичная сфера)
-        self._lon0 = 0.0              # нулевой меридиан (рад)
+        self._globe = None
+        self._hex_lines = None
+        self._centers_xyz = None
+        self._lon0 = 0.0
         self._settings = RenderSettings()
 
         self.canvas = scene.SceneCanvas(keys="interactive", show=False, config={"samples": 4})
@@ -58,74 +61,76 @@ class Preview3DWidget(QtWidgets.QWidget):
         gc.collect()
 
     def _icosphere(self, f_vis: int = 32):
-        # берём твой сабдив из topology, чтобы не плодить код
         from generator_logic.topology.icosa_grid import _icosahedron as _ico
         V0, F0 = _ico()
-        # простой равномерный сабдив «на полёт» (достаточно для предпросмотра):
-        V = [v/np.linalg.norm(v) for v in V0]
+        V = [v / np.linalg.norm(v) for v in V0]
         F = F0.copy()
-        for _ in range(max(1, int(f_vis // 8))):  # грубая зависимость
+        for _ in range(max(1, int(f_vis // 8))):
             newF = []
             mid_cache = {}
             V = np.array(V, dtype=np.float32).tolist()
-            def mid(a,b):
-                key = (a,b) if a<b else (b,a)
+
+            def mid(a, b):
+                key = (a, b) if a < b else (b, a)
                 if key in mid_cache: return mid_cache[key]
-                p = (np.array(V[a])+np.array(V[b]))*0.5
-                p = (p/np.linalg.norm(p)).astype(np.float32)
+                p = (np.array(V[a]) + np.array(V[b])) * 0.5
+                p = (p / np.linalg.norm(p)).astype(np.float32)
                 V.append(p.tolist())
-                idx = len(V)-1
-                mid_cache[key]=idx
+                idx = len(V) - 1
+                mid_cache[key] = idx
                 return idx
-            for (a,b,c) in F:
-                ab = mid(a,b); bc = mid(b,c); ca = mid(c,a)
-                newF += [(a,ab,ca),(ab,b,bc),(ca,bc,c),(ab,bc,ca)]
+
+            for (a, b, c) in F:
+                ab = mid(a, b);
+                bc = mid(b, c);
+                ca = mid(c, a)
+                newF += [(a, ab, ca), (ab, b, bc), (ca, bc, c), (ab, bc, ca)]
             F = np.array(newF, dtype=np.int32)
         V = np.array(V, dtype=np.float32)
         return V, F
 
     def _sample_height_equirect(self, height_map: np.ndarray, p_xyz: np.ndarray, lon0: float):
-        # p_xyz: (...,3) единичные
-        x,y,z = p_xyz[...,0], p_xyz[...,1], p_xyz[...,2]
-        lon = np.arctan2(y, x) - lon0           # [-pi..pi)
-        lon = (lon + np.pi) % (2*np.pi) - np.pi
-        lat = np.arcsin(np.clip(z, -1.0, 1.0))  # [-pi/2..pi/2]
+        x, y, z = p_xyz[..., 0], p_xyz[..., 1], p_xyz[..., 2]
+        lon = np.arctan2(y, x) - lon0
+        lon = (lon + np.pi) % (2 * np.pi) - np.pi
+        lat = np.arcsin(np.clip(z, -1.0, 1.0))
         H, W = height_map.shape[:2]
-        u = (lon/(2*np.pi) + 0.5) * (W-1)
-        v = ((lat/np.pi) + 0.5) * (H-1)
-        # билинейная интерполяция
-        x0 = np.floor(u).astype(np.int32); x1 = np.clip(x0+1, 0, W-1)
-        y0 = np.floor(v).astype(np.int32); y1 = np.clip(y0+1, 0, H-1)
-        fu = (u - x0)[...,None]; fv = (v - y0)[...,None]
-        q00 = height_map[y0, x0][...,None]
-        q10 = height_map[y0, x1][...,None]
-        q01 = height_map[y1, x0][...,None]
-        q11 = height_map[y1, x1][...,None]
-        h0 = q00*(1-fu) + q10*fu
-        h1 = q01*(1-fu) + q11*fu
-        h  = (h0*(1-fv) + h1*fv).squeeze(-1)
+        u = (lon / (2 * np.pi) + 0.5) * (W - 1)
+        v = ((lat / np.pi) + 0.5) * (H - 1)
+        x0 = np.floor(u).astype(np.int32);
+        x1 = np.clip(x0 + 1, 0, W - 1)
+        y0 = np.floor(v).astype(np.int32);
+        y1 = np.clip(y0 + 1, 0, H - 1)
+        fu = (u - x0)[..., None];
+        fv = (v - y0)[..., None]
+        q00 = height_map[y0, x0][..., None]
+        q10 = height_map[y0, x1][..., None]
+        q01 = height_map[y1, x0][..., None]
+        q11 = height_map[y1, x1][..., None]
+        h0 = q00 * (1 - fu) + q10 * fu
+        h1 = q01 * (1 - fu) + q11 * fu
+        h = (h0 * (1 - fv) + h1 * fv).squeeze(-1)
         return h.astype(np.float32)
 
-    def _make_hex_lines(self, polys_lonlat_rad, lon0: float, radius: float = 1.001, color=(0,1,0,0.7), width=1.0):
+    def _make_hex_lines(self, polys_lonlat_rad, lon0: float, radius: float = 1.001, color=(0, 1, 0, 0.7), width=1.0):
         segs = []
         for poly in polys_lonlat_rad:
-            if poly.shape[0] < 2: 
+            if poly.shape[0] < 2:
                 continue
-            # замкнутый контур
             for k in range(len(poly)):
-                lon, lat = float(poly[k,0]), float(poly[k,1])
-                lon = ((lon - lon0 + np.pi) % (2*np.pi)) - np.pi
+                lon, lat = float(poly[k, 0]), float(poly[k, 1])
+                lon = ((lon - lon0 + np.pi) % (2 * np.pi)) - np.pi
                 c = math.cos(lat)
-                p1 = np.array([math.cos(lon)*c, math.sin(lon)*c, math.sin(lat)], dtype=np.float32) * radius
-                lon2, lat2 = float(poly[(k+1)%len(poly),0]), float(poly[(k+1)%len(poly),1])
-                lon2 = ((lon2 - lon0 + np.pi) % (2*np.pi)) - np.pi
+                p1 = np.array([math.cos(lon) * c, math.sin(lon) * c, math.sin(lat)], dtype=np.float32) * radius
+                lon2, lat2 = float(poly[(k + 1) % len(poly), 0]), float(poly[(k + 1) % len(poly), 1])
+                lon2 = ((lon2 - lon0 + np.pi) % (2 * np.pi)) - np.pi
                 c2 = math.cos(lat2)
-                p2 = np.array([math.cos(lon2)*c2, math.sin(lon2)*c2, math.sin(lat2)], dtype=np.float32) * radius
+                p2 = np.array([math.cos(lon2) * c2, math.sin(lon2) * c2, math.sin(lat2)], dtype=np.float32) * radius
                 segs.append([p1, p2])
         if not segs:
             return None
-        pts = np.array(segs, dtype=np.float32).reshape(-1,3)
-        connect = np.arange(len(pts)).reshape(-1,2)
+        pts = np.array(segs, dtype=np.float32).reshape(-1, 3)
+        connect = np.arange(len(pts)).reshape(-1, 2)
         lines = scene.visuals.Line(pos=pts, connect=connect, color=color, width=width, method='gl')
         lines.parent = self.view.scene
         return lines
@@ -147,9 +152,11 @@ class Preview3DWidget(QtWidgets.QWidget):
             return
 
         s = self._settings
-        
-        z = (height_map * float(s.height_exaggeration)).astype(np.float32, copy=False)
-        
+
+        z_base = height_map * float(s.height_exaggeration)
+        # Гарантируем правильный формат данных для OpenGL
+        z = np.ascontiguousarray(z_base, dtype=np.float32)
+
         self._mesh = scene.visuals.SurfacePlot(z=z, parent=self.view.scene)
         self._mesh.unfreeze()
 
@@ -199,53 +206,46 @@ class Preview3DWidget(QtWidgets.QWidget):
         self.canvas.update()
 
     def update_globe(self, height_map: np.ndarray, disp: float,
-                 centers_xyz: np.ndarray,
-                 cell_polys_lonlat_rad: list[np.ndarray],
-                 lon0_rad: float) -> None:
-        """Рендерит шар с рельефом из height_map и линиями гексов."""
+                     centers_xyz: np.ndarray,
+                     cell_polys_lonlat_rad: list[np.ndarray],
+                     lon0_rad: float) -> None:
         self._clear_scene()
         self._centers_xyz = centers_xyz.astype(np.float32)
         self._lon0 = float(lon0_rad)
 
-        V, F = self._icosphere(f_vis=32)  # визуальная частота (можешь поднять)
-        # нормируем карту в [0..1]
+        V, F = self._icosphere(f_vis=32)
         hm = np.asarray(height_map, dtype=np.float32)
         hmn, zmin, zmax = _normalize_01(hm)
-        # сэмплим высоту и делаем дислпейс вдоль нормали
-        h = self._sample_height_equirect(hmn, V, self._lon0)   # [0..1]
-        R = 1.0 + disp * (h - 0.5)                             # радиус на вершине
-        Vd = (V / np.linalg.norm(V, axis=1, keepdims=True)) * R[:,None]
+        h = self._sample_height_equirect(hmn, V, self._lon0)
+        R = 1.0 + disp * (h - 0.5)
+        Vd = (V / np.linalg.norm(V, axis=1, keepdims=True)) * R[:, None]
 
-        # меш шара
         self._globe = scene.visuals.Mesh(vertices=Vd, faces=F, shading='smooth', parent=self.view.scene)
         base = float(max(0.05, min(2.0, self._settings.diffuse)))
-        self._globe.color = (0.75*base, 0.75*base, 0.78*base, 1.0)
+        self._globe.color = (0.75 * base, 0.75 * base, 0.78 * base, 1.0)
 
-        # линии гексов
-        self._hex_lines = self._make_hex_lines(cell_polys_lonlat_rad, self._lon0, radius=1.001, color=(0,1,0,0.85), width=1.0)
+        self._hex_lines = self._make_hex_lines(cell_polys_lonlat_rad, self._lon0, radius=1.001, color=(0, 1, 0, 0.85),
+                                               width=1.0)
 
-        # автофрейм
         if self._settings.auto_frame:
-            self.view.camera.set_range(x=(-1.2,1.2), y=(-1.2,1.2), z=(-1.2,1.2))
+            self.view.camera.set_range(x=(-1.2, 1.2), y=(-1.2, 1.2), z=(-1.2, 1.2))
             self.view.camera.distance = 3.0
 
-        # клик → ближайший центр (экранный pixel → ближайший в 2D-проекции центров)
         self.canvas.events.mouse_press.disconnect() if self.canvas.events.mouse_press.callbacks else None
+
         @self.canvas.events.mouse_press.connect
         def _on_click(ev):
-            if self._centers_xyz is None: 
+            if self._centers_xyz is None:
                 return
-            # проектируем центры в экранные координаты и ищем ближайший
             tr = self.view.scene.node_transform(self.canvas)
-            pts2d = tr.map(self._centers_xyz)  # (N,4) hom
-            xs = pts2d[:,0] / np.maximum(1e-6, pts2d[:,3])
-            ys = pts2d[:,1] / np.maximum(1e-6, pts2d[:,3])
+            pts2d = tr.map(self._centers_xyz)
+            xs = pts2d[:, 0] / np.maximum(1e-6, pts2d[:, 3])
+            ys = pts2d[:, 1] / np.maximum(1e-6, pts2d[:, 3])
             mx, my = ev.pos
-            d2 = (xs - mx)**2 + (ys - my)**2
+            d2 = (xs - mx) ** 2 + (ys - my) ** 2
             idx = int(np.argmin(d2))
-            # тут же можно подсветить выбранный полигон/центр
             logger.info(f"[Globe] Picked cell #{idx}")
-            # если нужно в метры — позови твой перевод из xyz→метры
+
         self.canvas.update()
 
     def closeEvent(self, e):

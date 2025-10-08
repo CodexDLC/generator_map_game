@@ -314,41 +314,65 @@ class GeneratorNode(BaseNode):
         super().on_disconnected(in_port, out_port)
         self.mark_dirty()
 
-    # --- ИЗМЕНЕНИЕ: Переписываем метод compute ---
     def compute(self, context: dict):
-        # 1. Собираем полную сигнатуру состояния
-        ctx_sig = CU.make_context_signature(context)
-        up_sig = CU.make_upstream_signature(self)
-        props_sig = CU.make_properties_signature(self)
-        full_signature = (ctx_sig, up_sig, props_sig)
+        """
+        ИСПРАВЛЕННАЯ ВЕРСИЯ: Сначала вычисляет входы, потом строит сигнатуру
+        на основе РЕЗУЛЬТАТОВ входов и только потом проверяет кэш.
+        """
+        # 1. Вычисляем все входные данные от родительских нод
+        inputs = self.inputs()
+        input_results = {}
+        if inputs:
+            for name, port in inputs.items():
+                if port.connected_ports():
+                    # Рекурсивно вызываем compute для родительской ноды
+                    upstream_node = port.connected_ports()[0].node()
+                    input_results[name] = upstream_node.compute(context)
+                else:
+                    input_results[name] = None
 
-        # 2. Сравниваем с предыдущей сигнатурой
-        if not self._is_dirty and full_signature == self._last_signature:
-            # Если все совпадает и нода не "грязная", возвращаем кэш
+        # 2. Собираем ПОЛНУЮ и КОРРЕКТНУЮ сигнатуру состояния
+        ctx_sig = CU.make_context_signature(context)
+        props_sig = CU.make_properties_signature(self)
+
+        # Создаем сигнатуру из РЕЗУЛЬТАТОВ, а не из структуры графа
+        input_sig_parts = []
+        for name, result in sorted(input_results.items()):
+            if isinstance(result, np.ndarray):
+                # Для массивов берем их ID в памяти (адрес), чтобы не хэшировать огромные данные
+                input_sig_parts.append((name, id(result)))
+            else:
+                input_sig_parts.append((name, result))
+
+        full_signature = (ctx_sig, props_sig, tuple(input_sig_parts))
+
+        # 3. Сравниваем с предыдущей сигнатурой
+        if not self._is_dirty and full_signature == self._last_signature and self._result_cache is not None:
             logger.debug(f"✓ cache-hit for {self.name()}")
             return self._result_cache
 
-        # 3. Если сигнатура изменилась или нода помечена как грязная - пересчитываем
+        # 4. Если сигнатура изменилась или нода "грязная" - пересчитываем
         logger.debug(f"↻ recomputing {self.name()}...")
         t0 = time.perf_counter()
 
-        # Глубина вложенности для отладки
+        # Передаем уже вычисленные входы в _compute
+        context['_input_results'] = input_results
+
         depth = int(context.setdefault('_compute_depth', 0))
         context['_compute_depth'] = depth + 1
         try:
-            # Вызываем основную логику вычислений
             result = self._compute(context)
         finally:
-            # Восстанавливаем глубину
             context['_compute_depth'] = depth
+            context.pop('_input_results', None)  # Чистим контекст
 
         dt = (time.perf_counter() - t0) * 1000.0
         logger.debug(f"  -> recompute finished in {dt:.2f} ms")
 
-        # 4. Сохраняем новый результат и сигнатуру в кэш
+        # 5. Сохраняем новый результат и сигнатуру в кэш
         self._result_cache = result
         self._last_signature = full_signature
-        self._is_dirty = False  # Сбрасываем флаг
+        self._is_dirty = False
 
         return self._result_cache
 

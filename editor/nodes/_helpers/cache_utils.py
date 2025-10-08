@@ -19,32 +19,37 @@ def make_properties_signature(node) -> Tuple[Any, ...]:
         return (id(node),)
 # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
+
 def make_context_signature(context: dict) -> Tuple[Any, ...]:
     """
-    Создает уникальную и надежную сигнатуру для словаря context.
-    Включает в себя ключевые параметры, влияющие на генерацию,
-    такие как разрешение сетки и настройки глобального шума.
+    Создает уникальную сигнатуру для context.
+    ИСПРАВЛЕНИЕ: Теперь включает краткую сводку по world_input_noise,
+    чтобы кэш для WorldInputNode сбрасывался при смене региона.
     """
     try:
-        # 1. Получаем разрешение сетки из координат. Это самый важный параметр.
         grid_shape = context.get("x_coords", np.array([])).shape
-
-        # 2. Безопасно получаем вложенные словари с настройками.
         project_data = context.get("project", {}) or {}
         global_noise = project_data.get("global_noise", {}) or {}
-
-        # 3. Создаем отпечаток всех настроек глобального шума.
-        # Сортируем по ключу, чтобы порядок был всегда одинаковый.
         gn_sig = tuple(sorted(global_noise.items()))
 
-        # 4. Собираем финальную сигнатуру. "v5" - это номер версии нашей логики,
-        # чтобы при будущих изменениях все старые кэши автоматически стали невалидными.
-        return "v5", grid_shape, gn_sig
+        # --- ГЛАВНОЕ ИЗМЕНЕНИЕ ---
+        # Добавляем в сигнатуру базовую статистику по входному шуму.
+        # Это делает сигнатуру уникальной для каждого региона.
+        noise_sig = None
+        noise_arr = context.get("world_input_noise")
+        if isinstance(noise_arr, np.ndarray) and noise_arr.size > 0:
+            # Берем несколько ключевых значений, чтобы создать уникальный отпечаток
+            noise_sig = (
+                float(np.mean(noise_arr)),
+                float(np.min(noise_arr)),
+                float(np.max(noise_arr)),
+                noise_arr.shape
+            )
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+        return "v6", grid_shape, gn_sig, noise_sig
 
     except Exception:
-        # Если при создании сигнатуры что-то пошло не так,
-        # возвращаем гарантированно уникальное значение, чтобы избежать
-        # ошибочного использования кэша.
         return "fallback", id(context)
 
 def make_upstream_signature(node) -> Tuple[Any, ...]:

@@ -5,13 +5,13 @@ import traceback
 import math
 import numpy as np
 from PySide6 import QtWidgets
-from scipy.spatial.transform import Rotation as R
-import cv2  # Импортируем OpenCV для изменения размера
+import cv2  # Убедитесь, что opencv-python установлен
 
 from editor.graph.graph_runner import run_graph
 from editor.utils.diag import diag_array
 from generator_logic.terrain.global_sphere_noise import get_noise_for_region_preview
 from editor.nodes.height.io.world_input_node import WorldInputNode
+from game_engine_restructured.world.planetary_grid import PlanetaryGrid  # <- Новый импорт
 
 from typing import TYPE_CHECKING, Set, Tuple, Optional, Dict, Any
 
@@ -23,9 +23,6 @@ logger = logging.getLogger(__name__)
 
 
 def _get_target_node_and_mode(main_window: MainWindow) -> Tuple[Optional[GeneratorNode], bool]:
-    """
-    Находит целевую ноду для рендеринга и определяет, используется ли глобальный режим.
-    """
     target_node = (main_window.graph.selected_nodes()[0]
                    if main_window.graph and main_window.graph.selected_nodes()
                    else main_window._last_selected_node)
@@ -45,13 +42,12 @@ def _get_target_node_and_mode(main_window: MainWindow) -> Tuple[Optional[Generat
 
 def _prepare_context(main_window: MainWindow) -> Tuple[Dict[str, Any], int]:
     """
-    Собирает базовый контекст и разрешение из UI.
-    ВЕРСИЯ ИСПРАВЛЕНИЯ: Теперь всегда используется 'region_resolution' для вычислений.
+    Собирает контекст, используя ПОЛНОЕ разрешение региона для всех вычислений.
     """
     context = main_window.project_manager.collect_ui_context(for_preview=True)
 
     try:
-        # ИСПРАВЛЕНИЕ: Используем разрешение региона для всех вычислений
+        # ИСПОЛЬЗУЕМ РАЗРЕШЕНИЕ РЕГИОНА ДЛЯ ВЫЧИСЛЕНИЙ
         resolution_str = main_window.region_resolution_input.currentText()
         resolution = int(resolution_str.split('x')[0])
     except (AttributeError, ValueError, IndexError):
@@ -74,32 +70,36 @@ def _prepare_context(main_window: MainWindow) -> Tuple[Dict[str, Any], int]:
 
 def _generate_world_input(main_window: MainWindow, resolution: int, sphere_params: dict) -> np.ndarray:
     """
-    Генерирует `world_input_noise` для глобального режима.
-    Возвращает 3D-сферический шум, спроецированный на плоскую карту.
+    Генерирует world_input_noise, нормализуя координаты перед вызовом шума.
     """
-    target_center_vec = np.array(main_window.current_world_offset, dtype=np.float32)
-    target_center_vec /= np.linalg.norm(target_center_vec)
-    logger.debug(f"Целевой вектор региона (ID: {main_window.current_region_id}): {target_center_vec}")
+    try:
+        radius_text = main_window.planet_radius_label.text().replace(" км", "").replace(",", "").replace(" ", "")
+        radius_km = float(radius_text)
+        radius_m = radius_km * 1000.0
+        if radius_m < 1.0: raise ValueError("Радиус планеты не рассчитан.")
+    except (ValueError, TypeError, AttributeError):
+        logger.warning("Не удалось получить радиус планеты из UI, используется 6371км.")
+        radius_m = 6371000.0
 
-    x_norm = np.linspace(-1.0, 1.0, resolution, dtype=np.float32)
-    y_norm = np.linspace(-1.0, 1.0, resolution, dtype=np.float32)
-    xv_norm, yv_norm = np.meshgrid(x_norm, y_norm)
+    planetary_grid = PlanetaryGrid(radius_m=radius_m)
+    region_id = main_window.current_region_id
 
-    d_sq = xv_norm**2 + yv_norm**2
-    zv_norm = np.sqrt(np.maximum(0.0, 1.0 - d_sq))
+    # 1. Получаем координаты в метрах
+    coords_in_meters = planetary_grid.get_coords_for_region(region_id, resolution)
 
-    up_vec = np.array([0.0, 0.0, 1.0])
-    axis = np.cross(up_vec, target_center_vec)
-    angle = np.arccos(np.dot(up_vec, target_center_vec))
+    # 2. НОРМАЛИЗУЕМ их, чтобы получить точки на единичной сфере [-1, 1]
+    coords_for_noise = coords_in_meters / radius_m
 
-    if np.linalg.norm(axis) > 1e-6:
-        rotation = R.from_rotvec(axis / np.linalg.norm(axis) * angle)
-    else:
-        rotation = R.identity() if np.dot(up_vec, target_center_vec) > 0 else R.from_rotvec([1, 0, 0] * np.pi)
+    logger.debug(f"Сгенерированы и нормализованы сферические координаты для региона ID {region_id}.")
 
-    points_to_rotate = np.stack([xv_norm, yv_norm, zv_norm], axis=-1)
-    coords_for_noise = rotation.apply(points_to_rotate.reshape(-1, 3)).reshape(points_to_rotate.shape)
+    # 3. Вызываем шум с правильными координатами
     base_noise = get_noise_for_region_preview(sphere_params=sphere_params, coords_xyz=coords_for_noise)
+
+    power = float(sphere_params.get('power', 1.0))
+    if power != 1.0:
+        logger.debug(f"Применение степенной коррекции (Power): {power}")
+        base_noise = np.power(base_noise, power)
+        diag_array(base_noise, name="base_noise (после Power)")
 
     logger.debug(f"Сгенерирован глобальный базовый шум. Shape: {base_noise.shape}, "
                  f"min: {base_noise.min():.4f}, max: {base_noise.max():.4f}, mean: {base_noise.mean():.4f}")
@@ -109,7 +109,7 @@ def _generate_world_input(main_window: MainWindow, resolution: int, sphere_param
 
 def _run_graph_and_update_ui(main_window: MainWindow, target_node: GeneratorNode, context: dict):
     """
-    Запускает вычисление графа, уменьшает результат до разрешения превью и обновляет 3D-вид.
+    Запускает граф, уменьшает результат до разрешения превью и обновляет 3D-вид.
     """
     preview_max_height = context.get('max_height_m', 1000.0)
     vertex_distance = main_window.vertex_distance_input.value()
@@ -133,7 +133,6 @@ def _run_graph_and_update_ui(main_window: MainWindow, target_node: GeneratorNode
     logger.debug(f"Граф успешно выполнен. Финальная карта: Shape: {final_map_01.shape}, "
                  f"min: {final_map_01.min():.4f}, max: {final_map_01.max():.4f}, mean: {final_map_01.mean():.4f}")
 
-    # --- ИСПРАВЛЕНИЕ: Логика даунскейлинга ---
     try:
         preview_res_str = main_window.preview_resolution_input.currentText()
         preview_resolution = int(preview_res_str.split('x')[0])
@@ -141,11 +140,14 @@ def _run_graph_and_update_ui(main_window: MainWindow, target_node: GeneratorNode
         logger.warning("Не удалось прочитать разрешение превью. Используется 1024.")
         preview_resolution = 1024
 
+    # Уменьшаем полноразмерный результат до разрешения превью
     display_map_01 = final_map_01
     if final_map_01.shape[0] > preview_resolution:
         logger.debug(f"Уменьшение карты с {final_map_01.shape[0]}px до {preview_resolution}px для превью.")
-        display_map_01 = cv2.resize(final_map_01, (preview_resolution, preview_resolution), interpolation=cv2.INTER_LINEAR)
+        display_map_01 = cv2.resize(final_map_01, (preview_resolution, preview_resolution),
+                                    interpolation=cv2.INTER_LINEAR)
 
+    # Рендерим уменьшенную карту
     final_map_meters = display_map_01 * preview_max_height
     if main_window.preview_widget:
         main_window.preview_widget.update_mesh(final_map_meters, vertex_distance)
@@ -157,9 +159,6 @@ def _run_graph_and_update_ui(main_window: MainWindow, target_node: GeneratorNode
 
 
 def _has_world_input_ancestor(node: GeneratorNode, visited: Set[str] = None) -> bool:
-    """
-    Рекурсивно проверяет, есть ли в предках ноды WorldInputNode.
-    """
     if visited is None:
         visited = set()
     if node.id in visited:
@@ -179,9 +178,6 @@ def _has_world_input_ancestor(node: GeneratorNode, visited: Set[str] = None) -> 
 
 
 def generate_preview(main_window: MainWindow):
-    """
-    Главная функция-оркестратор для генерации превью.
-    """
     if main_window.right_outliner:
         main_window.right_outliner.set_busy(True)
 
@@ -190,7 +186,6 @@ def generate_preview(main_window: MainWindow):
         if not target_node:
             return
 
-        # ИСПРАВЛЕНИЕ: `resolution` здесь - это полное разрешение для вычислений
         context, resolution = _prepare_context(main_window)
 
         if is_global_mode:
