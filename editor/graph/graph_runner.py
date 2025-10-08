@@ -1,6 +1,8 @@
 # editor/graph_runner.py
 import logging
 import numpy as np
+
+from editor.utils.diag import diag_array
 from game_engine_restructured.numerics.field_packet import get_data, is_packet
 
 logger = logging.getLogger(__name__)
@@ -34,6 +36,8 @@ def run_graph(out_node, context, on_tick=lambda p, m: True):
 
     # --- Валидация и стандартизация результата ---
     logger.info("Validating final result...")
+
+    diag_array(result, name="final_map (before validate)")
 
     # Проверяем, является ли результат field_packet
     if is_packet(result):

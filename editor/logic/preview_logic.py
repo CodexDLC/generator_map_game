@@ -8,6 +8,7 @@ from PySide6 import QtWidgets
 from scipy.spatial.transform import Rotation as R
 
 from editor.graph.graph_runner import run_graph
+from editor.utils.diag import diag_array
 from generator_logic.terrain.global_sphere_noise import get_noise_for_region_preview
 from editor.nodes.height.io.world_input_node import WorldInputNode
 
@@ -82,29 +83,31 @@ def _generate_world_input(main_window: MainWindow, resolution: int, sphere_param
     target_center_vec /= np.linalg.norm(target_center_vec)
     logger.debug(f"Целевой вектор региона (ID: {main_window.current_region_id}): {target_center_vec}")
 
-    # 1. Создаем плоские сетки для X и Z в диапазоне [-1, 1]
+    # 1. Создаем плоские сетки для X и Y в диапазоне [-1, 1] (наша плоскость проекции)
     x_norm = np.linspace(-1.0, 1.0, resolution, dtype=np.float32)
-    z_norm = np.linspace(-1.0, 1.0, resolution, dtype=np.float32)
-    xv_norm, zv_norm = np.meshgrid(x_norm, z_norm)
+    y_norm = np.linspace(-1.0, 1.0, resolution, dtype=np.float32)
+    xv_norm, yv_norm = np.meshgrid(x_norm, y_norm)
 
-    # 2. Вычисляем ВЫСОТУ (Y) как "купол"
-    d_sq = xv_norm ** 2 + zv_norm ** 2
-    yv_norm = np.sqrt(np.maximum(0.0, 1.0 - d_sq))
-    yv_norm[d_sq > 1.0] = 0.0
+    # 2. Вычисляем Z для полусферы, "смотрящей" вверх по оси Z.
+    # Точки за пределами единичного круга будут иметь Z=0.
+    d_sq = xv_norm**2 + yv_norm**2
+    zv_norm = np.sqrt(np.maximum(0.0, 1.0 - d_sq))
 
-    # 3. Рассчитываем поворот
+    # 3. Рассчитываем поворот, чтобы "северный полюс" (0,0,1) нашей полусферы
+    # совместился с целевым вектором (направлением на выбранный регион).
     up_vec = np.array([0.0, 0.0, 1.0])
     axis = np.cross(up_vec, target_center_vec)
     angle = np.arccos(np.dot(up_vec, target_center_vec))
+
     if np.linalg.norm(axis) > 1e-6:
         rotation = R.from_rotvec(axis / np.linalg.norm(axis) * angle)
     else:
         rotation = R.identity() if np.dot(up_vec, target_center_vec) > 0 else R.from_rotvec([1, 0, 0] * np.pi)
 
-    # 4. Собираем точки в ПРАВИЛЬНОМ ПОРЯДКЕ: (X, Y, Z)
+    # 4. Собираем точки в правильном порядке: (X, Y, Z)
     points_to_rotate = np.stack([xv_norm, yv_norm, zv_norm], axis=-1)
 
-    # 5. Применяем поворот и генерируем шум
+    # 5. Применяем поворот ко всем точкам и генерируем шум
     coords_for_noise = rotation.apply(points_to_rotate.reshape(-1, 3)).reshape(points_to_rotate.shape)
     base_noise = get_noise_for_region_preview(sphere_params=sphere_params, coords_xyz=coords_for_noise)
 
@@ -112,7 +115,6 @@ def _generate_world_input(main_window: MainWindow, resolution: int, sphere_param
                  f"min: {base_noise.min():.4f}, max: {base_noise.max():.4f}, mean: {base_noise.mean():.4f}")
 
     return base_noise.astype(np.float32)
-
 
 def _run_graph_and_update_ui(main_window: MainWindow, target_node: GeneratorNode, context: dict):
     """
@@ -135,6 +137,10 @@ def _run_graph_and_update_ui(main_window: MainWindow, target_node: GeneratorNode
             if isinstance(node, WorldInputNode):
                 node.output_stats = stats
                 break
+
+    # --- НАЧАЛО ИЗМЕНЕНИЯ: Диагностика перед запуском графа ---
+    diag_array(context.get("world_input_noise"), name="world_input_noise (before run_graph)")
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     # Запускаем граф
     final_map_01 = run_graph(target_node, context)

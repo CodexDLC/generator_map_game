@@ -131,8 +131,8 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
 
     # --- ИЗМЕНЕНИЕ: Возвращаем выбор разрешения для превью ---
     widgets["preview_resolution_input"] = QtWidgets.QComboBox()
-    widgets["preview_resolution_input"].addItems(["256x256", "512x512", "1024x1024"])
-    widgets["preview_resolution_input"].setCurrentText("512x512")
+    widgets["preview_resolution_input"].addItems(["1024x1024", "2048x2048", "4096x4096"])
+    widgets["preview_resolution_input"].setCurrentText("1024x1024")
     preview_box.body.addRow("Разрешение превью:", widgets["preview_resolution_input"])
     # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 

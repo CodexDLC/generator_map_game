@@ -33,4 +33,6 @@ class WorldInputNode(GeneratorNode):
         # Эта нода теперь просто возвращает базовый шум из контекста,
         # который будет подготовлен в главном окне.
         base_noise = context.get("world_input_noise", np.zeros_like(context["x_coords"]))
-        return base_noise
+
+        # Возвращаем КОПИЮ, чтобы избежать проблем с памятью и ссылками
+        return base_noise.copy()
