@@ -169,7 +169,7 @@ class MainWindow(QtWidgets.QMainWindow):
         return tabs
 
     def _connect_components(self):
-        # ... (остальная часть _connect_components без изменений) ...
+
         if self.region_resolution_input: self.region_resolution_input.currentIndexChanged.connect(
             self._update_dynamic_ranges)
         if self.vertex_distance_input: self.vertex_distance_input.valueChanged.connect(self._update_calculated_fields)
@@ -178,6 +178,10 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.max_height_input: self.max_height_input.valueChanged.connect(self._update_calculated_fields)
         if self.ws_base_elevation_pct: self.ws_base_elevation_pct.editingFinished.connect(
             self._update_calculated_fields)
+
+        # --- ИЗМЕНЕНИЕ: Добавляем связь для разрешения превью, чтобы оно обновлялось ---
+        if self.preview_resolution_input:
+            self.preview_resolution_input.currentIndexChanged.connect(self._trigger_preview_update)
 
         if self.update_planet_btn: self.update_planet_btn.clicked.connect(self._update_planet_view)
 
