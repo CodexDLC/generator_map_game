@@ -1,11 +1,8 @@
-# ==============================================================================
-# Файл: editor/actions/project_actions.py
-# ВЕРСИЯ 3.0: Добавлена функция удаления проекта.
-# ==============================================================================
+# editor/actions/project_actions.py
 import logging
 import json
 import os
-import shutil # <-- ИЗМЕНЕНИЕ: Импортируем shutil для удаления директорий
+import shutil
 from pathlib import Path
 from PySide6 import QtWidgets
 
@@ -81,9 +78,9 @@ def on_new_project(parent_widget) -> str | None:
 
     try:
         _ensure_dir(project_path)
-        pipelines_dir = project_path / "pipelines"
-        _ensure_dir(pipelines_dir)
+        _ensure_dir(project_path / "pipelines")
         _ensure_dir(project_path / "output")
+        _ensure_dir(project_path / "cache")
 
         project_data = _default_project_dict(project_name)
         _atomic_write_json(project_path / "project.json", project_data)
@@ -118,7 +115,7 @@ def on_open_project(parent_widget) -> str | None:
         return None
     try:
         with open(proj_json, "r", encoding="utf-8") as f:
-            json.load(f)  # Просто проверяем, что файл читается как JSON
+            json.load(f)
         logger.info(f"Project opened from: {project_path}")
         return str(project_path)
     except Exception as e:
@@ -128,7 +125,6 @@ def on_open_project(parent_widget) -> str | None:
         return None
 
 def _status_msg(main_window, text: str, msec: int = 4000) -> None:
-    """Безопасно показывает сообщение в статус-баре."""
     try:
         bar = main_window.statusBar()
         bar.showMessage(text, msec)
@@ -152,22 +148,15 @@ def on_save_project(main_window, data_to_write: dict = None) -> None:
             final_data = data_to_write
         else:
             logger.debug("Saving project with data from UI (manual save).")
-            # Читаем существующий файл, чтобы не потерять данные (например, пресеты)
             with open(project_file_path, "r", encoding="utf-8") as f:
                 final_data = json.load(f)
 
-            # Собираем актуальные настройки из интерфейса
             ui_settings = collect_project_data_from_ui(main_window)
-
-            # Обновляем данные новыми настройками из UI
             final_data.update(ui_settings)
 
         _atomic_write_json(project_file_path, final_data)
-
-        # Обновляем данные в памяти и снимаем флаг "не сохранено"
         main_window.project_manager.current_project_data = final_data
         main_window.project_manager.mark_dirty(False)
-
         _status_msg(main_window, f"Проект сохранен: {project_file_path}", 4000)
 
     except Exception as e:
@@ -176,7 +165,6 @@ def on_save_project(main_window, data_to_write: dict = None) -> None:
         QtWidgets.QMessageBox.critical(main_window, "Ошибка сохранения", msg)
         logger.exception("Failed to save project.")
 
-# --- ИЗМЕНЕНИЕ: Новая функция для удаления проекта ---
 def on_delete_project(main_window) -> None:
     logger.info("Action triggered: on_delete_project.")
     pm = main_window.project_manager
@@ -198,44 +186,19 @@ def on_delete_project(main_window) -> None:
     if reply == QtWidgets.QMessageBox.StandardButton.Yes:
         logger.warning(f"Deleting project: {project_path}")
         try:
-            # Сначала сбрасываем состояние в UI, чтобы избежать проблем с доступом к файлам
             pm.current_project_path = None
             pm.current_project_data = None
             main_window.setWindowTitle("Редактор Миров")
             if main_window.graph:
                 main_window.graph.clear_session()
-
-            # Физически удаляем папку
             shutil.rmtree(project_path)
-
             _status_msg(main_window, f"Проект '{project_name}' успешно удален.", 5000)
             logger.info(f"Project '{project_name}' deleted successfully.")
-
-            # Предлагаем создать новый проект, чтобы не оставаться в пустоте
             main_window.new_project()
-
         except Exception as e:
             msg = f"Не удалось удалить проект: {e}"
             logger.exception(f"Failed to delete project directory: {project_path}")
             QtWidgets.QMessageBox.critical(main_window, "Ошибка удаления", msg)
-            # Попытаемся восстановить путь, если удаление не удалось
             pm.current_project_path = str(project_path)
 
-def show_project_manager(parent=None) -> str | None:
-    msg_box = QtWidgets.QMessageBox(parent)
-    msg_box.setWindowTitle("Project Manager")
-    msg_box.setText("Welcome to WorldForge Editor.")
-    msg_box.setInformativeText("Do you want to create a new project or open an existing one?")
-    new_button = msg_box.addButton("New Project", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
-    open_button = msg_box.addButton("Open Project", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
-    msg_box.addButton("Cancel", QtWidgets.QMessageBox.ButtonRole.RejectRole)
-
-    msg_box.exec()
-
-    clicked_button = msg_box.clickedButton()
-    if clicked_button == new_button:
-        return on_new_project(parent)
-    elif clicked_button == open_button:
-        return on_open_project(parent)
-    else:
-        return None
+# --- ИЗМЕНЕНИЕ: Удаляем ошибочную функцию отсюда ---

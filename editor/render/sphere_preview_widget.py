@@ -167,10 +167,11 @@ class SpherePreviewWidget(QOpenGLWidget):
         GL.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self._ibo_fill)
         GL.glDrawElements(GL_TRIANGLES, self._fill_indices.size, GL_UNSIGNED_INT, None)
 
-        GL.glUniform1i(GL.glGetUniformLocation(self._shader_program, "u_is_line"), 1)
-        GL.glLineWidth(2.0)
-        GL.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self._ibo_lines)
-        GL.glDrawElements(GL_LINES, self._line_indices.size, GL_UNSIGNED_INT, None)
+        if self._render_settings.show_hex_grid:
+            GL.glUniform1i(GL.glGetUniformLocation(self._shader_program, "u_is_line"), 1)
+            GL.glLineWidth(1.0) # Сделаем линии чуть тоньше
+            GL.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self._ibo_lines)
+            GL.glDrawElements(GL_LINES, self._line_indices.size, GL_UNSIGNED_INT, None)
 
         GL.glDisableVertexAttribArray(0)
         GL.glDisableVertexAttribArray(2)

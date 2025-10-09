@@ -16,7 +16,8 @@ from ...core import constants as const
 from .climate_helpers import (
     _derive_seed, _vectorized_smoothstep
 )
-from game_engine_restructured.numerics.fast_noise import fbm_grid, fbm_amplitude
+from game_engine_restructured.numerics.fast_noise_2d import fbm_grid_bipolar as fbm_grid # Даем псевдоним
+from game_engine_restructured.numerics.fast_noise_helpers import fbm_amplitude
 from game_engine_restructured.numerics.fast_hydrology import chamfer_distance_transform
 
 if TYPE_CHECKING:

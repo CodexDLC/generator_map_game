@@ -1,7 +1,8 @@
 # generator_logic/terrain/perlin.py
 from numba import njit, prange
 import numpy as np
-from game_engine_restructured.numerics.fast_noise import value_noise_2d, fbm_amplitude
+from game_engine_restructured.numerics.fast_noise_2d import value_noise_2d
+from game_engine_restructured.numerics.fast_noise_helpers import fbm_amplitude
 
 from generator_logic.core.seeding import _resolve_world_seed, _mix_seed
 from generator_logic.core.warp import apply_domain_warp

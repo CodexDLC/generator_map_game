@@ -1,7 +1,7 @@
 # generator_logic/terrain/global_sphere_noise.py
 import logging
 import numpy as np
-from game_engine_restructured.numerics.fast_noise import fbm_grid_3d
+
 from editor.utils.diag import diag_array
 
 logger = logging.getLogger(__name__)
@@ -20,44 +20,47 @@ def _ensure_coords_array(coords_xyz):
 
 def _calculate_base_noise(sphere_params: dict, coords_xyz: np.ndarray) -> np.ndarray:
     """
-    Генерирует "сырой" 3D FBM шум. Ожидает на вход координаты на единичной сфере [-1, 1].
-    Возвращает результат, нормализованный по аналитической амплитуде (~[-1, 1]).
+    Генерирует 3D мультифрактальный Simplex-шум.
     """
     xyz = _ensure_coords_array(coords_xyz)
-    logger.debug("global_sphere_noise: _calculate_base_noise called. coords_xyz shape=%s", xyz.shape)
-    diag_array(xyz, name="coords_xyz (input)")
 
-    scale_value = float(sphere_params.get('scale', 0.25))
-    frequency = 1.0 + (scale_value * 9.0)
+    # --- НАЧАЛО ИЗМЕНЕНИЙ: Полностью новая логика с мультифрактальным циклом ---
 
-    coords_x, coords_y, coords_z = xyz[..., 0], xyz[..., 1], xyz[..., 2]
-
-    main_seed = int(sphere_params.get('seed', 0)) & 0xFFFFFFFF
+    # Параметры из UI
+    frequency = float(sphere_params.get('frequency', 4.0))
     octaves = int(sphere_params.get('octaves', 8))
-    gain = float(sphere_params.get('gain', 0.5))
-    ridge = bool(sphere_params.get('ridge', False))
+    gain = float(sphere_params.get('gain', 0.5))  # Шероховатость
+    seed = int(sphere_params.get('seed', 0)) & 0xFFFFFFFF
 
-    # Эта функция ДОЛЖНА возвращать шум в диапазоне [-1, 1], но сейчас в ней есть баг со смещением
-    noise = fbm_grid_3d(
-        seed=main_seed,
-        coords_x=coords_x, coords_y=coords_y, coords_z=coords_z,
-        freq0=frequency,
-        octaves=octaves,
-        gain=gain,
-        ridge=ridge
-    )
+    # Параметры для мультифрактала (пока зашиты, потом можно вынести в UI)
+    lacunarity = 2.0  # Насколько быстро увеличивается частота с каждой октавой
+    H = 1.0 - gain  # Параметр Херста, контролирует "память" фрактала
 
-    diag_array(noise, name="noise_bipolar (from fbm_grid_3d)")
+    coords_x = xyz[..., 0]
+    coords_y = xyz[..., 1]
+    coords_z = xyz[..., 2]
 
-    # ВРЕМЕННЫЙ КОСТЫЛЬ для исправления бага со смещением в fbm_grid_3d
-    # Теоретически, среднее значение FBM шума должно быть близко к 0.
-    # В логах мы видим, что оно ~10.0. Мы вычитаем это смещение.
-    observed_mean = np.mean(noise)
-    if abs(observed_mean) > 2.0:  # Если смещение аномально большое
-        logger.warning(f"fbm_grid_3d имеет большое смещение ({observed_mean:.2f}). Принудительно центрируем.")
-        noise -= observed_mean
+    # Мультифрактальный цикл
+    freq = frequency
+    amp = 1.0
+    total = np.zeros_like(coords_x, dtype=np.float32)
 
-    return noise.astype(np.float32)
+    for i in range(octaves):
+        # Генерируем Simplex-шум для текущей октавы
+        noise = simplex_noise_3d(coords_x * freq, coords_y * freq, coords_z * freq, seed + i)
+
+        # Модулируем амплитуду на основе уже накопленного результата.
+        # Это и есть суть мультифрактала: детализация зависит от общей формы.
+        total += noise * amp * (total + 1.0)
+
+        # Обновляем параметры для следующей октавы
+        freq *= lacunarity
+        amp *= gain
+
+    diag_array(total, name="multifractal_raw")
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
+    return total.astype(np.float32)
 
 
 def get_noise_for_sphere_view(sphere_params: dict, coords_xyz: np.ndarray) -> np.ndarray:
@@ -65,8 +68,17 @@ def get_noise_for_sphere_view(sphere_params: dict, coords_xyz: np.ndarray) -> np
     Для 3D-вида всей планеты. Выполняет ЛОКАЛЬНУЮ нормализацию для максимального контраста.
     """
     noise_bipolar = _calculate_base_noise(sphere_params, coords_xyz)
+
+    # --- ИЗМЕНЕНИЕ: Применяем Power здесь, до нормализации ---
+    power = sphere_params.get('power', 1.0)
+    if power != 1.0:
+        # Для степенной функции нужно перевести диапазон в [0,1], применить и вернуть обратно
+        noise_01 = (noise_bipolar + 1.0) * 0.5
+        noise_01 = np.power(noise_01, power)
+        noise_bipolar = noise_01 * 2.0 - 1.0
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
     mn, mx = float(np.nanmin(noise_bipolar)), float(np.nanmax(noise_bipolar))
-    # Растягиваем локальный диапазон на [0,1] для лучшей картинки на глобусе
     noise_01 = (noise_bipolar - mn) / (mx - mn) if mx > mn else np.zeros_like(noise_bipolar)
     return np.clip(noise_01, 0.0, 1.0).astype(np.float32)
 
@@ -76,7 +88,5 @@ def get_noise_for_region_preview(sphere_params: dict, coords_xyz: np.ndarray) ->
     Для превью региона. Выполняет ГЛОБАЛЬНУЮ нормализацию.
     """
     noise_bipolar = _calculate_base_noise(sphere_params, coords_xyz)
-    # Просто отображаем теоретический диапазон [-1, 1] в [0, 1] без растягивания.
-    # Это гарантирует, что плоские регионы останутся плоскими.
     noise_01 = (noise_bipolar + 1.0) * 0.5
     return np.clip(noise_01, 0.0, 1.0).astype(np.float32)

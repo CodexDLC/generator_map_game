@@ -1,4 +1,3 @@
-# editor/core/main_window.py
 from __future__ import annotations
 import logging
 import traceback
@@ -6,17 +5,17 @@ from typing import Optional, Dict, Any
 from dataclasses import asdict
 import json
 import math
+from pathlib import Path
 
+import cv2
 import numpy as np
 from PySide6 import QtWidgets, QtCore, QtGui
 
+from editor.actions.project_actions import on_save_project
 
 logger = logging.getLogger(__name__)
 
-
-# --- Импорты ---
-from editor.graph.graph_runner import run_graph
-
+from editor.logic.background_workers import PlanetGenerationWorker, PreviewGenerationWorker
 from editor.ui.layouts.properties_panel import create_properties_widget
 from editor.ui.widgets.custom_controls import SliderSpinCombo, SeedWidget, CollapsibleBox
 from editor.ui.layouts.central_layout import create_bottom_work_area_v2
@@ -31,7 +30,6 @@ from editor.core.render_settings import RenderSettings
 from editor.render.sphere_preview_widget import SpherePreviewWidget
 from editor.core.project_manager import ProjectManager
 from editor.actions import preset_actions
-from editor.nodes.height.io.world_input_node import WorldInputNode
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -45,9 +43,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.project_manager = ProjectManager(self)
         self.render_settings = RenderSettings()
 
+        self.thread_pool = QtCore.QThreadPool()
+        logger.info(f"Создан пул потоков с {self.thread_pool.maxThreadCount()} потоками.")
+
         self.graph: 'CustomNodeGraph' | None = None
         self.preview_widget: Preview3DWidget | None = None
         self.planet_widget: SpherePreviewWidget | None = None
+        self.loading_overlay: QtWidgets.QWidget | None = None
         self.central_tabs: QtWidgets.QTabWidget | None = None
         self.props_bin: QtWidgets.QWidget | None = None
         self.right_outliner: 'RightOutlinerWidget' | None = None
@@ -56,7 +58,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.presets_widget: 'RegionPresetsWidget' | None = None
         self.render_panel: QtWidgets.QWidget | None = None
         self.realtime_checkbox: QtWidgets.QCheckBox | None = None
-
         self.subdivision_level_input: QtWidgets.QComboBox | None = None
         self.planet_preview_detail_input: QtWidgets.QComboBox | None = None
         self.region_resolution_input: QtWidgets.QComboBox | None = None
@@ -65,7 +66,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.planet_radius_label: QtWidgets.QLabel | None = None
         self.base_elevation_label: QtWidgets.QLabel | None = None
         self.ws_noise_box: CollapsibleBox | None = None
-
         self.planet_type_preset_input: QtWidgets.QComboBox | None = None
         self.ws_sea_level: SliderSpinCombo | None = None
         self.ws_relative_scale: SliderSpinCombo | None = None
@@ -74,16 +74,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ws_power: SliderSpinCombo | None = None
         self.ws_warp_strength: SliderSpinCombo | None = None
         self.ws_seed: SeedWidget | None = None
-
         self.preview_resolution_input: QtWidgets.QComboBox | None = None
         self.region_id_label: QtWidgets.QLabel | None = None
         self.region_center_x_label: QtWidgets.QLabel | None = None
         self.region_center_z_label: QtWidgets.QLabel | None = None
-
-        self.current_region_id: int = 0
-        self.current_world_offset = (0.0, 0.0, 1.0)
         self.update_planet_btn: QtWidgets.QPushButton | None = None
         self._last_selected_node = None
+        self.current_region_id: int = 0
+        self.current_world_offset = (0.0, 0.0, 1.0)
 
         self._build_ui()
         build_menus(self)
@@ -92,13 +90,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self.project_manager.load_project(project_path)
         self._load_app_settings()
 
-        QtCore.QTimer.singleShot(0, lambda: self._on_cell_picked(0))
-
+        QtCore.QTimer.singleShot(0, self._try_load_planet_from_cache)
+        QtCore.QTimer.singleShot(100, lambda: self._on_cell_picked(0))
 
     def _build_ui(self) -> None:
         try:
             self.preview_widget = Preview3DWidget(self)
-            self.preview_widget.setParent(self)
         except (ImportError, RuntimeError) as e:
             logger.exception(f"Не удалось создать Preview3DWidget: {e}")
             self.preview_widget = QtWidgets.QLabel("Preview widget failed to load")
@@ -122,6 +119,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.central_tabs.addTab(self.preview_widget, "3D Превью")
         self.central_tabs.addTab(planet_container, "Планета")
 
+        self._create_loading_overlay()
+
         bottom_work_area, self.graph, self.left_palette, self.right_outliner = create_bottom_work_area_v2(self)
         tabs_left = self._create_left_tabs()
         tabs_right = self._create_right_tabs()
@@ -140,6 +139,182 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(main_splitter)
         self._connect_components()
 
+    def _create_loading_overlay(self):
+        self.loading_overlay = QtWidgets.QWidget(self.central_tabs)
+        self.loading_overlay.setObjectName("loadingOverlay")
+        self.loading_overlay.setStyleSheet("""
+            #loadingOverlay {
+                background-color: rgba(0, 0, 0, 0.6);
+                border-radius: 10px;
+            }
+        """)
+        overlay_layout = QtWidgets.QVBoxLayout(self.loading_overlay)
+        overlay_layout.setAlignment(QtCore.Qt.AlignCenter)
+
+        progress = QtWidgets.QProgressBar()
+        progress.setRange(0, 0)
+        progress.setTextVisible(False)
+        progress.setFixedSize(200, 20)
+
+        overlay_layout.addWidget(progress)
+        self.loading_overlay.hide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.loading_overlay and self.central_tabs:
+            rect = self.central_tabs.contentsRect().adjusted(10, 10, -10, -10)
+            self.loading_overlay.setGeometry(rect)
+
+    @QtCore.Slot()
+    def _try_load_planet_from_cache(self):
+        if not self.project_manager.current_project_path:
+            return
+
+        cache_file = Path(self.project_manager.current_project_path) / "cache" / "planet_geometry.npz"
+        if cache_file.exists():
+            try:
+                logger.info(f"Загрузка геометрии планеты из кэша: {cache_file}")
+                data = np.load(cache_file, allow_pickle=True)
+                self._on_planet_generation_finished({
+                    "vertices": data["vertices"],
+                    "fill_indices": data["fill_indices"],
+                    "line_indices": data["line_indices"],
+                    "colors": data["colors"],
+                    "planet_data": data["planet_data"].item()
+                })
+            except Exception as e:
+                logger.error(f"Ошибка загрузки кэша планеты: {e}")
+
+    @QtCore.Slot()
+    def _update_planet_view(self):
+        self.loading_overlay.setParent(self.planet_widget.parent())
+        self.loading_overlay.raise_()
+        self.loading_overlay.show()
+
+        worker = PlanetGenerationWorker(self)
+        worker.signals.finished.connect(self._on_planet_generation_finished)
+        worker.signals.error.connect(self._on_generation_error)
+        self.thread_pool.start(worker)
+
+    @QtCore.Slot(object)
+    def _on_planet_generation_finished(self, result_data: dict):
+        self.loading_overlay.hide()
+        if self.planet_widget:
+            self.planet_widget.set_planet_data(result_data["planet_data"])
+            self.planet_widget.set_geometry(
+                result_data["vertices"],
+                result_data["fill_indices"],
+                result_data["line_indices"],
+                result_data["colors"]
+            )
+        logger.info("3D-вид планеты успешно обновлен (из потока).")
+
+    @QtCore.Slot()
+    def _on_apply_clicked(self):
+        self.loading_overlay.setParent(self.preview_widget)
+        self.loading_overlay.raise_()
+        self.loading_overlay.show()
+        if self.right_outliner:
+            self.right_outliner.set_busy(True)
+
+        worker = PreviewGenerationWorker(self)
+        worker.signals.finished.connect(self._on_preview_generation_finished)
+        worker.signals.error.connect(self._on_generation_error)
+        self.thread_pool.start(worker)
+
+    @QtCore.Slot(object)
+    def _on_preview_generation_finished(self, result_data: Optional[Dict[str, Any]]):
+        self.loading_overlay.hide()
+        if self.right_outliner:
+            self.right_outliner.set_busy(False)
+
+        if result_data is None:
+            logger.warning("Генерация превью не вернула данных (нода не выбрана?).")
+            return
+
+        try:
+            final_map_01 = result_data["final_map_01"]
+            max_height = result_data["max_height"]
+            vertex_distance = result_data["vertex_distance"]
+
+            preview_res_str = self.preview_resolution_input.currentText()
+            preview_resolution = int(preview_res_str.split('x')[0])
+
+            display_map_01 = final_map_01
+            if final_map_01.shape[0] != preview_resolution or final_map_01.shape[1] != preview_resolution:
+                logger.debug(f"Масштабирование карты с {final_map_01.shape} до {preview_resolution}px для превью.")
+                display_map_01 = cv2.resize(final_map_01, (preview_resolution, preview_resolution),
+                                            interpolation=cv2.INTER_LINEAR)
+
+            final_map_meters = display_map_01 * max_height
+
+            if self.preview_widget:
+                self.preview_widget.update_mesh(final_map_meters, vertex_distance)
+
+            if self.node_inspector:
+                self.node_inspector.refresh_from_selection()
+
+            logger.info("3D-превью успешно обновлено.")
+
+        except Exception as e:
+            tb = traceback.format_exc()
+            self._on_generation_error(f"Ошибка при обновлении UI: {e}\n\n{tb}")
+
+    @QtCore.Slot(str)
+    def _on_generation_error(self, error_message: str):
+        self.loading_overlay.hide()
+        if self.right_outliner:
+            self.right_outliner.set_busy(False)
+        logger.error(error_message)
+        QtWidgets.QMessageBox.critical(self, "Ошибка в фоновом потоке", error_message)
+
+    def _connect_components(self):
+        if self.region_resolution_input: self.region_resolution_input.currentIndexChanged.connect(
+            self._update_dynamic_ranges)
+        if self.vertex_distance_input: self.vertex_distance_input.valueChanged.connect(self._update_calculated_fields)
+        if self.subdivision_level_input: self.subdivision_level_input.currentIndexChanged.connect(
+            self._update_calculated_fields)
+        if self.planet_type_preset_input: self.planet_type_preset_input.currentIndexChanged.connect(
+            self._update_calculated_fields)
+        if self.preview_resolution_input: self.preview_resolution_input.currentIndexChanged.connect(
+            self._trigger_preview_update)
+
+        if self.update_planet_btn:
+            self.update_planet_btn.clicked.connect(self._update_planet_view)
+
+        if self.planet_widget:
+            self.planet_widget.cell_picked.connect(self._on_cell_picked)
+
+        planet_controls_for_dirty_mark = [
+            self.subdivision_level_input, self.planet_preview_detail_input, self.region_resolution_input,
+            self.vertex_distance_input, self.planet_type_preset_input,
+            self.ws_sea_level, self.ws_relative_scale, self.ws_octaves, self.ws_gain,
+            self.ws_power, self.ws_warp_strength, self.ws_seed
+        ]
+        for control in planet_controls_for_dirty_mark:
+            if not control: continue
+            if hasattr(control, 'editingFinished'):
+                control.editingFinished.connect(self._mark_dirty)
+            elif hasattr(control, 'valueChanged'):
+                control.valueChanged.connect(self._mark_dirty)
+            elif hasattr(control, 'currentIndexChanged'):
+                control.currentIndexChanged.connect(self._mark_dirty)
+
+        if self.graph:
+            if self.props_bin: self.props_bin.set_graph(self.graph, self)
+            if self.node_inspector: self.node_inspector.bind_graph(self.graph)
+            if self.right_outliner: self.right_outliner.bind_graph(self.graph)
+            if self.left_palette: self.left_palette.bind_graph(self.graph)
+            QtCore.QTimer.singleShot(0, self.graph.finalize_setup)
+            self.graph.selection_changed.connect(self._on_node_selection_changed)
+            self.graph.structure_changed.connect(self._mark_dirty)
+
+        if self.right_outliner: self.right_outliner.apply_clicked.connect(self._on_apply_clicked)
+        if self.presets_widget:
+            self.presets_widget.load_requested.connect(self.action_load_region_preset)
+            self.presets_widget.create_from_current_requested.connect(self.action_create_preset_from_dialog)
+            self.presets_widget.delete_requested.connect(self.action_delete_preset_by_name)
+            self.presets_widget.save_as_requested.connect(self.action_save_active_preset)
 
     def _create_left_tabs(self) -> QtWidgets.QTabWidget:
         tabs = QtWidgets.QTabWidget()
@@ -165,64 +340,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.render_panel = make_render_panel_widget(self, self.render_settings, self._on_render_settings_changed)
         tabs.addTab(self.render_panel, "Рендер")
         return tabs
-
-    def _connect_components(self):
-        if self.region_resolution_input: self.region_resolution_input.currentIndexChanged.connect(
-            self._update_dynamic_ranges)
-        if self.vertex_distance_input: self.vertex_distance_input.valueChanged.connect(self._update_calculated_fields)
-        if self.subdivision_level_input: self.subdivision_level_input.currentIndexChanged.connect(
-            self._update_calculated_fields)
-
-        if self.planet_type_preset_input:
-            self.planet_type_preset_input.currentIndexChanged.connect(self._update_calculated_fields)
-
-        if self.preview_resolution_input:
-            self.preview_resolution_input.currentIndexChanged.connect(self._trigger_preview_update)
-
-        if self.update_planet_btn: self.update_planet_btn.clicked.connect(self._update_planet_view)
-
-        if self.planet_widget:
-            self.planet_widget.cell_picked.connect(self._on_cell_picked)
-        planet_controls = [
-            self.subdivision_level_input, self.planet_preview_detail_input, self.region_resolution_input,
-            self.vertex_distance_input, self.planet_type_preset_input,
-            self.ws_sea_level, self.ws_relative_scale, self.ws_octaves, self.ws_gain,
-            self.ws_power, self.ws_warp_strength, self.ws_seed
-        ]
-        for control in planet_controls:
-            if not control: continue
-
-            if hasattr(control, 'editingFinished'):
-                control.editingFinished.connect(self._update_planet_view)
-            elif hasattr(control, 'valueChanged'):
-                control.valueChanged.connect(self._update_planet_view)
-            elif hasattr(control, 'currentIndexChanged'):
-                control.currentIndexChanged.connect(self._update_planet_view)
-
-            if hasattr(control, 'editingFinished'):
-                control.editingFinished.connect(self._mark_dirty)
-            elif hasattr(control, 'valueChanged'):
-                control.valueChanged.connect(self._mark_dirty)
-            elif hasattr(control, 'currentIndexChanged'):
-                control.currentIndexChanged.connect(self._mark_dirty)
-
-        if self.graph:
-            if self.props_bin: self.props_bin.set_graph(self.graph, self)
-            if self.node_inspector: self.node_inspector.bind_graph(self.graph)
-            if self.right_outliner: self.right_outliner.bind_graph(self.graph)
-            if self.left_palette: self.left_palette.bind_graph(self.graph)
-            QtCore.QTimer.singleShot(0, self.graph.finalize_setup)
-            self.graph.selection_changed.connect(self._on_node_selection_changed)
-            self.graph.structure_changed.connect(self._mark_dirty)
-
-        if self.right_outliner: self.right_outliner.apply_clicked.connect(self._on_apply_clicked)
-        if self.presets_widget:
-            self.presets_widget.load_requested.connect(self.action_load_region_preset)
-            self.presets_widget.create_from_current_requested.connect(self.action_create_preset_from_dialog)
-            self.presets_widget.delete_requested.connect(self.action_delete_preset_by_name)
-            self.presets_widget.save_as_requested.connect(self.action_save_active_preset)
-
-        QtCore.QTimer.singleShot(0, self._update_dynamic_ranges)
 
     @QtCore.Slot(int)
     def _on_cell_picked(self, cell_id: int):
@@ -250,7 +367,6 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.vertex_distance_input.value() > max_dist:
             self.vertex_distance_input.setValue(max_dist)
         self.vertex_distance_input.blockSignals(False)
-        self._update_calculated_fields()
 
     def _update_calculated_fields(self):
         if not all([self.subdivision_level_input, self.region_resolution_input, self.vertex_distance_input,
@@ -284,7 +400,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.max_height_input.blockSignals(False)
 
             logger.debug(
-                f"Расчет высот: Тип='{preset_name}', Шероховатость={roughness_pct*100:.3f}%, "
+                f"Расчет высот: Тип='{preset_name}', Шероховатость={roughness_pct * 100:.3f}%, "
                 f"Радиус={radius_km:.1f}км -> Базовый перепад={base_elevation:.1f}м, "
                 f"Макс. высота={max_h:.1f}м"
             )
@@ -302,7 +418,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.preview_widget.apply_render_settings(new_settings)
         if self.planet_widget and hasattr(self.planet_widget, 'set_render_settings'):
             self.planet_widget.set_render_settings(new_settings)
-
 
     @QtCore.Slot()
     def _trigger_preview_update(self):
@@ -328,11 +443,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def open_project(self):
         self.project_manager.open_project()
 
-    def save_project(self) -> bool:
-        if self.project_manager:
-            return self.project_manager.save_project()
-        return False
-
+    def save_project(self):
+        on_save_project(self)
 
     def _load_presets_list(self):
         if not self.presets_widget or not self.project_manager.current_project_data: return
@@ -375,10 +487,6 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             ev.ignore()
 
-    def _on_apply_clicked(self):
-        from editor.logic import preview_logic
-        preview_logic.generate_preview(self)
-
     def _trigger_apply(self) -> None:
         if self.right_outliner and self.right_outliner.apply_button:
             self.right_outliner.apply_button.animateClick(10)
@@ -391,21 +499,6 @@ class MainWindow(QtWidgets.QMainWindow):
                     if self.planet_widget and self.planet_widget._vbo_pos is None:
                         self._update_planet_view()
                     break
-
-    @QtCore.Slot()
-    def _update_planet_view(self):
-        if self.update_planet_btn: self.update_planet_btn.setEnabled(False)
-        QtWidgets.QApplication.processEvents()
-
-        try:
-            from editor.logic import planet_view_logic
-            planet_view_logic.orchestrate_planet_update(self)
-
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Ошибка",
-                                           f"Не удалось обновить 3D-планету: {e}\n{traceback.format_exc()}")
-        finally:
-            if self.update_planet_btn: self.update_planet_btn.setEnabled(True)
 
     def _load_app_settings(self):
         settings = QtCore.QSettings("WorldForge", "Editor")

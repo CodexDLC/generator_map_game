@@ -37,7 +37,6 @@ def apply_project_to_ui(mw, data: dict) -> None:
     mw.vertex_distance_input.setValue(topo.get("vertex_distance", 1.0))
 
     mw.planet_type_preset_input.setCurrentText(noise.get("planet_type_preset", "Землеподобная (0.3%)"))
-    mw.ws_sea_level.setValue(noise.get("sea_level_pct", 0.4))
     mw.ws_relative_scale.setValue(noise.get("scale", 0.25))
     mw.ws_octaves.setValue(noise.get("octaves", 8))
     mw.ws_gain.setValue(noise.get("gain", 0.5))

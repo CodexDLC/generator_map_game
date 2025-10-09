@@ -23,6 +23,8 @@ class RenderSettings:
     use_slope_darkening: bool = False
     slope_strength: float = 0.25
 
+    show_hex_grid: bool = True
+
     @classmethod
     def from_dict(cls, d: dict) -> "RenderSettings":
         base = asdict(cls())

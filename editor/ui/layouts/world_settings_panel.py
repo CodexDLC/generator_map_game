@@ -11,9 +11,7 @@ SUBDIVISION_LEVELS = {
 ALLOWED_RESOLUTIONS = ["1024x1024", "2048x2048", "4096x4096"]
 MAX_SIDE_METERS = 65536.0
 
-# --- НОВЫЙ СЛОВАРЬ ПРЕСЕТОВ ШЕРОХОВАТОСТИ ---
 PLANET_ROUGHNESS_PRESETS = {
-    # Имя в UI: (Процент от радиуса, Коэффициент запаса для макс. высоты)
     "Газовый гигант (0.01%)": (0.0001, 2.5),
     "Луна/Меркурий (0.1%)": (0.001, 2.5),
     "Землеподобная (0.3%)": (0.003, 2.5),
@@ -39,11 +37,9 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
 
     widgets = {}
 
-    # --- БЛОК 1: ГЛОБАЛЬНЫЕ НАСТРОЙКИ ---
     world_box = CollapsibleBox("Глобальные Настройки")
     world_box.setChecked(True)
 
-    # --- Группа 1: Топология и Масштаб ---
     world_box.body.addRow(QtWidgets.QLabel("<b>Топология и Масштаб</b>"))
 
     widgets["subdivision_level_input"] = QtWidgets.QComboBox()
@@ -72,7 +68,6 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     widgets["vertex_distance_input"].setSingleStep(0.25)
     world_box.body.addRow("Расстояние м/вершина:", widgets["vertex_distance_input"])
 
-    # --- ИЗМЕНЕНИЕ: Поле Макс. Высота теперь только для чтения ---
     widgets["max_height_input"] = QtWidgets.QDoubleSpinBox()
     widgets["max_height_input"].setReadOnly(True)
     widgets["max_height_input"].setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
@@ -82,20 +77,22 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     widgets["max_height_input"].setToolTip("Вычисляется автоматически на основе типа планеты и радиуса.")
     world_box.body.addRow("Макс. Высота (м):", widgets["max_height_input"])
 
-    # --- Группа 2: Форма Планеты (Глобальный Шум) ---
     world_box.body.addRow(QtWidgets.QLabel("---"))
     world_box.body.addRow(QtWidgets.QLabel("<b>Форма Планеты (Глобальный Шум)</b>"))
 
-    # --- ИЗМЕНЕНИЕ: Замена слайдера на выпадающий список пресетов ---
     widgets["planet_type_preset_input"] = QtWidgets.QComboBox()
     widgets["planet_type_preset_input"].addItems(PLANET_ROUGHNESS_PRESETS.keys())
     widgets["planet_type_preset_input"].setCurrentText("Землеподобная (0.3%)")
     world_box.body.addRow("Тип планеты (шероховатость):", widgets["planet_type_preset_input"])
 
-    widgets["ws_sea_level"] = SliderSpinCombo()
-    widgets["ws_sea_level"].setRange(0.0, 1.0)
-    widgets["ws_sea_level"].setValue(0.4)
-    world_box.body.addRow("Уровень моря (% от перепада):", widgets["ws_sea_level"])
+    # --- ИЗМЕНЕНИЕ: Ползунок "Уровень моря" удален из UI ---
+    # widgets["ws_sea_level"] = SliderSpinCombo()
+    # widgets["ws_sea_level"].setRange(0.0, 1.0)
+    # widgets["ws_sea_level"].setValue(0.4)
+    # world_box.body.addRow("Уровень моря (% от перепада):", widgets["ws_sea_level"])
+    # Для совместимости создаем "пустышку", чтобы остальной код не сломался
+    widgets["ws_sea_level"] = QtWidgets.QWidget()
+    widgets["ws_sea_level"].value = lambda: 0.0 # Возвращает 0 по умолчанию
 
     widgets["ws_relative_scale"] = SliderSpinCombo()
     widgets["ws_relative_scale"].setRange(0.01, 1.0)
@@ -126,7 +123,6 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     widgets["ws_seed"] = SeedWidget()
     world_box.body.addRow("Seed:", widgets["ws_seed"])
 
-    # --- Группа 3: Вычисляемые Параметры ---
     world_box.body.addRow(QtWidgets.QLabel("---"))
     world_box.body.addRow(QtWidgets.QLabel("<b>Вычисляемые параметры</b>"))
 
@@ -140,7 +136,6 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
 
     layout.addWidget(world_box)
 
-    # --- БЛОК 2: НАСТРОЙКИ ПРЕВЬЮ ---
     preview_box = CollapsibleBox("Настройки Превью")
     preview_box.setChecked(True)
 

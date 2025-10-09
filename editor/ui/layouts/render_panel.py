@@ -77,10 +77,14 @@ class RenderPanel(QtWidgets.QWidget):
         self.auto.setChecked(self.s.auto_frame)
         lay.addWidget(self.auto)
 
+        # --- НАЧАЛО ИЗМЕНЕНИЯ ---
+        self.show_grid_cb = QtWidgets.QCheckBox("Показывать гексовую сетку")
+        self.show_grid_cb.setChecked(self.s.show_hex_grid)
+        lay.addWidget(self.show_grid_cb)
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
         lay.addWidget(
             QtWidgets.QFrame(self, frameShape=QtWidgets.QFrame.Shape.HLine, frameShadow=QtWidgets.QFrame.Shadow.Sunken))
-
-        # --- Блок выбора разрешения был убран отсюда ---
 
         grp = QtWidgets.QGroupBox("Цвет (предпросмотр)")
         v = QtWidgets.QVBoxLayout(grp)
@@ -113,7 +117,6 @@ class RenderPanel(QtWidgets.QWidget):
 
         lay.addWidget(grp)
 
-        # --- Кнопки ---
         btns = QtWidgets.QHBoxLayout()
         self.reset_btn = QtWidgets.QPushButton("Сброс")
         btns.addStretch(1)
@@ -121,15 +124,18 @@ class RenderPanel(QtWidgets.QWidget):
         lay.addLayout(btns)
         lay.addStretch(1)
 
-        # --- Сигналы ---
         all_spinboxes = (self.az, self.al, self.amb, self.dif, self.spe, self.shi, self.hex, self.fov)
         for w in all_spinboxes:
             w.valueChanged.connect(self._emit_changes)
+
         self.auto.toggled.connect(self._emit_changes)
+        # --- НАЧАЛО ИЗМЕНЕНИЯ ---
+        self.show_grid_cb.toggled.connect(self._emit_changes)
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
         self.reset_btn.clicked.connect(self._reset)
         self.apply_btn.clicked.connect(self._apply_preset)
         self.mode.currentTextChanged.connect(self._emit_changes)
-
         self.use_palette.toggled.connect(self._emit_changes)
         self.palette.currentTextChanged.connect(self._emit_changes)
         self.use_slope.toggled.connect(self._emit_changes)
@@ -138,16 +144,13 @@ class RenderPanel(QtWidgets.QWidget):
     def _apply_preset(self):
         name = self.preset_box.currentText()
         if name == "Custom": return
-
         data = RENDER_PRESETS.get(name, {})
         new_settings = RenderSettings.from_dict(data)
         self.set_settings(new_settings)
         self._emit_changes()
 
     def _emit_changes(self):
-        if self._block_signals:
-            return
-
+        if self._block_signals: return
         self.s.light_azimuth_deg = float(self.az.value())
         self.s.light_altitude_deg = float(self.al.value())
         self.s.ambient = float(self.amb.value())
@@ -157,15 +160,16 @@ class RenderPanel(QtWidgets.QWidget):
         self.s.height_exaggeration = float(self.hex.value())
         self.s.fov = float(self.fov.value())
         self.s.auto_frame = bool(self.auto.isChecked())
+        # --- НАЧАЛО ИЗМЕНЕНИЯ ---
+        self.s.show_hex_grid = bool(self.show_grid_cb.isChecked())
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         self.s.light_mode = self.mode.currentText()
         self.s.use_palette = bool(self.use_palette.isChecked())
         self.s.palette_name = self.palette.currentText()
         self.s.use_slope_darkening = bool(self.use_slope.isChecked())
         self.s.slope_strength = float(self.slope_strength.value())
-
         if self.preset_box.currentText() != "Custom":
             self.preset_box.setCurrentText("Custom")
-
         self.changed.emit(self.s)
 
     def set_settings(self, settings: RenderSettings):
@@ -181,6 +185,9 @@ class RenderPanel(QtWidgets.QWidget):
             self.hex.setValue(self.s.height_exaggeration)
             self.fov.setValue(self.s.fov)
             self.auto.setChecked(self.s.auto_frame)
+            # --- НАЧАЛО ИЗМЕНЕНИЯ ---
+            self.show_grid_cb.setChecked(self.s.show_hex_grid)
+            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
             self.mode.setCurrentText(self.s.light_mode)
             self.use_palette.setChecked(settings.use_palette)
             self.palette.setCurrentText(settings.palette_name)
