@@ -25,7 +25,7 @@ from editor.ui.layouts.node_inspector_panel import make_node_inspector_widget
 from editor.ui.layouts.presets_panel import make_region_presets_widget
 from editor.ui.bindings.shortcuts import install_shortcuts
 from editor.ui.widgets.preview_widget import Preview3DWidget
-from editor.ui.layouts.world_settings_panel import make_world_settings_widget, MAX_SIDE_METERS
+from editor.ui.layouts.world_settings_panel import make_world_settings_widget, MAX_SIDE_METERS, PLANET_ROUGHNESS_PRESETS
 from editor.ui.layouts.render_panel import make_render_panel_widget
 from editor.core.render_settings import RenderSettings
 from editor.render.sphere_preview_widget import SpherePreviewWidget
@@ -66,7 +66,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.base_elevation_label: QtWidgets.QLabel | None = None
         self.ws_noise_box: CollapsibleBox | None = None
 
-        self.ws_base_elevation_pct: SliderSpinCombo | None = None
+        self.planet_type_preset_input: QtWidgets.QComboBox | None = None
         self.ws_sea_level: SliderSpinCombo | None = None
         self.ws_relative_scale: SliderSpinCombo | None = None
         self.ws_octaves: SliderSpinCombo | None = None
@@ -81,7 +81,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.region_center_z_label: QtWidgets.QLabel | None = None
 
         self.current_region_id: int = 0
-        self.current_world_offset = (0.0, 0.0, 1.0)  # Вектор, смотрящий вверх
+        self.current_world_offset = (0.0, 0.0, 1.0)
         self.update_planet_btn: QtWidgets.QPushButton | None = None
         self._last_selected_node = None
 
@@ -92,7 +92,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.project_manager.load_project(project_path)
         self._load_app_settings()
 
-        # Инициализируем превью для региона 0 по умолчанию
         QtCore.QTimer.singleShot(0, lambda: self._on_cell_picked(0))
 
 
@@ -106,7 +105,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.preview_widget.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
 
         self.planet_widget = SpherePreviewWidget(self)
-        # ... (остальная часть _build_ui без изменений) ...
         planet_container = QtWidgets.QWidget()
         planet_layout = QtWidgets.QVBoxLayout(planet_container)
         planet_layout.setContentsMargins(0, 0, 0, 0)
@@ -169,17 +167,15 @@ class MainWindow(QtWidgets.QMainWindow):
         return tabs
 
     def _connect_components(self):
-
         if self.region_resolution_input: self.region_resolution_input.currentIndexChanged.connect(
             self._update_dynamic_ranges)
         if self.vertex_distance_input: self.vertex_distance_input.valueChanged.connect(self._update_calculated_fields)
         if self.subdivision_level_input: self.subdivision_level_input.currentIndexChanged.connect(
             self._update_calculated_fields)
-        if self.max_height_input: self.max_height_input.valueChanged.connect(self._update_calculated_fields)
-        if self.ws_base_elevation_pct: self.ws_base_elevation_pct.editingFinished.connect(
-            self._update_calculated_fields)
 
-        # --- ИЗМЕНЕНИЕ: Добавляем связь для разрешения превью, чтобы оно обновлялось ---
+        if self.planet_type_preset_input:
+            self.planet_type_preset_input.currentIndexChanged.connect(self._update_calculated_fields)
+
         if self.preview_resolution_input:
             self.preview_resolution_input.currentIndexChanged.connect(self._trigger_preview_update)
 
@@ -187,14 +183,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if self.planet_widget:
             self.planet_widget.cell_picked.connect(self._on_cell_picked)
-        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
         planet_controls = [
             self.subdivision_level_input, self.planet_preview_detail_input, self.region_resolution_input,
-            self.vertex_distance_input, self.max_height_input, self.ws_base_elevation_pct,
+            self.vertex_distance_input, self.planet_type_preset_input,
             self.ws_sea_level, self.ws_relative_scale, self.ws_octaves, self.ws_gain,
             self.ws_power, self.ws_warp_strength, self.ws_seed
         ]
-        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
         for control in planet_controls:
             if not control: continue
 
@@ -235,23 +229,17 @@ class MainWindow(QtWidgets.QMainWindow):
         logger.info(f"Выбран регион (гекс) с ID: {cell_id}")
         self.current_region_id = cell_id
 
-        # --- НАЧАЛО ИЗМЕНЕНИЙ: Сохраняем 3D-вектор ---
         planet_data = getattr(self.planet_widget, '_planet_data', None)
         if planet_data and 'centers_xyz' in planet_data and cell_id < len(planet_data['centers_xyz']):
             center_xyz = planet_data['centers_xyz'][cell_id]
-            # Сохраняем полный 3D-вектор
             self.current_world_offset = tuple(center_xyz.tolist())
 
-            # Обновляем UI, используя компоненты вектора
             if self.region_id_label: self.region_id_label.setText(str(cell_id))
             if self.region_center_x_label: self.region_center_x_label.setText(f"{self.current_world_offset[0]:.3f}")
-            if self.region_center_z_label: self.region_center_z_label.setText(f"{self.current_world_offset[2]:.3f}") # Используем Z, а не Y
-        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+            if self.region_center_z_label: self.region_center_z_label.setText(f"{self.current_world_offset[2]:.3f}")
 
-        # Запускаем обновление превью
         self._trigger_preview_update()
 
-    # ... (остальные методы без изменений) ...
     def _update_dynamic_ranges(self):
         if not (self.region_resolution_input and self.vertex_distance_input): return
         res_str = self.region_resolution_input.currentText()
@@ -267,7 +255,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def _update_calculated_fields(self):
         if not all([self.subdivision_level_input, self.region_resolution_input, self.vertex_distance_input,
                     self.planet_radius_label, self.base_elevation_label, self.max_height_input,
-                    self.ws_base_elevation_pct]): return
+                    self.planet_type_preset_input]):
+            return
+
         try:
             res_str = self.region_resolution_input.currentText()
             resolution = int(res_str.split('x')[0])
@@ -277,21 +267,33 @@ class MainWindow(QtWidgets.QMainWindow):
             subdiv_text = self.subdivision_level_input.currentText()
             num_regions_str = "".join(filter(str.isdigit, subdiv_text))
             num_regions = int(num_regions_str) if num_regions_str else 0
-
             total_surface_area_m2 = num_regions * hex_area_m2
             radius_m = math.sqrt(total_surface_area_m2 / (4 * math.pi))
             radius_km = radius_m / 1000.0
             self.planet_radius_label.setText(f"{radius_km:,.0f} км")
 
-            max_h = self.max_height_input.value()
-            base_elevation_percent = self.ws_base_elevation_pct.value()
-            base_elevation = max_h * base_elevation_percent
+            preset_name = self.planet_type_preset_input.currentText()
+            roughness_pct, max_h_multiplier = PLANET_ROUGHNESS_PRESETS.get(preset_name, (0.003, 2.5))
+
+            base_elevation = radius_m * roughness_pct
+            max_h = base_elevation * max_h_multiplier
+
             self.base_elevation_label.setText(f"{base_elevation:,.0f} м")
+            self.max_height_input.blockSignals(True)
+            self.max_height_input.setValue(max_h)
+            self.max_height_input.blockSignals(False)
+
+            logger.debug(
+                f"Расчет высот: Тип='{preset_name}', Шероховатость={roughness_pct*100:.3f}%, "
+                f"Радиус={radius_km:.1f}км -> Базовый перепад={base_elevation:.1f}м, "
+                f"Макс. высота={max_h:.1f}м"
+            )
 
         except Exception as e:
             logger.error(f"Ошибка при расчете полей: {e}")
             self.planet_radius_label.setText("Ошибка")
             self.base_elevation_label.setText("Ошибка")
+            self.max_height_input.setValue(0)
 
     @QtCore.Slot(object)
     def _on_render_settings_changed(self, new_settings: RenderSettings):
@@ -374,7 +376,6 @@ class MainWindow(QtWidgets.QMainWindow):
             ev.ignore()
 
     def _on_apply_clicked(self):
-        # Вместо всей старой логики - просто вызываем наш новый центральный обработчик
         from editor.logic import preview_logic
         preview_logic.generate_preview(self)
 

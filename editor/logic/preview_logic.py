@@ -5,13 +5,13 @@ import traceback
 import math
 import numpy as np
 from PySide6 import QtWidgets
-import cv2  # Убедитесь, что opencv-python установлен
+import cv2
 
 from editor.graph.graph_runner import run_graph
 from editor.utils.diag import diag_array
 from generator_logic.terrain.global_sphere_noise import get_noise_for_region_preview
 from editor.nodes.height.io.world_input_node import WorldInputNode
-from game_engine_restructured.world.planetary_grid import PlanetaryGrid  # <- Новый импорт
+from game_engine_restructured.world.planetary_grid import PlanetaryGrid
 
 from typing import TYPE_CHECKING, Set, Tuple, Optional, Dict, Any
 
@@ -47,7 +47,6 @@ def _prepare_context(main_window: MainWindow) -> Tuple[Dict[str, Any], int]:
     context = main_window.project_manager.collect_ui_context(for_preview=True)
 
     try:
-        # ИСПОЛЬЗУЕМ РАЗРЕШЕНИЕ РЕГИОНА ДЛЯ ВЫЧИСЛЕНИЙ
         resolution_str = main_window.region_resolution_input.currentText()
         resolution = int(resolution_str.split('x')[0])
     except (AttributeError, ValueError, IndexError):
@@ -70,8 +69,25 @@ def _prepare_context(main_window: MainWindow) -> Tuple[Dict[str, Any], int]:
 
 def _generate_world_input(main_window: MainWindow, resolution: int, sphere_params: dict) -> np.ndarray:
     """
-    Генерирует world_input_noise, нормализуя координаты перед вызовом шума.
+    Генерирует world_input_noise, МАСШТАБИРУЯ его амплитуду в соответствии
+    с глобальными настройками мира.
     """
+    try:
+        max_height_m = main_window.max_height_input.value()
+        base_elevation_text = main_window.base_elevation_label.text().replace(" м", "").replace(",", "")
+        base_elevation_m = float(base_elevation_text)
+
+        if max_height_m <= 1e-6 or base_elevation_m < 0.0:
+            raise ValueError("Высоты не рассчитаны или некорректны.")
+
+        amplitude_norm = base_elevation_m / max_height_m
+        logger.debug(f"Масштабирование базового шума для превью: "
+                     f"Амплитуда = {base_elevation_m:.1f}м из {max_height_m:.1f}м (коэф: {amplitude_norm:.4f})")
+
+    except (ValueError, TypeError, AttributeError) as e:
+        logger.warning(f"Не удалось получить высоты из UI для масштабирования, используется коэф. 1.0. Ошибка: {e}")
+        amplitude_norm = 1.0
+
     try:
         radius_text = main_window.planet_radius_label.text().replace(" км", "").replace(",", "").replace(" ", "")
         radius_km = float(radius_text)
@@ -84,27 +100,24 @@ def _generate_world_input(main_window: MainWindow, resolution: int, sphere_param
     planetary_grid = PlanetaryGrid(radius_m=radius_m)
     region_id = main_window.current_region_id
 
-    # 1. Получаем координаты в метрах
     coords_in_meters = planetary_grid.get_coords_for_region(region_id, resolution)
-
-    # 2. НОРМАЛИЗУЕМ их, чтобы получить точки на единичной сфере [-1, 1]
     coords_for_noise = coords_in_meters / radius_m
-
     logger.debug(f"Сгенерированы и нормализованы сферические координаты для региона ID {region_id}.")
 
-    # 3. Вызываем шум с правильными координатами
     base_noise = get_noise_for_region_preview(sphere_params=sphere_params, coords_xyz=coords_for_noise)
-
     power = float(sphere_params.get('power', 1.0))
     if power != 1.0:
         logger.debug(f"Применение степенной коррекции (Power): {power}")
         base_noise = np.power(base_noise, power)
-        diag_array(base_noise, name="base_noise (после Power)")
 
-    logger.debug(f"Сгенерирован глобальный базовый шум. Shape: {base_noise.shape}, "
-                 f"min: {base_noise.min():.4f}, max: {base_noise.max():.4f}, mean: {base_noise.mean():.4f}")
+    sea_level_norm = main_window.ws_sea_level.value()
 
-    return base_noise.astype(np.float32)
+    scaled_noise = base_noise * amplitude_norm
+    final_noise = scaled_noise + sea_level_norm * (1.0 - amplitude_norm)
+
+    diag_array(final_noise, name="world_input_noise (финальный, масштабированный)")
+
+    return final_noise.astype(np.float32)
 
 
 def _run_graph_and_update_ui(main_window: MainWindow, target_node: GeneratorNode, context: dict):
@@ -140,14 +153,12 @@ def _run_graph_and_update_ui(main_window: MainWindow, target_node: GeneratorNode
         logger.warning("Не удалось прочитать разрешение превью. Используется 1024.")
         preview_resolution = 1024
 
-    # Уменьшаем полноразмерный результат до разрешения превью
     display_map_01 = final_map_01
     if final_map_01.shape[0] > preview_resolution:
         logger.debug(f"Уменьшение карты с {final_map_01.shape[0]}px до {preview_resolution}px для превью.")
         display_map_01 = cv2.resize(final_map_01, (preview_resolution, preview_resolution),
                                     interpolation=cv2.INTER_LINEAR)
 
-    # Рендерим уменьшенную карту
     final_map_meters = display_map_01 * preview_max_height
     if main_window.preview_widget:
         main_window.preview_widget.update_mesh(final_map_meters, vertex_distance)

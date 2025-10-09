@@ -11,6 +11,16 @@ SUBDIVISION_LEVELS = {
 ALLOWED_RESOLUTIONS = ["1024x1024", "2048x2048", "4096x4096"]
 MAX_SIDE_METERS = 65536.0
 
+# --- НОВЫЙ СЛОВАРЬ ПРЕСЕТОВ ШЕРОХОВАТОСТИ ---
+PLANET_ROUGHNESS_PRESETS = {
+    # Имя в UI: (Процент от радиуса, Коэффициент запаса для макс. высоты)
+    "Газовый гигант (0.01%)": (0.0001, 2.5),
+    "Луна/Меркурий (0.1%)": (0.001, 2.5),
+    "Землеподобная (0.3%)": (0.003, 2.5),
+    "Скалистый астероид (1.2%)": (0.012, 2.0),
+    "Фэнтези-мир (2.5%)": (0.025, 1.8),
+}
+
 
 def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     """
@@ -62,20 +72,25 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     widgets["vertex_distance_input"].setSingleStep(0.25)
     world_box.body.addRow("Расстояние м/вершина:", widgets["vertex_distance_input"])
 
+    # --- ИЗМЕНЕНИЕ: Поле Макс. Высота теперь только для чтения ---
     widgets["max_height_input"] = QtWidgets.QDoubleSpinBox()
-    widgets["max_height_input"].setRange(1.0, 50000.0)
+    widgets["max_height_input"].setReadOnly(True)
+    widgets["max_height_input"].setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
+    widgets["max_height_input"].setRange(1.0, 999999.0)
     widgets["max_height_input"].setValue(4000.0)
     widgets["max_height_input"].setDecimals(0)
+    widgets["max_height_input"].setToolTip("Вычисляется автоматически на основе типа планеты и радиуса.")
     world_box.body.addRow("Макс. Высота (м):", widgets["max_height_input"])
 
     # --- Группа 2: Форма Планеты (Глобальный Шум) ---
     world_box.body.addRow(QtWidgets.QLabel("---"))
     world_box.body.addRow(QtWidgets.QLabel("<b>Форма Планеты (Глобальный Шум)</b>"))
 
-    widgets["ws_base_elevation_pct"] = SliderSpinCombo()
-    widgets["ws_base_elevation_pct"].setRange(0.1, 1.0)
-    widgets["ws_base_elevation_pct"].setValue(0.5)
-    world_box.body.addRow("Перепад высот (% от макс):", widgets["ws_base_elevation_pct"])
+    # --- ИЗМЕНЕНИЕ: Замена слайдера на выпадающий список пресетов ---
+    widgets["planet_type_preset_input"] = QtWidgets.QComboBox()
+    widgets["planet_type_preset_input"].addItems(PLANET_ROUGHNESS_PRESETS.keys())
+    widgets["planet_type_preset_input"].setCurrentText("Землеподобная (0.3%)")
+    world_box.body.addRow("Тип планеты (шероховатость):", widgets["planet_type_preset_input"])
 
     widgets["ws_sea_level"] = SliderSpinCombo()
     widgets["ws_sea_level"].setRange(0.0, 1.0)
@@ -129,12 +144,10 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     preview_box = CollapsibleBox("Настройки Превью")
     preview_box.setChecked(True)
 
-    # --- ИЗМЕНЕНИЕ: Возвращаем выбор разрешения для превью ---
     widgets["preview_resolution_input"] = QtWidgets.QComboBox()
     widgets["preview_resolution_input"].addItems(["1024x1024", "2048x2048", "4096x4096"])
     widgets["preview_resolution_input"].setCurrentText("1024x1024")
     preview_box.body.addRow("Разрешение превью:", widgets["preview_resolution_input"])
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     widgets["region_id_label"] = QtWidgets.QLabel("0")
     preview_box.body.addRow("ID Региона:", widgets["region_id_label"])

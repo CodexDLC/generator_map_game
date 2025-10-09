@@ -7,16 +7,14 @@ logger = logging.getLogger(__name__)
 
 def collect_project_data_from_ui(mw) -> dict:
     """Собирает все глобальные настройки из UI для сохранения в project.json."""
-    # --- НАЧАЛО ИСПРАВЛЕНИЯ: Добавлены все недостающие поля ---
     return {
         "world_topology": {
             "subdivision": mw.subdivision_level_input.currentText(),
             "resolution": mw.region_resolution_input.currentText(),
             "vertex_distance": mw.vertex_distance_input.value(),
-            "max_height": mw.max_height_input.value(),
         },
         "global_noise": {
-            "base_elevation_pct": mw.ws_base_elevation_pct.value(),
+            "planet_type_preset": mw.planet_type_preset_input.currentText(),
             "sea_level_pct": mw.ws_sea_level.value(),
             "scale": mw.ws_relative_scale.value(),
             "octaves": int(mw.ws_octaves.value()),
@@ -26,7 +24,6 @@ def collect_project_data_from_ui(mw) -> dict:
             "seed": mw.ws_seed.value(),
         }
     }
-    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
 
 def apply_project_to_ui(mw, data: dict) -> None:
@@ -38,10 +35,8 @@ def apply_project_to_ui(mw, data: dict) -> None:
     mw.subdivision_level_input.setCurrentText(topo.get("subdivision", "8 (642 регионов)"))
     mw.region_resolution_input.setCurrentText(topo.get("resolution", "4096x4096"))
     mw.vertex_distance_input.setValue(topo.get("vertex_distance", 1.0))
-    mw.max_height_input.setValue(topo.get("max_height", 4000.0))
 
-    # --- НАЧАЛО ИСПРАВЛЕНИЯ: Добавлено применение всех полей при загрузке ---
-    mw.ws_base_elevation_pct.setValue(noise.get("base_elevation_pct", 0.5))
+    mw.planet_type_preset_input.setCurrentText(noise.get("planet_type_preset", "Землеподобная (0.3%)"))
     mw.ws_sea_level.setValue(noise.get("sea_level_pct", 0.4))
     mw.ws_relative_scale.setValue(noise.get("scale", 0.25))
     mw.ws_octaves.setValue(noise.get("octaves", 8))
@@ -49,9 +44,8 @@ def apply_project_to_ui(mw, data: dict) -> None:
     mw.ws_power.setValue(noise.get("power", 1.0))
     mw.ws_warp_strength.setValue(noise.get("warp_strength", 0.2))
     mw.ws_seed.setValue(noise.get("seed", 12345))
-    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
-    QtCore.QTimer.singleShot(0, mw._update_dynamic_ranges)
+    QtCore.QTimer.singleShot(0, mw._update_calculated_fields)
 
 
 def collect_context_from_ui(mw, for_preview: bool = True) -> dict:
@@ -69,7 +63,6 @@ def collect_context_from_ui(mw, for_preview: bool = True) -> dict:
         vertex_distance = mw.vertex_distance_input.value()
         max_height = mw.max_height_input.value()
 
-        # Эта часть больше не используется для генерации координат, но может быть полезна
         offset_x, offset_z = 0.0, 0.0
 
     except (AttributeError, ValueError, IndexError) as e:
@@ -77,7 +70,6 @@ def collect_context_from_ui(mw, for_preview: bool = True) -> dict:
         resolution, vertex_distance, max_height = 512, 1.0, 1000.0
         offset_x, offset_z = 0.0, 0.0
 
-    # Создаем фиктивные координаты, так как реальные создаются в preview_logic
     x_coords = np.zeros((resolution, resolution), dtype=np.float32)
     z_coords = np.zeros((resolution, resolution), dtype=np.float32)
 
