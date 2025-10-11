@@ -1,13 +1,16 @@
 # generator_logic/terrain/voronoi.py
 from numba import njit, prange
 import numpy as np
-from game_engine_restructured.numerics.fast_noise import _hash2
+# --- НАЧАЛО ИЗМЕНЕНИЯ ---
+from game_engine_restructured.numerics.fast_noise_helpers import _hash2
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 # Imports from core modules
 from generator_logic.core.seeding import _resolve_world_seed, _mix_seed
 from generator_logic.core.warp import apply_domain_warp
 
 F32 = np.float32
+
 
 # ---------- helpers (unique to voronoi) ----------
 @njit(inline='always')
@@ -18,6 +21,7 @@ def _smoothstep01(t: F32) -> F32:
         t = F32(1.0)
     return t * t * (F32(3.0) - F32(2.0) * t)
 
+
 @njit(inline='always')
 def _soft_threshold01(x: F32, th: F32, width: F32) -> F32:
     e0 = th - width
@@ -26,6 +30,7 @@ def _soft_threshold01(x: F32, th: F32, width: F32) -> F32:
     if x >= th: return x
     t = (x - e0) / (th - e0 + F32(1e-6))
     return x * _smoothstep01(t)
+
 
 @njit(inline='always')
 def _terrace01(x: F32, steps: int, blend: F32) -> F32:
@@ -37,15 +42,18 @@ def _terrace01(x: F32, steps: int, blend: F32) -> F32:
     t = t * (F32(1.0) - blend) + _smoothstep01(t) * blend
     return f * (F32(1.0) - t) + c * t
 
+
 @njit(inline='always')
 def _dist(dx: F32, dz: F32, metric: int) -> F32:
-    dx = np.abs(dx); dz = np.abs(dz)
-    if metric == 1:      # Manhattan
+    dx = np.abs(dx);
+    dz = np.abs(dz)
+    if metric == 1:  # Manhattan
         return dx + dz
-    elif metric == 2:    # Chebyshev
+    elif metric == 2:  # Chebyshev
         return dx if dx > dz else dz
-    else:                # Euclidean
+    else:  # Euclidean
         return F32(np.sqrt(dx * dx + dz * dz))
+
 
 # ---------- основное ядро ----------
 @njit(cache=True, fastmath=True, parallel=True)
@@ -103,15 +111,19 @@ def generate_voronoi_noise(
                     dist = _dist(px - sx, pz - sz, metric_id)
 
                     if dist < d1:
-                        d2 = d1; d1 = dist
+                        d2 = d1;
+                        d1 = dist
                     elif dist < d2:
                         d2 = dist
 
-            if metric_id == 1:      inv_norm = inv_cell_norm_L1
-            elif metric_id == 2:    inv_norm = inv_cell_norm_Li
-            else:                   inv_norm = inv_cell_norm_L2
+            if metric_id == 1:
+                inv_norm = inv_cell_norm_L1
+            elif metric_id == 2:
+                inv_norm = inv_cell_norm_Li
+            else:
+                inv_norm = inv_cell_norm_L2
 
-            t1   = d1 * inv_norm * (F32(1.0) / (F32(gain) + F32(1e-9)))
+            t1 = d1 * inv_norm * (F32(1.0) / (F32(gain) + F32(1e-9)))
             if t1 < F32(0.0): t1 = F32(0.0)
             if t1 > F32(1.0): t1 = F32(1.0)
             t2m1 = (d2 - d1) * (F32(1.0) / (F32(gain) + F32(1e-9)))
@@ -119,19 +131,19 @@ def generate_voronoi_noise(
             if t2m1 > F32(1.0): t2m1 = F32(1.0)
 
             # стили
-            if style_id == 1:         # Ridges
+            if style_id == 1:  # Ridges
                 h = _smoothstep01(t2m1)
-            elif style_id == 2:       # Peaks
+            elif style_id == 2:  # Peaks
                 h = F32(1.0) - _smoothstep01(t1)
-            elif style_id == 3:       # Plateaus
+            elif style_id == 3:  # Plateaus
                 base = F32(1.0) - _smoothstep01(t1)
                 h = _terrace01(base, terrace_steps, F32(terrace_blend))
-            elif style_id == 4:       # Mountains/Dual
+            elif style_id == 4:  # Mountains/Dual
                 rid = _smoothstep01(t2m1)
-                pk  = F32(1.0) - _smoothstep01(t1)
-                pk  = pk * pk
-                h   = pk if pk > rid * F32(0.6) else rid * F32(0.6)
-            else:                      # Cells
+                pk = F32(1.0) - _smoothstep01(t1)
+                pk = pk * pk
+                h = pk if pk > rid * F32(0.6) else rid * F32(0.6)
+            else:  # Cells
                 h = F32(1.0) - t1
 
             if clamp_val > F32(0.0):
@@ -140,6 +152,7 @@ def generate_voronoi_noise(
             out[j, i] = h
 
     return out
+
 
 # ---------- wrapper ----------
 def voronoi_noise_wrapper(context: dict, noise_params: dict, warp_params: dict):
@@ -151,10 +164,11 @@ def voronoi_noise_wrapper(context: dict, noise_params: dict, warp_params: dict):
     func_type = noise_params.get('function', 'f1').lower()
     wt = (warp_params.get('type', 'none') or 'none').lower()
 
-    style_map  = {'c':0,'cells':0,'r':1,'ridges':1,'p':2,'peaks':2,'a':3,'plateaus':3,'m':4,'d':4,'mountains':4,'dual':4}
-    metric_map = {'euclidean':0, 'manhattan':1, 'chebyshev':2, 'cheby':2}
-    style_id   = style_map.get(str(noise_params.get('style','d')).lower(), 4)
-    metric_id  = metric_map.get(str(noise_params.get('metric','euclidean')).lower(), 0)
+    style_map = {'c': 0, 'cells': 0, 'r': 1, 'ridges': 1, 'p': 2, 'peaks': 2, 'a': 3, 'plateaus': 3, 'm': 4, 'd': 4,
+                 'mountains': 4, 'dual': 4}
+    metric_map = {'euclidean': 0, 'manhattan': 1, 'chebyshev': 2, 'cheby': 2}
+    style_id = style_map.get(str(noise_params.get('style', 'd')).lower(), 4)
+    metric_id = metric_map.get(str(noise_params.get('metric', 'euclidean')).lower(), 0)
     terr_steps = int(noise_params.get('terrace_steps', 8))
     terr_blend = np.float32(noise_params.get('terrace_blend', 0.35))
 
@@ -169,15 +183,15 @@ def voronoi_noise_wrapper(context: dict, noise_params: dict, warp_params: dict):
 
     node_off = int(noise_params.get('seed', 0))
     world_seed = _resolve_world_seed(context)
-    seed_main  = _mix_seed(world_seed, node_off, 0)
-    seed_warp  = _mix_seed(world_seed, node_off, 12345)
+    seed_main = _mix_seed(world_seed, node_off, 0)
+    seed_warp = _mix_seed(world_seed, node_off, 12345)
 
     # Параметры варпа
     warp_amp0_m = float(warp_params.get('amp0_m', 0.0))
     warp_freq = float(warp_params.get('frequency', 0.0))
     use_warp = (wt != 'none') and (warp_amp0_m > 0.0) and (warp_freq > 0.0)
     is_simple = (wt == 'simple')
-    
+
     return generate_voronoi_noise(
         x_local, z_local,
         jitter=np.float32(noise_params.get('jitter', 0.45)),

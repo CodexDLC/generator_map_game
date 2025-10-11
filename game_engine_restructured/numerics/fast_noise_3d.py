@@ -76,6 +76,31 @@ def simplex_noise_3d_single(x: F32, y: F32, z: F32, seed: int) -> F32:
     return F32(32.0) * n
 
 
+# --- НАЧАЛО НОВОГО КОДА ---
+@njit(cache=True, fastmath=True, parallel=True)
+def simplex_noise_3d(
+        coords_x: np.ndarray,
+        coords_y: np.ndarray,
+        coords_z: np.ndarray,
+        seed: int
+) -> np.ndarray:
+    """
+    Генерирует сетку 3D Simplex-шума. Векторизованная версия.
+    """
+    H, W = coords_x.shape
+    output = np.empty((H, W), dtype=F32)
+    for j in prange(H):
+        for i in range(W):
+            output[j, i] = simplex_noise_3d_single(
+                coords_x[j, i],
+                coords_y[j, i],
+                coords_z[j, i],
+                seed
+            )
+    return output
+# --- КОНЕЦ НОВОГО КОДА ---
+
+
 @njit(cache=True, fastmath=True, parallel=True)
 def fbm_grid_3d(
         seed: int,

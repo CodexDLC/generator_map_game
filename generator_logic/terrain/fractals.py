@@ -3,7 +3,9 @@ from __future__ import annotations
 import numpy as np
 from numba import njit, prange
 
-from game_engine_restructured.numerics.fast_noise import value_noise_2d
+# --- НАЧАЛО ИЗМЕНЕНИЯ ---
+from game_engine_restructured.numerics.fast_noise_2d import value_noise_2d
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 from generator_logic.core.normalization import normalize01
 from generator_logic.core.seeding import _resolve_world_seed, _mix_seed
 from generator_logic.core.warp import apply_domain_warp

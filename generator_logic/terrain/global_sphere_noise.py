@@ -3,6 +3,9 @@ import logging
 import numpy as np
 
 from editor.utils.diag import diag_array
+# --- НАЧАЛО ИЗМЕНЕНИЙ: Добавлен недостающий импорт ---
+from game_engine_restructured.numerics.fast_noise_3d import simplex_noise_3d
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
 logger = logging.getLogger(__name__)
 

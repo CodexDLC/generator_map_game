@@ -7,7 +7,10 @@ from typing import Any, Dict
 import numpy as np
 
 from game_engine_restructured.core.utils.rng import hash64
-from game_engine_restructured.numerics.fast_noise import fbm_grid_bipolar, fbm_amplitude
+# --- НАЧАЛО ИЗМЕНЕНИЯ ---
+from game_engine_restructured.numerics.fast_noise_2d import fbm_grid_bipolar
+from game_engine_restructured.numerics.fast_noise_helpers import fbm_amplitude
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 def _generate_noise_field(params: Dict[str, Any], context: Dict[str, Any]) -> np.ndarray:
     """
