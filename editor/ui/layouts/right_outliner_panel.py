@@ -14,6 +14,8 @@ from editor.graph.custom_graph import CustomNodeGraph # Используем д�
 
 class RightOutlinerWidget(QtWidgets.QWidget):
     apply_clicked = QtCore.Signal()  # наружу: запуск вычисления
+    export_clicked = QtCore.Signal()
+
 
     def __init__(self, main_window: QtWidgets.QMainWindow):
         super().__init__(parent=main_window)
@@ -53,6 +55,10 @@ class RightOutlinerWidget(QtWidgets.QWidget):
         self.apply_button.setFixedHeight(40)
         self.apply_button.clicked.connect(self.apply_clicked.emit)
         lay.addWidget(self.apply_button)
+
+        self.export_button = QtWidgets.QPushButton("Экспорт для движка...", self)
+        self.export_button.clicked.connect(self.export_clicked.emit)
+        lay.addWidget(self.export_button)
 
         self._node_id_to_item: Dict[str, QtWidgets.QTreeWidgetItem] = {}
         self._hooks_installed = False

@@ -48,32 +48,72 @@ def _prepare_context(main_window: MainWindow) -> Tuple[Dict[str, Any], int]:
     return context, resolution
 
 
-def _generate_world_input(main_window: MainWindow, resolution: int, sphere_params: dict) -> np.ndarray:
-    try:
-        max_height_m = main_window.max_height_input.value()
-        base_elevation_text = main_window.base_elevation_label.text().replace(" м", "").replace(",", "")
-        base_elevation_m = float(base_elevation_text)
-        amplitude_norm = base_elevation_m / max_height_m if max_height_m > 1e-6 else 1.0
-    except Exception:
-        amplitude_norm = 1.0
+def _generate_world_input(main_window: "MainWindow", context: Dict[str, Any], sphere_params: dict) -> np.ndarray:
+    """
+    Generates the base world noise for a specific region preview.
+    It correctly maps the flat preview grid to a curved patch on the sphere
+    before sampling the 3D noise.
+    """
+    logger.info("Generating world input for region preview...")
 
+    # 1. Get parameters from UI and context
     try:
         radius_text = main_window.planet_radius_label.text().replace(" км", "").replace(",", "").replace(" ", "")
         radius_m = float(radius_text) * 1000.0
         if radius_m < 1.0: raise ValueError("Radius is too small")
     except Exception:
+        logger.warning("Could not parse radius from UI, falling back to default.")
         radius_m = 6371000.0
 
-    planetary_grid = PlanetaryGrid(radius_m=radius_m)
-    coords_for_noise = planetary_grid.get_coords_for_region(main_window.current_region_id, resolution) / radius_m
+    # These are the flat coordinates for our preview plane, in meters.
+    x_m = context['x_coords']
+    z_m = context['z_coords']
 
-    base_noise = get_noise_for_region_preview(sphere_params=sphere_params, coords_xyz=coords_for_noise)
+    # 2. Define the orientation of our flat plane in 3D space.
+    center_vec = np.array(main_window.current_world_offset, dtype=np.float32)
+    center_vec /= np.linalg.norm(center_vec)
 
-    # --- ИЗМЕНЕНИЕ: Убираем влияние уровня моря на геометрию ---
+    up_vec = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+    if np.abs(np.dot(center_vec, up_vec)) > 0.99:
+        up_vec = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+
+    tangent_u = np.cross(center_vec, up_vec)
+    tangent_u /= np.linalg.norm(tangent_u)
+    tangent_v = np.cross(center_vec, tangent_u)
+
+    # 3. Map the flat grid to a curved patch on the sphere
+    angular_x = x_m / radius_m
+    angular_z = z_m / radius_m
+
+    points_in_plane = (center_vec[np.newaxis, np.newaxis, :]
+                       + tangent_u[np.newaxis, np.newaxis, :] * angular_x[..., np.newaxis]
+                       + tangent_v[np.newaxis, np.newaxis, :] * angular_z[..., np.newaxis])
+
+    coords_for_noise = points_in_plane / np.linalg.norm(points_in_plane, axis=-1, keepdims=True)
+    coords_for_noise = coords_for_noise.astype(np.float32)
+
+    logger.debug(f"Generated spherical coordinates for noise sampling, shape: {coords_for_noise.shape}")
+
+    # 4. Generate the 3D noise using these coordinates
+    base_noise = get_noise_for_region_preview(
+        sphere_params=sphere_params,
+        coords_xyz=coords_for_noise
+    )
+
+    # 5. Apply amplitude scaling based on global settings
+    try:
+        max_height_m = main_window.max_height_input.value()
+        base_elevation_text = main_window.base_elevation_label.text().replace(" м", "").replace(",", "")
+        base_elevation_m = float(base_elevation_text)
+        amplitude_norm = base_elevation_m / max_height_m if max_height_m > 1e-6 else 1.0
+    except Exception as e:
+        logger.warning(f"Could not calculate amplitude norm: {e}, falling back to 1.0")
+        amplitude_norm = 1.0
+
     final_noise = base_noise * amplitude_norm
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     return final_noise.astype(np.float32)
+
 
 def _has_world_input_ancestor(node: GeneratorNode, visited: Set[str] = None) -> bool:
     if visited is None: visited = set()
@@ -100,14 +140,10 @@ def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
     if is_global_mode:
         logger.info("Сбор параметров глобального шума из UI для 3D-Превью...")
 
-        # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
         scale_value = main_window.ws_relative_scale.value()
-
-        # Новая инвертированная формула, идентичная той, что в planet_view_logic
         min_freq, max_freq = 0.5, 10.0
         normalized_scale = (scale_value - 0.01) / 0.99
         frequency = max_freq - normalized_scale * (max_freq - min_freq)
-        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
         sphere_params = {
             'octaves': int(main_window.ws_octaves.value()),
@@ -118,7 +154,7 @@ def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
             'sea_level_pct': main_window.ws_sea_level.value(),
         }
 
-        base_noise = _generate_world_input(main_window, resolution, sphere_params)
+        base_noise = _generate_world_input(main_window, context, sphere_params)
     else:
         base_noise = np.zeros_like(context['x_coords'], dtype=np.float32)
 
@@ -138,8 +174,34 @@ def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
 
     final_map_01 = run_graph(target_node, context)
 
+    north_vector_2d = None
+    if is_global_mode:
+        # Эти данные были вычислены внутри _generate_world_input, но мы их пересчитаем здесь,
+        # чтобы не усложнять сигнатуры функций.
+        center_vec = np.array(main_window.current_world_offset, dtype=np.float32)
+        center_vec /= np.linalg.norm(center_vec)
+
+        up_vec = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+        if np.abs(np.dot(center_vec, up_vec)) > 0.99:
+            up_vec = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+
+        tangent_u = np.cross(center_vec, up_vec)
+        tangent_u /= np.linalg.norm(tangent_u)
+        tangent_v = np.cross(center_vec, tangent_u)
+
+        # Проекция глобального Севера на локальную плоскость
+        north_global = np.array([0, 1, 0], dtype=np.float32)
+        north_projected = north_global - center_vec * np.dot(north_global, center_vec)
+
+        # Компоненты этого вектора по локальным осям
+        north_u = np.dot(north_projected, tangent_u)
+        north_v = np.dot(north_projected, tangent_v)
+        north_vector_2d = np.array([north_u, north_v])
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
     return {
         "final_map_01": final_map_01,
         "max_height": context.get('max_height_m', 1000.0),
-        "vertex_distance": main_window.vertex_distance_input.value()
+        "vertex_distance": main_window.vertex_distance_input.value(),
+        "north_vector_2d": north_vector_2d  # Добавляем вектор в результат
     }

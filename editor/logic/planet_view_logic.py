@@ -5,7 +5,6 @@ import numpy as np
 from PySide6 import QtWidgets
 from pathlib import Path
 
-# --- ИЗМЕНЕНИЕ: Добавлен недостающий импорт ---
 from editor.render.planet_palettes import map_planet_palette_cpu
 from generator_logic.topology.icosa_grid import build_hexplanet
 from generator_logic.terrain.global_sphere_noise import get_noise_for_sphere_view
@@ -14,7 +13,6 @@ from editor.ui.layouts.world_settings_panel import PLANET_ROUGHNESS_PRESETS
 logger = logging.getLogger(__name__)
 
 
-# ... (вспомогательные функции _normalize_vector, _slerp, _subdivide_triangle остаются без изменений)
 def _normalize_vector(v):
     norm = np.linalg.norm(v, axis=-1, keepdims=True)
     return v / np.maximum(norm, 1e-9)
@@ -117,6 +115,15 @@ def orchestrate_planet_update(main_window) -> dict:
     roughness_pct, _ = PLANET_ROUGHNESS_PRESETS.get(preset_name, (0.003, 2.5))
 
     disp_scale = roughness_pct * 1.5
+
+    # --- НАЧАЛО ИЗМЕНЕНИЯ: Возвращаем логирование ---
+    logger.info(f"Обновление вида планеты:")
+    logger.info(f"  - Базовый радиус: {radius_m:,.0f} м ({radius_km:,.0f} км)")
+    logger.info(f"  - Тип: '{preset_name}', шероховатость: {roughness_pct:.3%}")
+    logger.info(f"  - Коэффициент смещения (disp_scale): {disp_scale:.4f}")
+    max_displacement_m = radius_m * disp_scale * 0.5
+    logger.info(f"  - Максимальное смещение рельефа: ±{max_displacement_m:,.0f} м")
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     scale_value = main_window.ws_relative_scale.value()
     min_freq, max_freq = 0.5, 10.0

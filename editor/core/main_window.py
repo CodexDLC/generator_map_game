@@ -1,3 +1,4 @@
+# editor/core/main_window.py
 from __future__ import annotations
 import logging
 import traceback
@@ -29,7 +30,7 @@ from editor.ui.layouts.render_panel import make_render_panel_widget
 from editor.core.render_settings import RenderSettings
 from editor.render.sphere_preview_widget import SpherePreviewWidget
 from editor.core.project_manager import ProjectManager
-from editor.actions import preset_actions
+from editor.actions import preset_actions, export_actions
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -241,15 +242,23 @@ class MainWindow(QtWidgets.QMainWindow):
             preview_resolution = int(preview_res_str.split('x')[0])
 
             display_map_01 = final_map_01
-            if final_map_01.shape[0] != preview_resolution or final_map_01.shape[1] != preview_resolution:
-                logger.debug(f"Масштабирование карты с {final_map_01.shape} до {preview_resolution}px для превью.")
-                display_map_01 = cv2.resize(final_map_01, (preview_resolution, preview_resolution),
-                                            interpolation=cv2.INTER_LINEAR)
+            scaling_factor = 1.0
 
-            final_map_meters = display_map_01 * max_height
+            if final_map_01.shape[0] != preview_resolution:
+                original_resolution = final_map_01.shape[0]
+                logger.debug(f"Масштабирование карты с {original_resolution}px до {preview_resolution}px для превью.")
+
+                if preview_resolution > 0:
+                    scaling_factor = original_resolution / preview_resolution
+
+                display_map_01 = cv2.resize(final_map_01, (preview_resolution, preview_resolution),
+                                            interpolation=cv2.INTER_AREA)
+
+            final_map_meters = (display_map_01 * max_height) / scaling_factor
 
             if self.preview_widget:
-                self.preview_widget.update_mesh(final_map_meters, vertex_distance)
+                self.preview_widget.update_mesh(final_map_meters, vertex_distance,
+                                                north_vector_2d=result_data.get("north_vector_2d"))
 
             if self.node_inspector:
                 self.node_inspector.refresh_from_selection()
@@ -269,8 +278,12 @@ class MainWindow(QtWidgets.QMainWindow):
         QtWidgets.QMessageBox.critical(self, "Ошибка в фоновом потоке", error_message)
 
     def _connect_components(self):
-        if self.region_resolution_input: self.region_resolution_input.currentIndexChanged.connect(
-            self._update_dynamic_ranges)
+        # --- НАЧАЛО ИЗМЕНЕНИЯ: Добавляем недостающую связь ---
+        if self.region_resolution_input:
+            self.region_resolution_input.currentIndexChanged.connect(self._update_dynamic_ranges)
+            self.region_resolution_input.currentIndexChanged.connect(self._update_calculated_fields)  # <--- ВОТ ОНА
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
         if self.vertex_distance_input: self.vertex_distance_input.valueChanged.connect(self._update_calculated_fields)
         if self.subdivision_level_input: self.subdivision_level_input.currentIndexChanged.connect(
             self._update_calculated_fields)
@@ -309,7 +322,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.graph.selection_changed.connect(self._on_node_selection_changed)
             self.graph.structure_changed.connect(self._mark_dirty)
 
-        if self.right_outliner: self.right_outliner.apply_clicked.connect(self._on_apply_clicked)
+        if self.right_outliner:
+            self.right_outliner.apply_clicked.connect(self._on_apply_clicked)
+            self.right_outliner.export_clicked.connect(self._on_export_clicked)
+
         if self.presets_widget:
             self.presets_widget.load_requested.connect(self.action_load_region_preset)
             self.presets_widget.create_from_current_requested.connect(self.action_create_preset_from_dialog)
@@ -476,6 +492,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def action_save_active_preset(self):
         preset_actions.handle_save_active_preset(self)
+
+    @QtCore.Slot()
+    def _on_export_clicked(self):
+        """Слот для обработки нажатия кнопки экспорта."""
+        export_actions.run_region_export(self)
 
     def _mark_dirty(self, *_args, **_kwargs):
         self.project_manager.mark_dirty(True)

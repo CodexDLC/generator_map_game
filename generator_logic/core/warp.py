@@ -3,7 +3,8 @@ from __future__ import annotations
 import numpy as np
 from numba import njit
 
-from game_engine_restructured.numerics.fast_noise import value_noise_2d
+# --- ИЗМЕНЕНИЕ: Исправлен импорт на fast_noise_2d ---
+from game_engine_restructured.numerics.fast_noise_2d import value_noise_2d
 
 F32 = np.float32
 
