@@ -102,7 +102,7 @@ def _generate_hex_sphere_geometry(planet_data, sphere_params, disp_scale, subdiv
 def orchestrate_planet_update(main_window) -> dict:
     """
     Главная функция обновления 3D-вида планеты.
-    ВЕРСИЯ 2.1: Исправлена ошибка несоответствия размеров массивов вершин и цветов.
+    ВЕРСИЯ 2.4: Финальная версия с исправленной логикой цвета.
     """
     logger.info("Обновление вида планеты...")
 
@@ -134,7 +134,7 @@ def orchestrate_planet_update(main_window) -> dict:
     planet_data = build_hexplanet(f=subdivision_level_grid)
     if not planet_data: raise RuntimeError("Failed to generate planet data.")
 
-    # Теперь _generate_hex_sphere_geometry возвращает и вершины линий
+    # Получаем ТОЛЬКО геометрию
     V_fill, F_fill, V_lines, I_lines = _generate_hex_sphere_geometry(
         planet_data, sphere_params, disp_scale, subdivision_level_geom
     )
@@ -160,10 +160,12 @@ def orchestrate_planet_update(main_window) -> dict:
                         2 * max_displacement_m)
             humidity = np.clip(1.0 - (heights_m - sea_level_m) / (max_displacement_m * 2), 0.1, 0.9)
 
-            dominant_biomes = [max(probs, key=probs.get) if (
-                probs := biome_matcher.calculate_biome_probabilities(final_temp[i], humidity[i],
-                                                                     biomes_definition)) else "default" for i in
-                               range(len(V_fill))]
+            dominant_biomes = []
+            for i in range(len(V_fill)):
+                temp_i, humidity_i = final_temp[i], humidity[i]
+                probs = biome_matcher.calculate_biome_probabilities(temp_i, humidity_i, biomes_definition)
+                dominant_biome = max(probs, key=probs.get) if probs else "default"
+                dominant_biomes.append(dominant_biome)
 
             fill_colors = map_planet_climate_palette(dominant_biomes)
 
@@ -176,24 +178,23 @@ def orchestrate_planet_update(main_window) -> dict:
         heights_01 = get_noise_for_sphere_view(sphere_params, V_fill).flatten()
         fill_colors = map_planet_height_palette(heights_01)
 
-    # --- ШАГ 4: Сборка итоговых массивов ---
+    # --- ШАГ 4: Корректная сборка итоговых массивов ---
     offset = len(V_fill)
     all_vertices = np.vstack([V_fill, V_lines]).astype(np.float32)
-    # Создаем черный цвет для вершин линий
-    line_colors = np.zeros_like(V_lines, dtype=np.float32)
+    line_colors = np.zeros((len(V_lines), 3), dtype=np.float32)
     all_colors = np.vstack([fill_colors.reshape(-1, 3), line_colors])
-    all_line_indices = (np.array(I_lines, dtype=np.uint32) + offset).flatten()
+    all_line_indices = (np.array(I_lines, dtype=np.uint32) + offset)
 
     # --- ШАГ 5: Сохранение и возврат результата ---
     if main_window.project_manager.current_project_path:
         cache_dir = Path(main_window.project_manager.current_project_path) / "cache"
         cache_dir.mkdir(exist_ok=True)
         cache_file = cache_dir / "planet_geometry.npz"
-        np.savez_compressed(cache_file, vertices=all_vertices, fill_indices=F_fill, line_indices=all_line_indices,
-                            colors=all_colors, planet_data=planet_data)
+        np.savez_compressed(cache_file, vertices=all_vertices, fill_indices=F_fill,
+                            line_indices=all_line_indices.flatten(), colors=all_colors, planet_data=planet_data)
         logger.info(f"Геометрия планеты сохранена в кэш: {cache_file}")
 
     return {
-        "vertices": all_vertices, "fill_indices": F_fill, "line_indices": all_line_indices,
+        "vertices": all_vertices, "fill_indices": F_fill, "line_indices": all_line_indices.flatten(),
         "colors": all_colors, "planet_data": planet_data
     }
