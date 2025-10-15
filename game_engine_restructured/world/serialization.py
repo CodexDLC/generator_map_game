@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Any, Tuple
 
-# --- ИЗМЕНЕНИЕ: Убираем устаревший импорт ---
-# from .planners.river_planner import RiverPlan
 from .road_types import ChunkRoadPlan
 
 
@@ -20,10 +18,10 @@ class RegionMetaContract:
     scx: int = 0
     scz: int = 0
     world_seed: int = 0
-    # Сюда мы будем добавлять планы биомов, дорог и т.д.
     road_plan: Dict[Tuple[int, int], ChunkRoadPlan] = field(default_factory=dict)
-    # --- ИЗМЕНЕНИЕ: Удаляем поле river_plan ---
-    # river_plan: RiverPlan = field(default_factory=RiverPlan)
+
+    # --- НОВОЕ ПОЛЕ ---
+    biome_probabilities: Dict[str, float] = field(default_factory=dict)
 
     edge_data: Dict[str, Any] = field(default_factory=dict)
 

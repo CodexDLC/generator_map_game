@@ -21,3 +21,5 @@ types-psutil
 landlab
 
 PyOpenGL
+
+zstandard

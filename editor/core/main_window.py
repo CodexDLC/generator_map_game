@@ -13,6 +13,8 @@ import numpy as np
 from PySide6 import QtWidgets, QtCore, QtGui
 
 from editor.actions.project_actions import on_save_project
+from editor.graph.custom_graph import CustomNodeGraph
+from editor.ui.layouts.right_outliner_panel import RightOutlinerWidget
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,7 @@ from editor.ui.widgets.custom_controls import SliderSpinCombo, SeedWidget, Colla
 from editor.ui.layouts.central_layout import create_bottom_work_area_v2
 from editor.ui.layouts.main_menu import build_menus
 from editor.ui.layouts.node_inspector_panel import make_node_inspector_widget
-from editor.ui.layouts.presets_panel import make_region_presets_widget
+from editor.ui.layouts.presets_panel import make_region_presets_widget, RegionPresetsWidget
 from editor.ui.bindings.shortcuts import install_shortcuts
 from editor.ui.widgets.preview_widget import Preview3DWidget
 from editor.ui.layouts.world_settings_panel import make_world_settings_widget, MAX_SIDE_METERS, PLANET_ROUGHNESS_PRESETS
@@ -47,39 +49,51 @@ class MainWindow(QtWidgets.QMainWindow):
         self.thread_pool = QtCore.QThreadPool()
         logger.info(f"Создан пул потоков с {self.thread_pool.maxThreadCount()} потоками.")
 
-        self.graph: 'CustomNodeGraph' | None = None
-        self.preview_widget: Preview3DWidget | None = None
-        self.planet_widget: SpherePreviewWidget | None = None
-        self.loading_overlay: QtWidgets.QWidget | None = None
-        self.central_tabs: QtWidgets.QTabWidget | None = None
-        self.props_bin: QtWidgets.QWidget | None = None
-        self.right_outliner: 'RightOutlinerWidget' | None = None
-        self.left_palette: QtWidgets.QWidget | None = None
-        self.node_inspector: QtWidgets.QWidget | None = None
-        self.presets_widget: 'RegionPresetsWidget' | None = None
-        self.render_panel: QtWidgets.QWidget | None = None
-        self.realtime_checkbox: QtWidgets.QCheckBox | None = None
-        self.subdivision_level_input: QtWidgets.QComboBox | None = None
-        self.planet_preview_detail_input: QtWidgets.QComboBox | None = None
-        self.region_resolution_input: QtWidgets.QComboBox | None = None
-        self.vertex_distance_input: QtWidgets.QDoubleSpinBox | None = None
-        self.max_height_input: QtWidgets.QDoubleSpinBox | None = None
-        self.planet_radius_label: QtWidgets.QLabel | None = None
-        self.base_elevation_label: QtWidgets.QLabel | None = None
-        self.ws_noise_box: CollapsibleBox | None = None
-        self.planet_type_preset_input: QtWidgets.QComboBox | None = None
-        self.ws_sea_level: SliderSpinCombo | None = None
-        self.ws_relative_scale: SliderSpinCombo | None = None
-        self.ws_octaves: SliderSpinCombo | None = None
-        self.ws_gain: SliderSpinCombo | None = None
-        self.ws_power: SliderSpinCombo | None = None
-        self.ws_warp_strength: SliderSpinCombo | None = None
-        self.ws_seed: SeedWidget | None = None
-        self.preview_resolution_input: QtWidgets.QComboBox | None = None
-        self.region_id_label: QtWidgets.QLabel | None = None
-        self.region_center_x_label: QtWidgets.QLabel | None = None
-        self.region_center_z_label: QtWidgets.QLabel | None = None
-        self.update_planet_btn: QtWidgets.QPushButton | None = None
+        # --- ОБЪЯВЛЕНИЕ АТРИБУТОВ КЛАССА ---
+        self.graph: Optional['CustomNodeGraph'] = None
+        self.preview_widget: Optional[Preview3DWidget] = None
+        self.planet_widget: Optional[SpherePreviewWidget] = None
+        self.loading_overlay: Optional[QtWidgets.QWidget] = None
+        self.central_tabs: Optional[QtWidgets.QTabWidget] = None
+        self.props_bin: Optional[QtWidgets.QWidget] = None
+        self.right_outliner: Optional['RightOutlinerWidget'] = None
+        self.left_palette: Optional[QtWidgets.QWidget] = None
+        self.node_inspector: Optional[QtWidgets.QWidget] = None
+        self.presets_widget: Optional['RegionPresetsWidget'] = None
+        self.render_panel: Optional[QtWidgets.QWidget] = None
+        self.realtime_checkbox: Optional[QtWidgets.QCheckBox] = None
+
+        # --- Атрибуты для настроек мира ---
+        self.subdivision_level_input: Optional[QtWidgets.QComboBox] = None
+        self.planet_preview_detail_input: Optional[QtWidgets.QComboBox] = None
+        self.region_resolution_input: Optional[QtWidgets.QComboBox] = None
+        self.vertex_distance_input: Optional[QtWidgets.QDoubleSpinBox] = None
+        self.max_height_input: Optional[QtWidgets.QDoubleSpinBox] = None
+        self.planet_radius_label: Optional[QtWidgets.QLabel] = None
+        self.base_elevation_label: Optional[QtWidgets.QLabel] = None
+        self.ws_noise_box: Optional[CollapsibleBox] = None
+        self.planet_type_preset_input: Optional[QtWidgets.QComboBox] = None
+        self.ws_sea_level: Optional[SliderSpinCombo] = None
+        self.ws_relative_scale: Optional[SliderSpinCombo] = None
+        self.ws_octaves: Optional[SliderSpinCombo] = None
+        self.ws_gain: Optional[SliderSpinCombo] = None
+        self.ws_power: Optional[SliderSpinCombo] = None
+        self.ws_warp_strength: Optional[SliderSpinCombo] = None
+        self.ws_seed: Optional[SeedWidget] = None
+        self.preview_resolution_input: Optional[QtWidgets.QComboBox] = None
+        self.region_id_label: Optional[QtWidgets.QLabel] = None
+        self.region_center_x_label: Optional[QtWidgets.QLabel] = None
+        self.region_center_z_label: Optional[QtWidgets.QLabel] = None
+        self.update_planet_btn: Optional[QtWidgets.QPushButton] = None
+
+        # --- НОВЫЕ АТРИБУТЫ ДЛЯ КЛИМАТА ---
+        self.climate_enabled: Optional[QtWidgets.QCheckBox] = None
+        self.climate_sea_level: Optional[SliderSpinCombo] = None
+        self.climate_avg_temp: Optional[SliderSpinCombo] = None
+        self.climate_axis_tilt: Optional[SliderSpinCombo] = None
+        self.climate_wind_strength: Optional[SliderSpinCombo] = None
+        self.biome_probabilities_list: Optional[QtWidgets.QListWidget] = None
+
         self._last_selected_node = None
         self.current_region_id: int = 0
         self.current_world_offset = (0.0, 0.0, 1.0)
@@ -233,6 +247,22 @@ class MainWindow(QtWidgets.QMainWindow):
             logger.warning("Генерация превью не вернула данных (нода не выбрана?).")
             return
 
+        # --- НОВАЯ ЛОГИКА: Обновление списка биомов ---
+        if self.biome_probabilities_list:
+            self.biome_probabilities_list.clear()
+            probabilities = result_data.get("biome_probabilities", {})
+            if probabilities:
+                if "error" in probabilities:
+                    self.biome_probabilities_list.addItem("Ошибка расчета климата")
+                else:
+                    sorted_probs = sorted(probabilities.items(), key=lambda item: item[1], reverse=True)
+                    for biome_name, prob in sorted_probs:
+                        if prob < 0.001: continue # Не показывать слишком маловероятные
+                        item_text = f"{biome_name.replace('_', ' ').title()}: {prob:.1%}"
+                        self.biome_probabilities_list.addItem(item_text)
+            else:
+                self.biome_probabilities_list.addItem("Климат отключен")
+
         try:
             final_map_01 = result_data["final_map_01"]
             max_height = result_data["max_height"]
@@ -278,12 +308,10 @@ class MainWindow(QtWidgets.QMainWindow):
         QtWidgets.QMessageBox.critical(self, "Ошибка в фоновом потоке", error_message)
 
     def _connect_components(self):
-        # --- НАЧАЛО ИЗМЕНЕНИЯ: Добавляем недостающую связь ---
+        # Подключение сигналов от виджетов к слотам
         if self.region_resolution_input:
             self.region_resolution_input.currentIndexChanged.connect(self._update_dynamic_ranges)
-            self.region_resolution_input.currentIndexChanged.connect(self._update_calculated_fields)  # <--- ВОТ ОНА
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-
+            self.region_resolution_input.currentIndexChanged.connect(self._update_calculated_fields)
         if self.vertex_distance_input: self.vertex_distance_input.valueChanged.connect(self._update_calculated_fields)
         if self.subdivision_level_input: self.subdivision_level_input.currentIndexChanged.connect(
             self._update_calculated_fields)
@@ -298,18 +326,22 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.planet_widget:
             self.planet_widget.cell_picked.connect(self._on_cell_picked)
 
-        planet_controls_for_dirty_mark = [
+        # --- ДОБАВЛЕНЫ НОВЫЕ ВИДЖЕТЫ КЛИМАТА В СПИСОК ---
+        controls_for_dirty_mark = [
             self.subdivision_level_input, self.planet_preview_detail_input, self.region_resolution_input,
-            self.vertex_distance_input, self.planet_type_preset_input,
-            self.ws_sea_level, self.ws_relative_scale, self.ws_octaves, self.ws_gain,
-            self.ws_power, self.ws_warp_strength, self.ws_seed
+            self.vertex_distance_input, self.planet_type_preset_input, self.ws_relative_scale,
+            self.ws_octaves, self.ws_gain, self.ws_power, self.ws_warp_strength, self.ws_seed,
+            self.climate_enabled, self.climate_sea_level, self.climate_avg_temp,
+            self.climate_axis_tilt, self.climate_wind_strength
         ]
-        for control in planet_controls_for_dirty_mark:
+        for control in controls_for_dirty_mark:
             if not control: continue
             if hasattr(control, 'editingFinished'):
                 control.editingFinished.connect(self._mark_dirty)
             elif hasattr(control, 'valueChanged'):
                 control.valueChanged.connect(self._mark_dirty)
+            elif hasattr(control, 'toggled'):
+                control.toggled.connect(self._mark_dirty)
             elif hasattr(control, 'currentIndexChanged'):
                 control.currentIndexChanged.connect(self._mark_dirty)
 

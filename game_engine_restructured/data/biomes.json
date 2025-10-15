@@ -1,0 +1,32 @@
+{
+  "snow": {
+    "name": "Снежная пустыня",
+    "ideal_temp_c": -15,
+    "ideal_humidity": 0.1
+  },
+  "tundra": {
+    "name": "Тундра",
+    "ideal_temp_c": -5,
+    "ideal_humidity": 0.1
+  },
+  "taiga": {
+    "name": "Тайга",
+    "ideal_temp_c": 5,
+    "ideal_humidity": 0.6
+  },
+  "grassland": {
+    "name": "Луга",
+    "ideal_temp_c": 18,
+    "ideal_humidity": 0.4
+  },
+  "temperate_deciduous_forest": {
+    "name": "Лиственный лес",
+    "ideal_temp_c": 15,
+    "ideal_humidity": 0.7
+  },
+  "temperate_desert": {
+    "name": "Пустыня",
+    "ideal_temp_c": 25,
+    "ideal_humidity": 0.1
+  }
+}

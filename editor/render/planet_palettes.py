@@ -4,39 +4,35 @@ from typing import List, Tuple
 import numpy as np
 
 # Палитры, предназначенные только для глобального вида планеты
-PLANET_PALETTES: dict[str, List[Tuple[float, Tuple[int, int, int]]]] = {
-    "Grayscale": [
-        (0.0, (0, 0, 0)),  # Black
-        (1.0, (255, 255, 255)),  # White
-    ],
-    # В будущем здесь могут быть палитры "Климат", "Температура" и т.д.
+# Палитры для 3D-превью РЕГИОНА
+REGION_PALETTES: dict[str, List[Tuple[float, Tuple[int, int, int]]]] = {
+    "Rock": [(0.0, (40, 40, 44)), (0.35, (90, 90, 98)), (0.65, (160, 160, 170)), (1.0, (245, 245, 250))],
+    "Desert": [(0.0, (60, 38, 23)), (0.3, (120, 78, 38)), (0.6, (189, 151, 79)), (1.0, (250, 240, 210))],
+    "Snow": [(0.0, (80, 80, 90)), (0.4, (150, 150, 165)), (0.75, (225, 225, 235)), (1.0, (255, 255, 255))],
+    "_Water": [(0.0, (10, 20, 60)), (1.0, (40, 80, 150))]
 }
 
+# --- НОВЫЙ БЛОК: Цвета для биомов на глобальной карте ---
+BIOME_COLORS: dict[str, Tuple[int, int, int]] = {
+    "snow": (245, 245, 255),
+    "tundra": (180, 190, 200),
+    "taiga": (80, 110, 100),
+    "grassland": (120, 160, 90),
+    "temperate_deciduous_forest": (70, 140, 80),
+    "temperate_desert": (210, 200, 150),
+    "default": (128, 128, 128) # Серый цвет для ошибок или неопределенных биомов
+}
 
-def map_planet_palette_cpu(z01: np.ndarray, name: str) -> np.ndarray:
-    """
-    Перевод нормализованных высот z∈[0,1] в RGB по единой палитре
-    без разделения на сушу и воду.
-    """
-    z = np.clip(z01, 0.0, 1.0).astype(np.float32, copy=False)
+def map_planet_height_palette(z01: np.ndarray) -> np.ndarray:
+    """ Раскрашивает планету по высоте в Grayscale. """
+    z = np.clip(z01, 0.0, 1.0)
+    # Просто преобразуем значение высоты [0,1] в цвет [0,255]
+    gray_values = (z * 255).astype(np.uint8)
+    # Создаем массив RGB, где все три канала равны gray_values
+    return np.stack([gray_values, gray_values, gray_values], axis=-1) / 255.0
 
-    # Выбираем палитру, по умолчанию Grayscale
-    stops = PLANET_PALETTES.get(name) or PLANET_PALETTES["Grayscale"]
+def map_planet_climate_palette(dominant_biomes: List[str]) -> np.ndarray:
+    """ Раскрашивает планету по доминирующему биому для каждой вершины. """
+    colors = np.array([BIOME_COLORS.get(biome_id, BIOME_COLORS["default"]) for biome_id in dominant_biomes], dtype=np.uint8)
+    return colors / 255.0 # Возвращаем в формате float [0,1]
 
-    # Подготавливаем данные для интерполяции
-    xs = np.array([p for p, _ in stops], dtype=np.float32)
-    cols = np.array([[r, g, b] for _, (r, g, b) in stops], dtype=np.float32) / 255.0
-
-    # Выполняем быструю линейную интерполяцию по всему массиву
-    # np.interp требует 1D-массивы, поэтому временно "разворачиваем" z
-    shape = z.shape
-    z_flat = z.ravel()
-
-    r = np.interp(z_flat, xs, cols[:, 0])
-    g = np.interp(z_flat, xs, cols[:, 1])
-    b = np.interp(z_flat, xs, cols[:, 2])
-
-    # Собираем цвета обратно в 3D-массив (H, W, 3)
-    rgb = np.stack([r, g, b], axis=-1)
-
-    return rgb.reshape((*shape, 3)).astype(np.float32)

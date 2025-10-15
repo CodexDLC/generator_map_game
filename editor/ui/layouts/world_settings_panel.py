@@ -37,10 +37,9 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
 
     widgets = {}
 
-    world_box = CollapsibleBox("Глобальные Настройки")
+    # --- Секция: Топология и Масштаб ---
+    world_box = CollapsibleBox("Топология и Масштаб")
     world_box.setChecked(True)
-
-    world_box.body.addRow(QtWidgets.QLabel("<b>Топология и Масштаб</b>"))
 
     widgets["subdivision_level_input"] = QtWidgets.QComboBox()
     widgets["subdivision_level_input"].addItems(SUBDIVISION_LEVELS.keys())
@@ -48,14 +47,9 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     world_box.body.addRow("Частота разделения:", widgets["subdivision_level_input"])
 
     widgets["planet_preview_detail_input"] = QtWidgets.QComboBox()
-    widgets["planet_preview_detail_input"].addItems([
-        "Низкая (2)", "Средняя (3)", "Высокая (4)"
-    ])
+    widgets["planet_preview_detail_input"].addItems(["Низкая (2)", "Средняя (3)", "Высокая (4)"])
     widgets["planet_preview_detail_input"].setCurrentText("Средняя (3)")
-    widgets["planet_preview_detail_input"].setToolTip(
-        "Уровень детализации 3D-вида планеты.\n"
-        "Высокие значения могут замедлить обновление."
-    )
+    widgets["planet_preview_detail_input"].setToolTip("Уровень детализации 3D-вида планеты.")
     world_box.body.addRow("Детализация планеты:", widgets["planet_preview_detail_input"])
 
     widgets["region_resolution_input"] = QtWidgets.QComboBox()
@@ -74,68 +68,99 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     widgets["max_height_input"].setRange(1.0, 999999.0)
     widgets["max_height_input"].setValue(4000.0)
     widgets["max_height_input"].setDecimals(0)
-    widgets["max_height_input"].setToolTip("Вычисляется автоматически на основе типа планеты и радиуса.")
+    widgets["max_height_input"].setToolTip("Вычисляется автоматически.")
     world_box.body.addRow("Макс. Высота (м):", widgets["max_height_input"])
 
-    world_box.body.addRow(QtWidgets.QLabel("---"))
-    world_box.body.addRow(QtWidgets.QLabel("<b>Форма Планеты (Глобальный Шум)</b>"))
+    layout.addWidget(world_box)
+
+    # --- Секция: Форма Планеты (Глобальный Шум) ---
+    noise_box = CollapsibleBox("Форма Планеты (Глобальный Шум)")
+    noise_box.setChecked(True)
 
     widgets["planet_type_preset_input"] = QtWidgets.QComboBox()
     widgets["planet_type_preset_input"].addItems(PLANET_ROUGHNESS_PRESETS.keys())
     widgets["planet_type_preset_input"].setCurrentText("Землеподобная (0.3%)")
-    world_box.body.addRow("Тип планеты (шероховатость):", widgets["planet_type_preset_input"])
-
-    # --- ИЗМЕНЕНИЕ: Ползунок "Уровень моря" удален из UI ---
-    # widgets["ws_sea_level"] = SliderSpinCombo()
-    # widgets["ws_sea_level"].setRange(0.0, 1.0)
-    # widgets["ws_sea_level"].setValue(0.4)
-    # world_box.body.addRow("Уровень моря (% от перепада):", widgets["ws_sea_level"])
-    # Для совместимости создаем "пустышку", чтобы остальной код не сломался
-    widgets["ws_sea_level"] = QtWidgets.QWidget()
-    widgets["ws_sea_level"].value = lambda: 0.0 # Возвращает 0 по умолчанию
+    noise_box.body.addRow("Тип (шероховатость):", widgets["planet_type_preset_input"])
 
     widgets["ws_relative_scale"] = SliderSpinCombo()
-    widgets["ws_relative_scale"].setRange(0.01, 1.0)
+    widgets["ws_relative_scale"].setRange(0.01, 1.0);
     widgets["ws_relative_scale"].setValue(0.25)
-    world_box.body.addRow("Масштаб континентов:", widgets["ws_relative_scale"])
+    noise_box.body.addRow("Масштаб континентов:", widgets["ws_relative_scale"])
 
     widgets["ws_octaves"] = SliderSpinCombo()
-    widgets["ws_octaves"].setRange(1, 16)
-    widgets["ws_octaves"].setValue(8)
+    widgets["ws_octaves"].setRange(1, 16);
+    widgets["ws_octaves"].setValue(8);
     widgets["ws_octaves"].setDecimals(0)
-    world_box.body.addRow("Октавы:", widgets["ws_octaves"])
+    noise_box.body.addRow("Октавы:", widgets["ws_octaves"])
 
     widgets["ws_gain"] = SliderSpinCombo()
-    widgets["ws_gain"].setRange(0.0, 1.0)
+    widgets["ws_gain"].setRange(0.0, 1.0);
     widgets["ws_gain"].setValue(0.5)
-    world_box.body.addRow("Gain (Roughness):", widgets["ws_gain"])
+    noise_box.body.addRow("Gain (Roughness):", widgets["ws_gain"])
 
     widgets["ws_power"] = SliderSpinCombo()
-    widgets["ws_power"].setRange(0.1, 5.0)
+    widgets["ws_power"].setRange(0.1, 5.0);
     widgets["ws_power"].setValue(1.0)
-    world_box.body.addRow("Power:", widgets["ws_power"])
+    noise_box.body.addRow("Power:", widgets["ws_power"])
 
     widgets["ws_warp_strength"] = SliderSpinCombo()
-    widgets["ws_warp_strength"].setRange(0.0, 1.0)
+    widgets["ws_warp_strength"].setRange(0.0, 1.0);
     widgets["ws_warp_strength"].setValue(0.2)
-    world_box.body.addRow("Warp Strength:", widgets["ws_warp_strength"])
+    noise_box.body.addRow("Warp Strength:", widgets["ws_warp_strength"])
 
     widgets["ws_seed"] = SeedWidget()
-    world_box.body.addRow("Seed:", widgets["ws_seed"])
+    noise_box.body.addRow("Seed:", widgets["ws_seed"])
 
-    world_box.body.addRow(QtWidgets.QLabel("---"))
-    world_box.body.addRow(QtWidgets.QLabel("<b>Вычисляемые параметры</b>"))
+    layout.addWidget(noise_box)
+    widgets["ws_noise_box"] = noise_box  # для обратной совместимости
+
+    # --- НОВАЯ СЕКЦИЯ: Климат ---
+    climate_box = CollapsibleBox("Климат")
+    climate_box.setChecked(False)  # По умолчанию выключена
+
+    widgets["climate_enabled"] = QtWidgets.QCheckBox("Включить глобальный климат")
+    widgets["climate_enabled"].setChecked(False)
+    climate_box.body.addRow(widgets["climate_enabled"])
+
+    widgets["climate_sea_level"] = SliderSpinCombo()
+    widgets["climate_sea_level"].setRange(0.0, 100.0);
+    widgets["climate_sea_level"].setValue(40.0);
+    widgets["climate_sea_level"].setDecimals(1)
+    climate_box.body.addRow("Уровень моря (%):", widgets["climate_sea_level"])
+
+    widgets["climate_avg_temp"] = SliderSpinCombo()
+    widgets["climate_avg_temp"].setRange(-20.0, 40.0);
+    widgets["climate_avg_temp"].setValue(15.0);
+    widgets["climate_avg_temp"].setDecimals(1)
+    climate_box.body.addRow("Средняя t (°C):", widgets["climate_avg_temp"])
+
+    widgets["climate_axis_tilt"] = SliderSpinCombo()
+    widgets["climate_axis_tilt"].setRange(0.0, 45.0);
+    widgets["climate_axis_tilt"].setValue(23.5);
+    widgets["climate_axis_tilt"].setDecimals(1)
+    climate_box.body.addRow("Наклон оси (°):", widgets["climate_axis_tilt"])
+
+    widgets["climate_wind_strength"] = SliderSpinCombo()
+    widgets["climate_wind_strength"].setRange(0.0, 100.0);
+    widgets["climate_wind_strength"].setValue(50.0);
+    widgets["climate_wind_strength"].setDecimals(0)
+    climate_box.body.addRow("Сила ветров (%):", widgets["climate_wind_strength"])
+
+    layout.addWidget(climate_box)
+
+    # --- Секция: Вычисляемые параметры ---
+    calc_box = CollapsibleBox("Вычисляемые параметры")
+    calc_box.setChecked(True)
 
     widgets["planet_radius_label"] = QtWidgets.QLabel("0 км")
-    widgets["planet_radius_label"].setAlignment(QtCore.Qt.AlignRight)
-    world_box.body.addRow("<i>Радиус планеты:</i>", widgets["planet_radius_label"])
+    calc_box.body.addRow("<i>Радиус планеты:</i>", widgets["planet_radius_label"])
 
     widgets["base_elevation_label"] = QtWidgets.QLabel("0 м")
-    widgets["base_elevation_label"].setAlignment(QtCore.Qt.AlignRight)
-    world_box.body.addRow("<i>Базовый перепад высот:</i>", widgets["base_elevation_label"])
+    calc_box.body.addRow("<i>Базовый перепад высот:</i>", widgets["base_elevation_label"])
 
-    layout.addWidget(world_box)
+    layout.addWidget(calc_box)
 
+    # --- Секция: Настройки Превью ---
     preview_box = CollapsibleBox("Настройки Превью")
     preview_box.setChecked(True)
 
@@ -153,9 +178,16 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     widgets["region_center_z_label"] = QtWidgets.QLabel("0.0")
     preview_box.body.addRow("Центр Z (сфер. коорд.):", widgets["region_center_z_label"])
 
+    # --- НОВЫЙ ВИДЖЕТ ДЛЯ БИОМОВ ---
+    widgets["biome_probabilities_list"] = QtWidgets.QListWidget()
+    widgets["biome_probabilities_list"].setMinimumHeight(80)
+    preview_box.body.addRow("Вероятные биомы:", widgets["biome_probabilities_list"])
+
     layout.addWidget(preview_box)
     layout.addStretch()
 
-    widgets["ws_noise_box"] = world_box
+    # Пустышка для обратной совместимости
+    widgets["ws_sea_level"] = QtWidgets.QWidget()
+    widgets["ws_sea_level"].value = lambda: 0.0
 
     return scroll_area, widgets

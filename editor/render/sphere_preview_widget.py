@@ -8,6 +8,9 @@ from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from OpenGL import GL
 from OpenGL.GL import *
 
+import json
+from generator_logic.climate import global_models, biome_matcher
+
 from editor.core.render_settings import RenderSettings
 from generator_logic.topology.icosa_grid import nearest_cell_by_xyz
 

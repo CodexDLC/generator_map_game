@@ -12,6 +12,7 @@ import textwrap
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
+import zstandard
 from PySide6 import QtCore
 from NodeGraphQt import BaseNode
 
@@ -316,8 +317,7 @@ class GeneratorNode(BaseNode):
 
     def compute(self, context: dict):
         """
-        ИСПРАВЛЕННАЯ ВЕРСИЯ: Сначала вычисляет входы, потом строит сигнатуру
-        на основе РЕЗУЛЬТАТОВ входов и только потом проверяет кэш.
+        Выполняет вычисление ноды с использованием кэширования и Zstandard сжатия.
         """
         # 1. Вычисляем все входные данные от родительских нод
         inputs = self.inputs()
@@ -331,11 +331,11 @@ class GeneratorNode(BaseNode):
                 else:
                     input_results[name] = None
 
-        # 2. Собираем ПОЛНУЮ и КОРРЕКТНУЮ сигнатуру состояния
+        # 2. Собираем полную и корректную сигнатуру состояния
         ctx_sig = CU.make_context_signature(context)
         props_sig = CU.make_properties_signature(self)
 
-        # Создаем сигнатуру из РЕЗУЛЬТАТОВ, а не из структуры графа
+        # Создаем сигнатуру из РЕЗУЛЬТАТОВ входов, а не из структуры графа
         input_sig_parts = []
         for name, result in sorted(input_results.items()):
             if isinstance(result, np.ndarray):
@@ -346,21 +346,39 @@ class GeneratorNode(BaseNode):
 
         full_signature = (ctx_sig, props_sig, tuple(input_sig_parts))
 
-        # 3. Сравниваем с предыдущей сигнатурой
+        # 3. Сравниваем с предыдущей сигнатурой и проверяем кэш
         if not self._is_dirty and full_signature == self._last_signature and self._result_cache is not None:
             logger.debug(f"✓ cache-hit for {self.name()}")
-            return self._result_cache
 
-        # 4. Если сигнатура изменилась или нода "грязная" - пересчитываем
+            # --- ЛОГИКА РАСПАКОВКИ ИЗ КЭША ---
+            cached_item = self._result_cache
+            # Проверяем, является ли кэш словарем с сжатыми данными
+            if isinstance(cached_item, dict) and 'compressed_data' in cached_item:
+                try:
+                    dctx = zstandard.ZstdDecompressor()
+                    data_bytes = dctx.decompress(cached_item['compressed_data'])
+                    # Восстанавливаем массив из байтов, используя сохраненные метаданные
+                    decompressed_array = np.frombuffer(data_bytes, dtype=cached_item['dtype']).reshape(
+                        cached_item['shape'])
+                    return decompressed_array
+                except Exception as e:
+                    logger.error(f"Ошибка распаковки кэша для ноды {self.name()}: {e}")
+                    # Если распаковка не удалась, просто пересчитаем заново
+            else:
+                # Для обратной совместимости, если в кэше старый формат (просто массив)
+                return cached_item
+
+        # 4. Если кэш не найден или неактуален - пересчитываем
         logger.debug(f"↻ recomputing {self.name()}...")
         t0 = time.perf_counter()
 
-        # Передаем уже вычисленные входы в _compute
+        # Передаем уже вычисленные входы в _compute конкретной ноды
         context['_input_results'] = input_results
 
         depth = int(context.setdefault('_compute_depth', 0))
         context['_compute_depth'] = depth + 1
         try:
+            # Вызов _compute дочернего класса (например, PerlinNoiseNode._compute)
             result = self._compute(context)
         finally:
             context['_compute_depth'] = depth
@@ -369,12 +387,36 @@ class GeneratorNode(BaseNode):
         dt = (time.perf_counter() - t0) * 1000.0
         logger.debug(f"  -> recompute finished in {dt:.2f} ms")
 
-        # 5. Сохраняем новый результат и сигнатуру в кэш
-        self._result_cache = result
+        # 5. Сжимаем результат и сохраняем в кэш
+        if isinstance(result, np.ndarray) and result.size > 100:  # Сжимаем только массивы разумного размера
+            try:
+                # Уровень 1 - самый быстрый, идеально для кэша в реальном времени
+                cctx = zstandard.ZstdCompressor(level=1)
+                compressed_bytes = cctx.compress(result.tobytes())
+
+                # Сохраняем в кэш не сам массив, а словарь с данными для восстановления
+                self._result_cache = {
+                    'compressed_data': compressed_bytes,
+                    'shape': result.shape,
+                    'dtype': result.dtype.name
+                }
+
+                # Диагностика (можно потом убрать)
+                original_size = result.nbytes / 1024
+                compressed_size = len(compressed_bytes) / 1024
+                logger.debug(
+                    f"  -> Cached {self.name()}: {original_size:.1f} KB -> {compressed_size:.1f} KB ({(compressed_size / original_size) * 100:.1f}%)")
+
+            except Exception as e:
+                logger.error(f"Ошибка сжатия кэша для ноды {self.name()}: {e}")
+                self._result_cache = result  # В случае ошибки храним как есть
+        else:
+            self._result_cache = result  # Если результат не массив (или слишком мал), храним как есть
+
         self._last_signature = full_signature
         self._is_dirty = False
 
-        return self._result_cache
+        return result
 
     # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 

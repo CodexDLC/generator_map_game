@@ -78,14 +78,12 @@ class RegionManager:
         region_size = self.preset.region_size
         base_cx, base_cz = region_base(scx, scz, region_size)
 
-        # Собираем задачи на создание чанков, включая одночанковую границу ("фартук").
         tasks = []
         for dz in range(-1, region_size + 1):
             for dx in range(-1, region_size + 1):
                 tasks.append((base_cx + dx, base_cz + dz))
 
         chunks_with_border: Dict[Tuple[int, int], GenResult] = {}
-        # Используем многопоточность для ускорения создания пустых контейнеров.
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future_to_chunk = {
                 executor.submit(self._generate_or_get_chunk_task, cx, cz): (cx, cz)
@@ -103,10 +101,11 @@ class RegionManager:
             f"  -> Создано {len(chunks_with_border)} пустых контейнеров для чанков (с границей)."
         )
 
-        # Передаем пустые контейнеры в RegionProcessor для основной пакетной обработки.
-        processed_chunks = self.region_processor.process(scx, scz, chunks_with_border)
+        # RegionProcessor теперь возвращает словарь
+        processing_result = self.region_processor.process(scx, scz, chunks_with_border)
+        processed_chunks = processing_result["processed_chunks"]
+        biome_probabilities = processing_result["biome_probabilities"]
 
-        # Отбираем только те чанки, которые относятся к "ядру" региона.
         final_chunks_for_region = {
             k: v
             for k, v in processed_chunks.items()
@@ -114,21 +113,20 @@ class RegionManager:
                and base_cz <= k[1] < base_cz + region_size
         }
 
-        # --- Планировщики (дороги и т.д.) работают уже с полностью обработанными данными ---
         road_plan = plan_roads_for_region(
             scx, scz, self.world_seed, self.preset, final_chunks_for_region
         )
 
-        # Сохраняем мета-файл региона с планом дорог.
+        # --- ГЛАВНОЕ ИЗМЕНЕНИЕ: Передаем вероятности биомов в контракт ---
         meta_contract = RegionMetaContract(
             scx=scx,
             scz=scz,
             world_seed=self.world_seed,
             road_plan=road_plan,
+            biome_probabilities=biome_probabilities  # <-- ДОБАВЛЕНА ЭТА СТРОКА
         )
         write_region_meta(str(region_meta_path), meta_contract)
 
-        # Сохраняем "сырые" данные каждого чанка региона.
         for (cx, cz), chunk_data in final_chunks_for_region.items():
             path_prefix = str(self.raw_data_path / "chunks" / f"{cx}_{cz}")
             write_raw_chunk(path_prefix, chunk_data)

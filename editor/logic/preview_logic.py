@@ -1,14 +1,17 @@
 # editor/logic/preview_logic.py
 from __future__ import annotations
 import logging
-import traceback
 import numpy as np
-from PySide6 import QtWidgets
-import cv2
+
+import json
+from pathlib import Path
+
+from NodeGraphQt import BaseNode
 
 from editor.graph.graph_runner import run_graph
 from editor.nodes.height.io.world_input_node import WorldInputNode
-from game_engine_restructured.world.planetary_grid import PlanetaryGrid
+from generator_logic.climate import global_models, biome_matcher
+
 from generator_logic.terrain.global_sphere_noise import get_noise_for_region_preview
 
 from typing import TYPE_CHECKING, Set, Tuple, Optional, Dict, Any
@@ -20,7 +23,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _get_target_node_and_mode(main_window: MainWindow) -> Tuple[Optional[GeneratorNode], bool]:
+def _get_target_node_and_mode(main_window: MainWindow) -> tuple[None, bool] | tuple[BaseNode, bool]:
     target_node = (main_window.graph.selected_nodes()[0]
                    if main_window.graph and main_window.graph.selected_nodes()
                    else main_window._last_selected_node)
@@ -130,6 +133,7 @@ def _has_world_input_ancestor(node: GeneratorNode, visited: Set[str] = None) -> 
 def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
     """
     Выполняет все вычисления и возвращает словарь с результатом для обновления UI.
+    ВЕРСИЯ 2.0: Добавлен расчет климата и вероятностей биомов.
     """
     target_node, is_global_mode = _get_target_node_and_mode(main_window)
     if not target_node:
@@ -139,7 +143,6 @@ def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
 
     if is_global_mode:
         logger.info("Сбор параметров глобального шума из UI для 3D-Превью...")
-
         scale_value = main_window.ws_relative_scale.value()
         min_freq, max_freq = 0.5, 10.0
         normalized_scale = (scale_value - 0.01) / 0.99
@@ -151,15 +154,14 @@ def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
             'seed': main_window.ws_seed.value(),
             'frequency': frequency,
             'power': main_window.ws_power.value(),
-            'sea_level_pct': main_window.ws_sea_level.value(),
         }
-
         base_noise = _generate_world_input(main_window, context, sphere_params)
     else:
         base_noise = np.zeros_like(context['x_coords'], dtype=np.float32)
 
     context["world_input_noise"] = base_noise
 
+    # Обновляем статистику для ноды WorldInput
     if np.any(base_noise) and main_window.graph:
         max_h = context.get('max_height_m', 1.0)
         stats = {
@@ -172,36 +174,71 @@ def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
                 node.output_stats = stats
                 break
 
+    # Запускаем основной граф ландшафта
     final_map_01 = run_graph(target_node, context)
 
-    north_vector_2d = None
-    if is_global_mode:
-        # Эти данные были вычислены внутри _generate_world_input, но мы их пересчитаем здесь,
-        # чтобы не усложнять сигнатуры функций.
-        center_vec = np.array(main_window.current_world_offset, dtype=np.float32)
-        center_vec /= np.linalg.norm(center_vec)
+    # --- НОВЫЙ БЛОК: Расчет климата и биомов для превью ---
+    biome_probabilities = {}
+    if main_window.climate_enabled.isChecked():
+        try:
+            logger.info("Calculating climate and biomes for preview...")
+            biomes_path = Path("game_engine_restructured/data/biomes.json")
+            with open(biomes_path, "r", encoding="utf-8") as f:
+                biomes_definition = json.load(f)
 
-        up_vec = np.array([0.0, 1.0, 0.0], dtype=np.float32)
-        if np.abs(np.dot(center_vec, up_vec)) > 0.99:
-            up_vec = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+            # Получаем 3D координаты (дублируем логику из _generate_world_input для инкапсуляции)
+            radius_text = main_window.planet_radius_label.text().replace(" км", "").replace(",", "").replace(" ", "")
+            radius_m = float(radius_text) * 1000.0
+            x_m, z_m = context['x_coords'], context['z_coords']
+            center_vec = np.array(main_window.current_world_offset, dtype=np.float32)
+            center_vec /= np.linalg.norm(center_vec)
+            up_vec = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+            if np.abs(np.dot(center_vec, up_vec)) > 0.99:
+                up_vec = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+            tangent_u = np.cross(center_vec, up_vec)
+            tangent_u /= np.linalg.norm(tangent_u)
+            tangent_v = np.cross(center_vec, tangent_u)
+            angular_x = x_m / radius_m
+            angular_z = z_m / radius_m
+            points_in_plane = (
+                        center_vec[None, None, :] + tangent_u[None, None, :] * angular_x[..., None] + tangent_v[None,
+                                                                                                      None, :] *
+                        angular_z[..., None])
+            coords_for_climate = points_in_plane / np.linalg.norm(points_in_plane, axis=-1, keepdims=True)
 
-        tangent_u = np.cross(center_vec, up_vec)
-        tangent_u /= np.linalg.norm(tangent_u)
-        tangent_v = np.cross(center_vec, tangent_u)
+            # Расчет температуры
+            avg_temp_c = main_window.climate_avg_temp.value()
+            axis_tilt = main_window.climate_axis_tilt.value()
+            equator_pole_diff = axis_tilt * 1.5
+            base_temp_map = global_models.calculate_base_temperature(
+                xyz_coords=coords_for_climate.reshape(-1, 3),
+                base_temp_c=avg_temp_c,
+                equator_pole_temp_diff_c=equator_pole_diff
+            ).reshape(resolution, resolution)
 
-        # Проекция глобального Севера на локальную плоскость
-        north_global = np.array([0, 1, 0], dtype=np.float32)
-        north_projected = north_global - center_vec * np.dot(north_global, center_vec)
+            height_map_meters = final_map_01 * context.get('max_height_m', 1000.0)
+            temperature_map = base_temp_map + height_map_meters * -0.0065
 
-        # Компоненты этого вектора по локальным осям
-        north_u = np.dot(north_projected, tangent_u)
-        north_v = np.dot(north_projected, tangent_v)
-        north_vector_2d = np.array([north_u, north_v])
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+            # Влажность (пока заглушка)
+            humidity_map = np.full_like(temperature_map, 0.5)
+
+            # Получаем средние значения и вероятности
+            avg_temp = float(np.mean(temperature_map))
+            avg_humidity = float(np.mean(humidity_map))
+            biome_probabilities = biome_matcher.calculate_biome_probabilities(
+                avg_temp_c=avg_temp, avg_humidity=avg_humidity, biomes_definition=biomes_definition
+            )
+        except Exception as e:
+            logger.error(f"Ошибка при расчете климата для превью: {e}", exc_info=True)
+            biome_probabilities = {"error": 1.0}
+
+    # Собираем итоговый результат
+    north_vector_2d = None  # TODO: Реализовать расчет вектора севера
 
     return {
         "final_map_01": final_map_01,
         "max_height": context.get('max_height_m', 1000.0),
         "vertex_distance": main_window.vertex_distance_input.value(),
-        "north_vector_2d": north_vector_2d  # Добавляем вектор в результат
+        "north_vector_2d": north_vector_2d,
+        "biome_probabilities": biome_probabilities  # <-- Добавляем результат
     }
