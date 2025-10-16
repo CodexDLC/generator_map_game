@@ -85,13 +85,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.region_center_x_label: Optional[QtWidgets.QLabel] = None
         self.region_center_z_label: Optional[QtWidgets.QLabel] = None
         self.update_planet_btn: Optional[QtWidgets.QPushButton] = None
+        self.ws_continent_scale_km: Optional[QtWidgets.QDoubleSpinBox] = None
 
-        # --- НОВЫЕ АТРИБУТЫ ДЛЯ КЛИМАТА ---
+        # --- АТРИБУТЫ ДЛЯ КЛИМАТА ---
         self.climate_enabled: Optional[QtWidgets.QCheckBox] = None
         self.climate_sea_level: Optional[SliderSpinCombo] = None
         self.climate_avg_temp: Optional[SliderSpinCombo] = None
         self.climate_axis_tilt: Optional[SliderSpinCombo] = None
-        self.climate_wind_strength: Optional[SliderSpinCombo] = None
+        self.climate_wind_dir: Optional[SliderSpinCombo] = None
+        self.climate_shadow_strength: Optional[SliderSpinCombo] = None
         self.biome_probabilities_list: Optional[QtWidgets.QListWidget] = None
 
         self._last_selected_node = None
@@ -329,7 +331,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.vertex_distance_input, self.ws_continent_scale_km,
             self.planet_type_preset_input, self.ws_octaves, self.ws_gain, self.ws_power,
             self.ws_warp_strength, self.ws_seed, self.climate_enabled, self.climate_sea_level,
-            self.climate_avg_temp, self.climate_axis_tilt
+            self.climate_avg_temp, self.climate_axis_tilt,
+            # --- ДОБАВЛЕНЫ НОВЫЕ ВИДЖЕТЫ В СПИСОК ---
+            self.climate_wind_dir, self.climate_shadow_strength
         ]
         for control in controls_for_dirty_mark:
             if not control: continue
@@ -360,6 +364,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.presets_widget.create_from_current_requested.connect(self.action_create_preset_from_dialog)
             self.presets_widget.delete_requested.connect(self.action_delete_preset_by_name)
             self.presets_widget.save_as_requested.connect(self.action_save_active_preset)
+
 
     def _create_left_tabs(self) -> QtWidgets.QTabWidget:
         tabs = QtWidgets.QTabWidget()

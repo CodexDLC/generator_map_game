@@ -27,9 +27,11 @@ def map_planet_height_palette(z01: np.ndarray) -> np.ndarray:
     """ Раскрашивает планету по высоте в Grayscale. """
     z = np.clip(z01, 0.0, 1.0)
     gray_values = (z * 255).astype(np.uint8)
-    return np.stack([gray_values, gray_values, gray_values], axis=-1) / 255.0
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+    # Явно приводим результат к float32, чтобы избежать артефактов рендеринга
+    return (np.stack([gray_values, gray_values, gray_values], axis=-1) / 255.0).astype(np.float32)
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
-# --- НАЧАЛО ИЗМЕНЕНИЙ: НОВАЯ ФУНКЦИЯ ДЛЯ ОТРИСОВКИ ВОДЫ И СУШИ ---
 def map_planet_bimodal_palette(
     z01: np.ndarray,
     sea_level_01: float,
@@ -44,12 +46,9 @@ def map_planet_bimodal_palette(
     # --- Шаг 1: Раскрашиваем воду ---
     is_water_mask = ~is_land_mask
     if np.any(is_water_mask):
-        # Нормализуем глубину от 0 (поверхность) до 1 (самое дно)
         water_depth_norm = z01[is_water_mask] / max(sea_level_01, 1e-6)
-        # Простая линейная интерполяция между двумя цветами воды
         deep_color = np.array(REGION_PALETTES["_Water"][0][1]) / 255.0
         shallow_color = np.array(REGION_PALETTES["_Water"][1][1]) / 255.0
-        # lerp(deep, shallow, depth)
         colors[is_water_mask] = deep_color * (1.0 - water_depth_norm[:, np.newaxis]) + shallow_color * water_depth_norm[:, np.newaxis]
 
     # --- Шаг 2: Раскрашиваем сушу ---
@@ -58,7 +57,6 @@ def map_planet_bimodal_palette(
         colors[is_land_mask] = land_colors / 255.0
 
     return colors
-# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
 def map_planet_climate_palette(dominant_biomes: List[str]) -> np.ndarray:
     """ Раскрашивает планету по доминирующему биому для каждой вершины. """

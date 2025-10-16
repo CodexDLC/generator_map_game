@@ -1,7 +1,7 @@
 # editor/ui/layouts/world_settings_panel.py
 from __future__ import annotations
-from PySide6 import QtWidgets, QtCore
-import math
+from PySide6 import QtWidgets
+
 
 from editor.ui.widgets.custom_controls import CollapsibleBox, SliderSpinCombo, SeedWidget
 
@@ -91,19 +91,24 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     noise_box.body.addRow("Размер континентов (км):", widgets["ws_continent_scale_km"])
 
     widgets["ws_octaves"] = SliderSpinCombo()
-    widgets["ws_octaves"].setRange(1, 16); widgets["ws_octaves"].setValue(8); widgets["ws_octaves"].setDecimals(0)
+    widgets["ws_octaves"].setRange(1, 16)
+    widgets["ws_octaves"].setValue(8)
+    widgets["ws_octaves"].setDecimals(0)
     noise_box.body.addRow("Октавы:", widgets["ws_octaves"])
 
     widgets["ws_gain"] = SliderSpinCombo()
-    widgets["ws_gain"].setRange(0.0, 1.0); widgets["ws_gain"].setValue(0.5)
+    widgets["ws_gain"].setRange(0.0, 1.0)
+    widgets["ws_gain"].setValue(0.5)
     noise_box.body.addRow("Gain (Roughness):", widgets["ws_gain"])
 
     widgets["ws_power"] = SliderSpinCombo()
-    widgets["ws_power"].setRange(0.1, 5.0); widgets["ws_power"].setValue(1.0)
+    widgets["ws_power"].setRange(0.1, 5.0)
+    widgets["ws_power"].setValue(1.0)
     noise_box.body.addRow("Power:", widgets["ws_power"])
 
     widgets["ws_warp_strength"] = SliderSpinCombo()
-    widgets["ws_warp_strength"].setRange(0.0, 1.0); widgets["ws_warp_strength"].setValue(0.2)
+    widgets["ws_warp_strength"].setRange(0.0, 1.0)
+    widgets["ws_warp_strength"].setValue(0.2)
     noise_box.body.addRow("Warp Strength:", widgets["ws_warp_strength"])
 
     widgets["ws_seed"] = SeedWidget()
@@ -114,18 +119,44 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
 
     # --- Секция: Климат ---
     climate_box = CollapsibleBox("Климат")
-    climate_box.setChecked(False)
+    climate_box.setChecked(True)  # Раскрываем по умолчанию
     widgets["climate_enabled"] = QtWidgets.QCheckBox("Включить глобальный климат")
     climate_box.body.addRow(widgets["climate_enabled"])
+
     widgets["climate_sea_level"] = SliderSpinCombo()
-    widgets["climate_sea_level"].setRange(0.0, 100.0); widgets["climate_sea_level"].setValue(40.0); widgets["climate_sea_level"].setDecimals(1)
+    widgets["climate_sea_level"].setRange(0.0, 100.0)
+    widgets["climate_sea_level"].setValue(40.0)
+    widgets["climate_sea_level"].setDecimals(1)
     climate_box.body.addRow("Уровень моря (%):", widgets["climate_sea_level"])
+
     widgets["climate_avg_temp"] = SliderSpinCombo()
-    widgets["climate_avg_temp"].setRange(-20.0, 40.0); widgets["climate_avg_temp"].setValue(15.0); widgets["climate_avg_temp"].setDecimals(1)
+    widgets["climate_avg_temp"].setRange(-20.0, 40.0)
+    widgets["climate_avg_temp"].setValue(15.0)
+    widgets["climate_avg_temp"].setDecimals(1)
     climate_box.body.addRow("Средняя t (°C):", widgets["climate_avg_temp"])
+
     widgets["climate_axis_tilt"] = SliderSpinCombo()
-    widgets["climate_axis_tilt"].setRange(0.0, 45.0); widgets["climate_axis_tilt"].setValue(23.5); widgets["climate_axis_tilt"].setDecimals(1)
+    widgets["climate_axis_tilt"].setRange(0.0, 45.0)
+    widgets["climate_axis_tilt"].setValue(23.5)
+    widgets["climate_axis_tilt"].setDecimals(1)
     climate_box.body.addRow("Наклон оси (°):", widgets["climate_axis_tilt"])
+
+    # --- НАЧАЛО ВОССТАНОВЛЕННЫХ ПОЛЕЙ ---
+    climate_box.body.addRow(QtWidgets.QLabel("<b>Влажность и Ветер:</b>"))
+
+    widgets["climate_wind_dir"] = SliderSpinCombo()
+    widgets["climate_wind_dir"].setRange(0.0, 360.0)
+    widgets["climate_wind_dir"].setValue(225.0)
+    widgets["climate_wind_dir"].setDecimals(0)
+    climate_box.body.addRow("Направление ветра (°):", widgets["climate_wind_dir"])
+
+    widgets["climate_shadow_strength"] = SliderSpinCombo()
+    widgets["climate_shadow_strength"].setRange(0.0, 1.0)
+    widgets["climate_shadow_strength"].setValue(0.6)
+    widgets["climate_shadow_strength"].setDecimals(2)
+    climate_box.body.addRow("Сила дождевой тени:", widgets["climate_shadow_strength"])
+    # --- КОНЕЦ ВОССТАНОВЛЕННЫХ ПОЛЕЙ ---
+
     layout.addWidget(climate_box)
 
     # --- Секция: Вычисляемые параметры ---

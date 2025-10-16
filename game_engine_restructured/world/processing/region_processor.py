@@ -1,7 +1,7 @@
 # ==============================================================================
 # Файл: game_engine_restructured/world/processing/region_processor.py
 # Назначение: Главный конвейер (pipeline) для обработки одного региона мира.
-# ВЕРСИЯ 3.0: Интегрирована новая глобальная климатическая модель.
+# ВЕРСИЯ 3.1: Исправлена логика получения 3D-координат для климата.
 # ==============================================================================
 from __future__ import annotations
 import time
@@ -46,16 +46,12 @@ class RegionProcessor:
         x_meters = np.linspace(-world_side_m / 2.0, world_side_m / 2.0, resolution, dtype=np.float32)
         z_meters = np.linspace(-world_side_m / 2.0, world_side_m / 2.0, resolution, dtype=np.float32)
         x_coords, z_coords = np.meshgrid(x_meters, z_meters)
-        # Простое смещение по сфере для разных регионов.
-        # В реальном проекте здесь будет более сложная логика на основе сетки икосаэдра.
-        offset_vector = np.array([scx, 0.5, scz], dtype=np.float32)
-        offset_vector /= np.linalg.norm(offset_vector)
 
         context = {
             'WORLD_SIZE_METERS': world_side_m,
             'x_coords': x_coords,
             'z_coords': z_coords,
-            'current_world_offset': tuple(offset_vector.tolist())
+            'current_world_offset': self._get_world_offset_for_region(scx, scz)
         }
         return context, resolution
 
@@ -97,19 +93,19 @@ class RegionProcessor:
         # --- БЛОК 3: КЛИМАТ ---
         print("  -> [Climate] Запуск глобальной климатической модели...")
 
-        # 3.1. ИСПРАВЛЕНИЕ БАГА: Генерируем правильные 3D-координаты
+        # 3.1. Создаем "заглушку" главного окна и контекст для получения 3D-координат
         from types import SimpleNamespace
-        # Создаем "заглушку" главного окна с необходимыми данными
         mock_main_window = SimpleNamespace(
             current_world_offset=self._get_world_offset_for_region(scx, scz),
-            planet_radius_label=SimpleNamespace(text="6371 км"),
+            planet_radius_label=SimpleNamespace(
+                text=f"{getattr(self.preset, 'elevation', {}).get('planet_radius_km', 6371)} км"),
         )
         mock_context, _ = self._prepare_context_for_coords(scx, scz, ext_size, self.preset.cell_size)
 
-        # Получаем реальные 3D-координаты точек региона на сфере
+        # 3.2. Получаем реальные 3D-координаты точек региона на сфере
         region_coords_3d = _generate_world_input(mock_main_window, mock_context, {}, return_coords_only=True)
 
-        # 3.2. Расчет глобальной температуры
+        # 3.3. Расчет глобальной температуры
         temp_params = self.preset.climate.get("temperature", {})
         base_temp_map = global_models.calculate_base_temperature(
             xyz_coords=region_coords_3d.reshape(-1, 3),
@@ -119,7 +115,7 @@ class RegionProcessor:
 
         temperature_map = base_temp_map + stitched_height_ext * temp_params.get("lapse_rate_c_per_m", -0.0065)
 
-        # 3.3. Вызов нового оркестратора для расчета влажности
+        # 3.4. Вызов нового оркестратора для расчета влажности
         climate_context = {
             "height_map": stitched_height_ext,
             "is_water_mask": is_water_mask,
@@ -138,7 +134,7 @@ class RegionProcessor:
             'shadow': climate_data.get('rain_shadow', np.zeros_like(humidity_map))
         }
 
-        # 3.4. Расчет биомов
+        # 3.5. Расчет биомов
         core_slice = slice(chunk_size, -chunk_size)
         avg_temp = float(np.mean(temperature_map[core_slice, core_slice]))
         avg_humidity = float(np.mean(humidity_map[core_slice, core_slice]))
@@ -179,10 +175,9 @@ class RegionProcessor:
     def _get_world_offset_for_region(self, scx: int, scz: int) -> tuple[float, float, float]:
         # Простая функция для получения вектора смещения на сфере.
         # В реальной системе здесь была бы логика на основе икосаэдра.
-        angle_x = scx * 0.1  # Примерное смещение
+        angle_x = scx * 0.1
         angle_z = scz * 0.1
 
-        # Простое вращение вокруг осей Y и X
         x = np.cos(angle_x) * np.cos(angle_z)
         y = np.sin(angle_z)
         z = np.sin(angle_x) * np.cos(angle_z)

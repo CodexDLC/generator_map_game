@@ -44,7 +44,10 @@ def _subdivide_triangle(v1, v2, v3, level):
     return tris
 
 
-def _generate_hex_sphere_geometry(planet_data, sphere_params, disp_scale, subdivision_level) -> tuple:
+def _generate_hex_sphere_geometry(planet_data, heights_01: np.ndarray, disp_scale, subdivision_level) -> tuple:
+    """
+    Возвращает 5 значений: displaced_vertices, F_fill, line_vertices_displaced, I_lines, V_sphere_base.
+    """
     polys_lonlat = planet_data['cell_polys_lonlat_rad']
     centers_xyz = planet_data['centers_xyz']
 
@@ -78,8 +81,14 @@ def _generate_hex_sphere_geometry(planet_data, sphere_params, disp_scale, subdiv
 
     V_sphere_base = _normalize_vector(np.array(unique_vertices, dtype=np.float32))
     F_fill = np.array(final_triangles_indices, dtype=np.uint32)
-    heights_01 = get_noise_for_sphere_view(sphere_params, V_sphere_base).flatten()
-    displaced_vertices = V_sphere_base * (1.0 + disp_scale * (heights_01 - 0.5))[:, np.newaxis]
+
+    # Убедимся, что heights_01 имеет правильную форму для смещения
+    flat_heights = heights_01.flatten()
+    if len(flat_heights) != len(V_sphere_base):
+        # Если размеры не совпадают (например, при первом вызове с np.zeros(1)), создаем массив нужного размера
+        flat_heights = np.zeros(len(V_sphere_base), dtype=np.float32)
+
+    displaced_vertices = V_sphere_base * (1.0 + disp_scale * (flat_heights - 0.5))[:, np.newaxis]
 
     I_lines, line_vertex_map, line_unique_vertices = [], {}, []
     for poly in polys_lonlat:
@@ -96,7 +105,7 @@ def _generate_hex_sphere_geometry(planet_data, sphere_params, disp_scale, subdiv
     line_vertices_displaced = _normalize_vector(np.array(line_unique_vertices, dtype=np.float32)) * (
             r_fill_max + max(0.002, 0.01 * r_fill_max))
 
-    return displaced_vertices, F_fill, line_vertices_displaced, I_lines
+    return displaced_vertices, F_fill, line_vertices_displaced, I_lines, V_sphere_base
 
 
 def orchestrate_planet_update(main_window) -> dict:
@@ -105,16 +114,12 @@ def orchestrate_planet_update(main_window) -> dict:
     """
     logger.info("Обновление вида планеты...")
 
-    # --- НАЧАЛО ИСПРАВЛЕНИЯ ОШИБКИ ---
-    # Читаем радиус из ТЕКСТОВОЙ МЕТКИ, а не из поля ввода, которого больше нет.
     try:
         radius_text = main_window.planet_radius_label.text().replace(" км", "").replace(",", "").replace(" ", "")
         radius_km = float(radius_text)
     except (ValueError, TypeError):
-        # Если не получается прочитать, используем значение по умолчанию, чтобы не падать
         logger.error("Не удалось прочитать радиус планеты из UI, используется значение по умолчанию 6371 км.")
         radius_km = 6371.0
-    # --- КОНЕЦ ИСПРАВЛЕНИЯ ОШИБКИ ---
 
     radius_m = radius_km * 1000.0
     if radius_m < 1.0: raise ValueError("Радиус планеты слишком мал")
@@ -125,11 +130,9 @@ def orchestrate_planet_update(main_window) -> dict:
     max_displacement_m = radius_m * disp_scale * 0.5
 
     continent_size_km = main_window.ws_continent_scale_km.value()
-    continent_size_m = continent_size_km * 1000.0
-    circumference_m = 2.0 * math.pi * radius_m
-    frequency = circumference_m / max(continent_size_m, 1.0)
+    frequency = 20000.0 / max(continent_size_km, 1.0)
     logger.info(
-        f"Рассчитана частота шума: {frequency:.2f} (Планета: {circumference_m / 1000:,.0f} км, Континент: {continent_size_km:,.0f} км)")
+        f"Рассчитана частота шума для вида планеты: {frequency:.2f} (на основе размера континента: {continent_size_km:,.0f} км)")
 
     sphere_params = {
         'octaves': int(main_window.ws_octaves.value()),
@@ -146,11 +149,24 @@ def orchestrate_planet_update(main_window) -> dict:
     planet_data = build_hexplanet(f=subdivision_level_grid)
     if not planet_data: raise RuntimeError("Failed to generate planet data.")
 
-    V_fill, F_fill, V_lines, I_lines = _generate_hex_sphere_geometry(
-        planet_data, sphere_params, disp_scale, subdivision_level_geom
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+    # 1. Сначала делаем один вызов, чтобы получить базовую геометрию (V_fill_base)
+    #    Правильно распаковываем 5 значений, но используем только последнее.
+    _, _, _, _, V_fill_base = _generate_hex_sphere_geometry(
+        planet_data, np.zeros(1), 0.0, subdivision_level_geom
     )
 
-    heights_01 = get_noise_for_sphere_view(sphere_params, V_fill).flatten()
+    # 2. Генерируем шум ОДИН РАЗ на основе этой геометрии
+    heights_01 = get_noise_for_sphere_view(sphere_params, V_fill_base)
+
+    # 3. Теперь генерируем финальную геометрию, ПЕРЕДАВАЯ в нее готовый шум
+    #    И снова правильно распаковываем 5 значений.
+    V_fill, F_fill, V_lines, I_lines, _ = _generate_hex_sphere_geometry(
+        planet_data, heights_01, disp_scale, subdivision_level_geom
+    )
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
+    flat_heights_01 = heights_01.flatten()
 
     if main_window.climate_enabled.isChecked():
         logger.info("  -> Режим климата включен. Расчет биомов...")
@@ -160,11 +176,11 @@ def orchestrate_planet_update(main_window) -> dict:
                 biomes_definition = json.load(f)
 
             sea_level_01 = main_window.climate_sea_level.value() / 100.0
-            is_land_mask = heights_01 >= sea_level_01
+            is_land_mask = flat_heights_01 >= sea_level_01
 
             dominant_biomes_on_land = []
             if np.any(is_land_mask):
-                V_norm_land = (V_fill / np.linalg.norm(V_fill, axis=1, keepdims=True))[is_land_mask]
+                V_norm_land = (V_fill_base / np.linalg.norm(V_fill_base, axis=1, keepdims=True))[is_land_mask]
 
                 avg_temp_c = main_window.climate_avg_temp.value()
                 axis_tilt = main_window.climate_axis_tilt.value()
@@ -174,6 +190,7 @@ def orchestrate_planet_update(main_window) -> dict:
                 base_temp_land = global_models.calculate_base_temperature(V_norm_land, equator_temp_c,
                                                                           equator_pole_diff)
 
+                # Используем V_fill со смещением для более точной высоты
                 heights_m_land = np.linalg.norm(V_fill[is_land_mask], axis=1) - radius_m + max_displacement_m
                 final_temp_land = base_temp_land + heights_m_land * -0.0065
 
@@ -186,7 +203,7 @@ def orchestrate_planet_update(main_window) -> dict:
                     dominant_biome = max(probs, key=probs.get) if probs else "default"
                     dominant_biomes_on_land.append(dominant_biome)
 
-            fill_colors = map_planet_bimodal_palette(heights_01, sea_level_01, dominant_biomes_on_land)
+            fill_colors = map_planet_bimodal_palette(flat_heights_01, sea_level_01, dominant_biomes_on_land)
 
         except Exception as e:
             logger.error(f"Ошибка при расчете климата для планеты: {e}", exc_info=True)
