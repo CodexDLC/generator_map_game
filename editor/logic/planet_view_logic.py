@@ -45,9 +45,6 @@ def _subdivide_triangle(v1, v2, v3, level):
 
 
 def _generate_hex_sphere_geometry(planet_data, heights_01: np.ndarray, disp_scale, subdivision_level) -> tuple:
-    """
-    Возвращает 5 значений: displaced_vertices, F_fill, line_vertices_displaced, I_lines, V_sphere_base.
-    """
     polys_lonlat = planet_data['cell_polys_lonlat_rad']
     centers_xyz = planet_data['centers_xyz']
 
@@ -82,10 +79,8 @@ def _generate_hex_sphere_geometry(planet_data, heights_01: np.ndarray, disp_scal
     V_sphere_base = _normalize_vector(np.array(unique_vertices, dtype=np.float32))
     F_fill = np.array(final_triangles_indices, dtype=np.uint32)
 
-    # Убедимся, что heights_01 имеет правильную форму для смещения
     flat_heights = heights_01.flatten()
     if len(flat_heights) != len(V_sphere_base):
-        # Если размеры не совпадают (например, при первом вызове с np.zeros(1)), создаем массив нужного размера
         flat_heights = np.zeros(len(V_sphere_base), dtype=np.float32)
 
     displaced_vertices = V_sphere_base * (1.0 + disp_scale * (flat_heights - 0.5))[:, np.newaxis]
@@ -109,9 +104,6 @@ def _generate_hex_sphere_geometry(planet_data, heights_01: np.ndarray, disp_scal
 
 
 def orchestrate_planet_update(main_window) -> dict:
-    """
-    Главная функция обновления 3D-вида планеты.
-    """
     logger.info("Обновление вида планеты...")
 
     try:
@@ -149,22 +141,13 @@ def orchestrate_planet_update(main_window) -> dict:
     planet_data = build_hexplanet(f=subdivision_level_grid)
     if not planet_data: raise RuntimeError("Failed to generate planet data.")
 
-    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
-    # 1. Сначала делаем один вызов, чтобы получить базовую геометрию (V_fill_base)
-    #    Правильно распаковываем 5 значений, но используем только последнее.
     _, _, _, _, V_fill_base = _generate_hex_sphere_geometry(
         planet_data, np.zeros(1), 0.0, subdivision_level_geom
     )
-
-    # 2. Генерируем шум ОДИН РАЗ на основе этой геометрии
     heights_01 = get_noise_for_sphere_view(sphere_params, V_fill_base)
-
-    # 3. Теперь генерируем финальную геометрию, ПЕРЕДАВАЯ в нее готовый шум
-    #    И снова правильно распаковываем 5 значений.
     V_fill, F_fill, V_lines, I_lines, _ = _generate_hex_sphere_geometry(
         planet_data, heights_01, disp_scale, subdivision_level_geom
     )
-    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
     flat_heights_01 = heights_01.flatten()
 
@@ -180,23 +163,59 @@ def orchestrate_planet_update(main_window) -> dict:
 
             dominant_biomes_on_land = []
             if np.any(is_land_mask):
-                V_norm_land = (V_fill_base / np.linalg.norm(V_fill_base, axis=1, keepdims=True))[is_land_mask]
+                V_base_land = V_fill_base[is_land_mask]
 
+                # 1. Расчет температуры
                 avg_temp_c = main_window.climate_avg_temp.value()
                 axis_tilt = main_window.climate_axis_tilt.value()
                 equator_pole_diff = axis_tilt * 1.5
                 equator_temp_c = avg_temp_c + equator_pole_diff / 3.0
 
-                base_temp_land = global_models.calculate_base_temperature(V_norm_land, equator_temp_c,
+                base_temp_land = global_models.calculate_base_temperature(V_base_land, equator_temp_c,
                                                                           equator_pole_diff)
 
-                # Используем V_fill со смещением для более точной высоты
-                heights_m_land = np.linalg.norm(V_fill[is_land_mask], axis=1) - radius_m + max_displacement_m
-                final_temp_land = base_temp_land + heights_m_land * -0.0065
+                # --- НАЧАЛО ИСПРАВЛЕНИЯ: Корректный расчет высоты над уровнем моря ---
 
-                sea_level_m = radius_m - max_displacement_m + sea_level_01 * (2 * max_displacement_m)
-                humidity_land = np.clip(1.0 - (heights_m_land - sea_level_m) / (max_displacement_m * 2), 0.1, 0.9)
+                # 1. Рассчитываем абсолютную высоту уровня моря в метрах (относительно центра планеты)
+                #    `max_displacement_m` - это половина всего диапазона высот (от -max до +max)
+                sea_level_m_absolute = (radius_m - max_displacement_m) + (sea_level_01 * (2 * max_displacement_m))
 
+                # 2. Получаем абсолютную высоту вершин суши (относительно центра планеты)
+                land_vertex_heights_absolute = np.linalg.norm(V_fill[is_land_mask], axis=1)
+
+                # 3. Находим высоту НАД УРОВНЕМ МОРЯ
+                heights_m_above_sea_level = land_vertex_heights_absolute - sea_level_m_absolute
+
+                # 4. Используем эту корректную высоту для расчета падения температуры
+                final_temp_land = base_temp_land + heights_m_above_sea_level * -0.0065
+
+                # 2. Расчет влажности (также используем высоту над уровнем моря)
+                humidity_land = np.full_like(final_temp_land, 0.5, dtype=np.float32)
+
+                wind_dir_deg = main_window.climate_wind_dir.value()
+                shadow_strength = main_window.climate_shadow_strength.value()
+                wind_rad = math.radians(wind_dir_deg)
+                wind_vec = np.array([math.sin(wind_rad), 0, math.cos(wind_rad)], dtype=np.float32)
+
+                normals_land = V_base_land
+                wind_projection = np.dot(normals_land, wind_vec)
+
+                humidity_land -= np.clip(wind_projection, -1.0, 0.0) * -1.0 * shadow_strength
+                humidity_land += np.clip(wind_projection, 0.0, 1.0) * (shadow_strength * 0.5)
+
+                temp_factor = np.clip((final_temp_land - 20.0) / 20.0, 0.0, 1.0)
+                humidity_land *= (1.0 - temp_factor * 0.7)
+
+                # Максимально возможная высота над уровнем моря
+                max_possible_height = (radius_m + max_displacement_m) - sea_level_m_absolute
+                if max_possible_height > 1.0:
+                    # Упрощенная влажность от высоты: чем выше, тем суше
+                    humidity_land *= np.clip(1.0 - (heights_m_above_sea_level / max_possible_height), 0.2, 1.0)
+
+                humidity_land = np.clip(humidity_land, 0.01, 1.0)
+                # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
+                # 3. Определение доминирующего биома для каждой точки
                 for i in range(len(final_temp_land)):
                     probs = biome_matcher.calculate_biome_probabilities(final_temp_land[i], humidity_land[i],
                                                                         biomes_definition)

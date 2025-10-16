@@ -9,11 +9,10 @@
   "global_z_offset": 0.0,
   "global_noise": {
     "planet_type_preset": "Землеподобная (0.3%)",
-    "sea_level_pct": 0.0,
-    "scale": 1.0,
+    "continent_scale_km": 15000.0,
     "octaves": 8,
     "gain": 0.5,
-    "power": 1.2,
+    "power": 1.5,
     "warp_strength": 0.3,
     "seed": 341916745
   },
@@ -28,7 +27,14 @@
   },
   "world_topology": {
     "subdivision": "3 (92 регионов)",
-    "resolution": "4096x4096",
-    "vertex_distance": 1.0
+    "resolution": "4096x4096"
+  },
+  "climate": {
+    "enabled": true,
+    "sea_level_pct": 32.6,
+    "avg_temp_c": 15.0,
+    "axis_tilt_deg": 23.5,
+    "wind_dir_deg": 225.0,
+    "shadow_strength": 0.6
   }
 }
