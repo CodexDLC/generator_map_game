@@ -5,18 +5,21 @@ from PySide6 import QtCore
 
 logger = logging.getLogger(__name__)
 
+
 def collect_project_data_from_ui(mw) -> dict:
     """Собирает все глобальные настройки из UI для сохранения в project.json."""
     return {
         "world_topology": {
             "subdivision": mw.subdivision_level_input.currentText(),
             "resolution": mw.region_resolution_input.currentText(),
-            "vertex_distance": mw.vertex_distance_input.value(),
+            # --- ИЗМЕНЕНИЕ: Это поле теперь вычисляемое, сохранять его не нужно ---
+            # "vertex_distance": mw.vertex_distance_input.value(),
         },
         "global_noise": {
+            "planet_radius_km": mw.planet_radius_input_km.value(),  # Сохраняем радиус
             "planet_type_preset": mw.planet_type_preset_input.currentText(),
-            "sea_level_pct": mw.ws_sea_level.value(),
-            "scale": mw.ws_relative_scale.value(),
+            # --- ИЗМЕНЕНИЕ: Сохраняем новое значение в километрах ---
+            "continent_scale_km": mw.ws_continent_scale_km.value(),
             "octaves": int(mw.ws_octaves.value()),
             "gain": mw.ws_gain.value(),
             "power": mw.ws_power.value(),
@@ -34,16 +37,37 @@ def apply_project_to_ui(mw, data: dict) -> None:
 
     mw.subdivision_level_input.setCurrentText(topo.get("subdivision", "8 (642 регионов)"))
     mw.region_resolution_input.setCurrentText(topo.get("resolution", "4096x4096"))
-    mw.vertex_distance_input.setValue(topo.get("vertex_distance", 1.0))
+
+    # --- НАЧАЛО ИЗМЕНЕНИЙ: Логика загрузки радиуса и масштаба ---
+
+    # Загружаем радиус. Если его нет, оставляем значение по умолчанию.
+    if "planet_radius_km" in noise:
+        mw.planet_radius_input_km.setValue(noise.get("planet_radius_km", 6371.0))
+
+    # Обратная совместимость для масштаба континентов
+    if "continent_scale_km" in noise:
+        # Если есть новый ключ - используем его
+        mw.ws_continent_scale_km.setValue(noise.get("continent_scale_km", 4000.0))
+    elif "scale" in noise:
+        # Если есть только старый ключ "scale" (0..1), конвертируем его в примерные километры
+        # Это грубая эвристика для старых проектов
+        old_relative_scale = noise.get("scale", 0.25)
+        # Предположим, что старый "масштаб 1.0" соответствовал ~20000 км
+        estimated_km = 2000.0 + old_relative_scale * 18000.0
+        mw.ws_continent_scale_km.setValue(estimated_km)
+        logger.warning("Загружен старый проект: относительный масштаб 'scale' был конвертирован в ~%d км.",
+                       estimated_km)
+
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
     mw.planet_type_preset_input.setCurrentText(noise.get("planet_type_preset", "Землеподобная (0.3%)"))
-    mw.ws_relative_scale.setValue(noise.get("scale", 0.25))
     mw.ws_octaves.setValue(noise.get("octaves", 8))
     mw.ws_gain.setValue(noise.get("gain", 0.5))
     mw.ws_power.setValue(noise.get("power", 1.0))
     mw.ws_warp_strength.setValue(noise.get("warp_strength", 0.2))
     mw.ws_seed.setValue(noise.get("seed", 12345))
 
+    # Вызываем обновление вычисляемых полей ПОСЛЕ установки всех значений
     QtCore.QTimer.singleShot(0, mw._update_calculated_fields)
 
 

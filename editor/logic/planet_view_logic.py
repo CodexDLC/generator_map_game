@@ -6,7 +6,7 @@ import numpy as np
 from PySide6 import QtWidgets
 from pathlib import Path
 
-from editor.render.planet_palettes import map_planet_height_palette, map_planet_climate_palette
+from editor.render.planet_palettes import map_planet_height_palette, map_planet_bimodal_palette
 from generator_logic.climate import biome_matcher, global_models
 from generator_logic.topology.icosa_grid import build_hexplanet
 from generator_logic.terrain.global_sphere_noise import get_noise_for_sphere_view
@@ -94,7 +94,7 @@ def _generate_hex_sphere_geometry(planet_data, sphere_params, disp_scale, subdiv
 
     r_fill_max = float(np.linalg.norm(displaced_vertices, axis=1).max())
     line_vertices_displaced = _normalize_vector(np.array(line_unique_vertices, dtype=np.float32)) * (
-                r_fill_max + max(0.002, 0.01 * r_fill_max))
+            r_fill_max + max(0.002, 0.01 * r_fill_max))
 
     return displaced_vertices, F_fill, line_vertices_displaced, I_lines
 
@@ -102,13 +102,21 @@ def _generate_hex_sphere_geometry(planet_data, sphere_params, disp_scale, subdiv
 def orchestrate_planet_update(main_window) -> dict:
     """
     Главная функция обновления 3D-вида планеты.
-    ВЕРСИЯ 2.4: Финальная версия с исправленной логикой цвета.
     """
     logger.info("Обновление вида планеты...")
 
-    # --- ШАГ 1: Сбор параметров из UI ---
-    radius_text = main_window.planet_radius_label.text().replace(" км", "").replace(",", "").replace(" ", "")
-    radius_m = float(radius_text) * 1000.0 if radius_text and radius_text != 'Ошибка' else 1.0
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ ОШИБКИ ---
+    # Читаем радиус из ТЕКСТОВОЙ МЕТКИ, а не из поля ввода, которого больше нет.
+    try:
+        radius_text = main_window.planet_radius_label.text().replace(" км", "").replace(",", "").replace(" ", "")
+        radius_km = float(radius_text)
+    except (ValueError, TypeError):
+        # Если не получается прочитать, используем значение по умолчанию, чтобы не падать
+        logger.error("Не удалось прочитать радиус планеты из UI, используется значение по умолчанию 6371 км.")
+        radius_km = 6371.0
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ОШИБКИ ---
+
+    radius_m = radius_km * 1000.0
     if radius_m < 1.0: raise ValueError("Радиус планеты слишком мал")
 
     preset_name = main_window.planet_type_preset_input.currentText()
@@ -116,17 +124,21 @@ def orchestrate_planet_update(main_window) -> dict:
     disp_scale = roughness_pct * 1.5
     max_displacement_m = radius_m * disp_scale * 0.5
 
-    scale_value = main_window.ws_relative_scale.value()
-    min_freq, max_freq = 0.5, 10.0
-    normalized_scale = (scale_value - 0.01) / 0.99
-    frequency = max_freq - normalized_scale * (max_freq - min_freq)
+    continent_size_km = main_window.ws_continent_scale_km.value()
+    continent_size_m = continent_size_km * 1000.0
+    circumference_m = 2.0 * math.pi * radius_m
+    frequency = circumference_m / max(continent_size_m, 1.0)
+    logger.info(
+        f"Рассчитана частота шума: {frequency:.2f} (Планета: {circumference_m / 1000:,.0f} км, Континент: {continent_size_km:,.0f} км)")
 
     sphere_params = {
-        'octaves': int(main_window.ws_octaves.value()), 'gain': main_window.ws_gain.value(),
-        'seed': main_window.ws_seed.value(), 'frequency': frequency, 'power': main_window.ws_power.value(),
+        'octaves': int(main_window.ws_octaves.value()),
+        'gain': main_window.ws_gain.value(),
+        'seed': main_window.ws_seed.value(),
+        'frequency': frequency,
+        'power': main_window.ws_power.value(),
     }
 
-    # --- ШАГ 2: Генерация геометрии ---
     detail_text = main_window.planet_preview_detail_input.currentText()
     subdivision_level_geom = int(detail_text.split("(")[1].replace(")", ""))
     subdivision_level_grid = int(main_window.subdivision_level_input.currentText().split(" ")[0])
@@ -134,12 +146,12 @@ def orchestrate_planet_update(main_window) -> dict:
     planet_data = build_hexplanet(f=subdivision_level_grid)
     if not planet_data: raise RuntimeError("Failed to generate planet data.")
 
-    # Получаем ТОЛЬКО геометрию
     V_fill, F_fill, V_lines, I_lines = _generate_hex_sphere_geometry(
         planet_data, sphere_params, disp_scale, subdivision_level_geom
     )
 
-    # --- ШАГ 3: Расчет климата и выбор цвета ---
+    heights_01 = get_noise_for_sphere_view(sphere_params, V_fill).flatten()
+
     if main_window.climate_enabled.isChecked():
         logger.info("  -> Режим климата включен. Расчет биомов...")
         try:
@@ -147,45 +159,48 @@ def orchestrate_planet_update(main_window) -> dict:
             with open(biomes_path, "r", encoding="utf-8") as f:
                 biomes_definition = json.load(f)
 
-            V_norm = V_fill / np.linalg.norm(V_fill, axis=1, keepdims=True)
-            avg_temp_c = main_window.climate_avg_temp.value()
-            axis_tilt = main_window.climate_axis_tilt.value()
-            equator_pole_diff = axis_tilt * 1.5
-            base_temp = global_models.calculate_base_temperature(V_norm, avg_temp_c, equator_pole_diff)
+            sea_level_01 = main_window.climate_sea_level.value() / 100.0
+            is_land_mask = heights_01 >= sea_level_01
 
-            heights_m = np.linalg.norm(V_fill, axis=1) - radius_m + max_displacement_m
-            final_temp = base_temp + heights_m * -0.0065
+            dominant_biomes_on_land = []
+            if np.any(is_land_mask):
+                V_norm_land = (V_fill / np.linalg.norm(V_fill, axis=1, keepdims=True))[is_land_mask]
 
-            sea_level_m = radius_m - max_displacement_m + (main_window.climate_sea_level.value() / 100.0) * (
-                        2 * max_displacement_m)
-            humidity = np.clip(1.0 - (heights_m - sea_level_m) / (max_displacement_m * 2), 0.1, 0.9)
+                avg_temp_c = main_window.climate_avg_temp.value()
+                axis_tilt = main_window.climate_axis_tilt.value()
+                equator_pole_diff = axis_tilt * 1.5
+                equator_temp_c = avg_temp_c + equator_pole_diff / 3.0
 
-            dominant_biomes = []
-            for i in range(len(V_fill)):
-                temp_i, humidity_i = final_temp[i], humidity[i]
-                probs = biome_matcher.calculate_biome_probabilities(temp_i, humidity_i, biomes_definition)
-                dominant_biome = max(probs, key=probs.get) if probs else "default"
-                dominant_biomes.append(dominant_biome)
+                base_temp_land = global_models.calculate_base_temperature(V_norm_land, equator_temp_c,
+                                                                          equator_pole_diff)
 
-            fill_colors = map_planet_climate_palette(dominant_biomes)
+                heights_m_land = np.linalg.norm(V_fill[is_land_mask], axis=1) - radius_m + max_displacement_m
+                final_temp_land = base_temp_land + heights_m_land * -0.0065
+
+                sea_level_m = radius_m - max_displacement_m + sea_level_01 * (2 * max_displacement_m)
+                humidity_land = np.clip(1.0 - (heights_m_land - sea_level_m) / (max_displacement_m * 2), 0.1, 0.9)
+
+                for i in range(len(final_temp_land)):
+                    probs = biome_matcher.calculate_biome_probabilities(final_temp_land[i], humidity_land[i],
+                                                                        biomes_definition)
+                    dominant_biome = max(probs, key=probs.get) if probs else "default"
+                    dominant_biomes_on_land.append(dominant_biome)
+
+            fill_colors = map_planet_bimodal_palette(heights_01, sea_level_01, dominant_biomes_on_land)
 
         except Exception as e:
             logger.error(f"Ошибка при расчете климата для планеты: {e}", exc_info=True)
-            heights_01 = get_noise_for_sphere_view(sphere_params, V_fill).flatten()
             fill_colors = map_planet_height_palette(heights_01)
     else:
         logger.info("  -> Режим климата выключен. Раскраска по высоте.")
-        heights_01 = get_noise_for_sphere_view(sphere_params, V_fill).flatten()
         fill_colors = map_planet_height_palette(heights_01)
 
-    # --- ШАГ 4: Корректная сборка итоговых массивов ---
     offset = len(V_fill)
     all_vertices = np.vstack([V_fill, V_lines]).astype(np.float32)
     line_colors = np.zeros((len(V_lines), 3), dtype=np.float32)
     all_colors = np.vstack([fill_colors.reshape(-1, 3), line_colors])
     all_line_indices = (np.array(I_lines, dtype=np.uint32) + offset)
 
-    # --- ШАГ 5: Сохранение и возврат результата ---
     if main_window.project_manager.current_project_path:
         cache_dir = Path(main_window.project_manager.current_project_path) / "cache"
         cache_dir.mkdir(exist_ok=True)

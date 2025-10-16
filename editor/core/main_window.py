@@ -24,7 +24,7 @@ from editor.ui.widgets.custom_controls import SliderSpinCombo, SeedWidget, Colla
 from editor.ui.layouts.central_layout import create_bottom_work_area_v2
 from editor.ui.layouts.main_menu import build_menus
 from editor.ui.layouts.node_inspector_panel import make_node_inspector_widget
-from editor.ui.layouts.presets_panel import make_region_presets_widget, RegionPresetsWidget
+from editor.ui.layouts.presets_panel import make_region_presets_widget
 from editor.ui.bindings.shortcuts import install_shortcuts
 from editor.ui.widgets.preview_widget import Preview3DWidget
 from editor.ui.layouts.world_settings_panel import make_world_settings_widget, MAX_SIDE_METERS, PLANET_ROUGHNESS_PRESETS
@@ -247,7 +247,6 @@ class MainWindow(QtWidgets.QMainWindow):
             logger.warning("Генерация превью не вернула данных (нода не выбрана?).")
             return
 
-        # --- НОВАЯ ЛОГИКА: Обновление списка биомов ---
         if self.biome_probabilities_list:
             self.biome_probabilities_list.clear()
             probabilities = result_data.get("biome_probabilities", {})
@@ -257,7 +256,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 else:
                     sorted_probs = sorted(probabilities.items(), key=lambda item: item[1], reverse=True)
                     for biome_name, prob in sorted_probs:
-                        if prob < 0.001: continue # Не показывать слишком маловероятные
+                        if prob < 0.001: continue
                         item_text = f"{biome_name.replace('_', ' ').title()}: {prob:.1%}"
                         self.biome_probabilities_list.addItem(item_text)
             else:
@@ -308,7 +307,6 @@ class MainWindow(QtWidgets.QMainWindow):
         QtWidgets.QMessageBox.critical(self, "Ошибка в фоновом потоке", error_message)
 
     def _connect_components(self):
-        # Подключение сигналов от виджетов к слотам
         if self.region_resolution_input:
             self.region_resolution_input.currentIndexChanged.connect(self._update_dynamic_ranges)
             self.region_resolution_input.currentIndexChanged.connect(self._update_calculated_fields)
@@ -326,13 +324,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.planet_widget:
             self.planet_widget.cell_picked.connect(self._on_cell_picked)
 
-        # --- ДОБАВЛЕНЫ НОВЫЕ ВИДЖЕТЫ КЛИМАТА В СПИСОК ---
         controls_for_dirty_mark = [
             self.subdivision_level_input, self.planet_preview_detail_input, self.region_resolution_input,
-            self.vertex_distance_input, self.planet_type_preset_input, self.ws_relative_scale,
-            self.ws_octaves, self.ws_gain, self.ws_power, self.ws_warp_strength, self.ws_seed,
-            self.climate_enabled, self.climate_sea_level, self.climate_avg_temp,
-            self.climate_axis_tilt, self.climate_wind_strength
+            self.vertex_distance_input, self.ws_continent_scale_km,
+            self.planet_type_preset_input, self.ws_octaves, self.ws_gain, self.ws_power,
+            self.ws_warp_strength, self.ws_seed, self.climate_enabled, self.climate_sea_level,
+            self.climate_avg_temp, self.climate_axis_tilt
         ]
         for control in controls_for_dirty_mark:
             if not control: continue
@@ -423,17 +420,26 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         try:
+            # 1. Берем базовые параметры, которые задает пользователь
             res_str = self.region_resolution_input.currentText()
             resolution = int(res_str.split('x')[0])
             dist = self.vertex_distance_input.value()
-            region_side_m = resolution * dist
-            hex_area_m2 = (region_side_m ** 2) * (math.sqrt(3) / 2)
+
             subdiv_text = self.subdivision_level_input.currentText()
             num_regions_str = "".join(filter(str.isdigit, subdiv_text))
             num_regions = int(num_regions_str) if num_regions_str else 0
+
+            # 2. Вычисляем физический размер ОДНОГО региона
+            region_side_m = resolution * dist
+            # Площадь шестиугольного региона (более точная)
+            hex_area_m2 = (region_side_m ** 2) * (math.sqrt(3) / 2.0)
+
+            # 3. Вычисляем общую площадь поверхности и РАДИУС ПЛАНЕТЫ
             total_surface_area_m2 = num_regions * hex_area_m2
             radius_m = math.sqrt(total_surface_area_m2 / (4 * math.pi))
             radius_km = radius_m / 1000.0
+
+            # 4. Обновляем вычисляемые поля в UI
             self.planet_radius_label.setText(f"{radius_km:,.0f} км")
 
             preset_name = self.planet_type_preset_input.currentText()

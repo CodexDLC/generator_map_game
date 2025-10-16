@@ -1,0 +1,11 @@
+{
+  "version": 3,
+  "project_name": "test",
+  "active_preset_name": "default",
+  "region_presets": {
+    "default": {
+      "description": "Пресет по умолчанию",
+      "landscape_graph": "pipelines/default_landscape.json"
+    }
+  }
+}

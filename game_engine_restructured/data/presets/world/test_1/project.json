@@ -1,0 +1,34 @@
+{
+  "version": 3,
+  "project_name": "test_1",
+  "seed": 1,
+  "chunk_size": 128,
+  "region_size_in_chunks": 4,
+  "cell_size": 1.0,
+  "global_x_offset": 0.0,
+  "global_z_offset": 0.0,
+  "global_noise": {
+    "planet_type_preset": "Землеподобная (0.3%)",
+    "sea_level_pct": 0.0,
+    "scale": 1.0,
+    "octaves": 8,
+    "gain": 0.5,
+    "power": 1.2,
+    "warp_strength": 0.3,
+    "seed": 341916745
+  },
+  "active_preset_name": "default",
+  "region_presets": {
+    "default": {
+      "description": "Пресет по умолчанию",
+      "landscape_graph": "pipelines/default_landscape.json",
+      "climate_graph": "pipelines/default_climate.json",
+      "biome_graph": "pipelines/default_biome.json"
+    }
+  },
+  "world_topology": {
+    "subdivision": "3 (92 регионов)",
+    "resolution": "4096x4096",
+    "vertex_distance": 1.0
+  }
+}
