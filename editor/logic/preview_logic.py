@@ -1,8 +1,7 @@
-# editor/logic/preview_logic.py
+# ЗАМЕНА ВСЕГО ФАЙЛА: editor/logic/preview_logic.py
 from __future__ import annotations
 import logging
 import numpy as np
-import math
 import json
 from pathlib import Path
 
@@ -10,8 +9,6 @@ from NodeGraphQt import BaseNode
 
 from editor.graph.graph_runner import run_graph
 from editor.nodes.height.io.world_input_node import WorldInputNode
-from generator_logic.climate import global_models, biome_matcher
-
 from generator_logic.terrain.global_sphere_noise import get_noise_for_region_preview
 
 from typing import TYPE_CHECKING, Set, Tuple, Optional, Dict, Any
@@ -51,71 +48,40 @@ def _prepare_context(main_window: MainWindow) -> Tuple[Dict[str, Any], int]:
     return context, resolution
 
 
-def _generate_world_input(main_window: "MainWindow", context: Dict[str, Any], sphere_params: dict,
-                          return_coords_only: bool = False) -> np.ndarray:
-    """
-    Generates the base world noise for a specific region preview.
-    It correctly maps the flat preview grid to a curved patch on the sphere
-    before sampling the 3D noise.
-    If return_coords_only is True, it returns the coordinates instead of noise.
-    """
-    logger.info("Generating world input for region preview...")
-
-    # 1. Get parameters from UI and context
+def _generate_world_input(main_window: "MainWindow", context: Dict[str, Any], sphere_params: dict) -> np.ndarray:
+    logger.info("Генерация входа мирового шума для превью региона...")
     try:
         radius_text = main_window.planet_radius_label.text().replace(" км", "").replace(",", "").replace(" ", "")
         radius_m = float(radius_text) * 1000.0
         if radius_m < 1.0: raise ValueError("Radius is too small")
     except Exception:
-        logger.warning("Could not parse radius from UI, falling back to default.")
         radius_m = 6371000.0
 
-    x_m = context['x_coords']
-    z_m = context['z_coords']
-
+    x_m, z_m = context['x_coords'], context['z_coords']
     center_vec = np.array(main_window.current_world_offset, dtype=np.float32)
     center_vec /= np.linalg.norm(center_vec)
-
     up_vec = np.array([0.0, 1.0, 0.0], dtype=np.float32)
     if np.abs(np.dot(center_vec, up_vec)) > 0.99:
         up_vec = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-
     tangent_u = np.cross(center_vec, up_vec)
     tangent_u /= np.linalg.norm(tangent_u)
     tangent_v = np.cross(center_vec, tangent_u)
-
-    angular_x = x_m / radius_m
-    angular_z = z_m / radius_m
-
+    angular_x, angular_z = x_m / radius_m, z_m / radius_m
     points_in_plane = (center_vec[np.newaxis, np.newaxis, :]
                        + tangent_u[np.newaxis, np.newaxis, :] * angular_x[..., np.newaxis]
                        + tangent_v[np.newaxis, np.newaxis, :] * angular_z[..., np.newaxis])
-
     coords_for_noise = points_in_plane / np.linalg.norm(points_in_plane, axis=-1, keepdims=True)
     coords_for_noise = coords_for_noise.astype(np.float32)
 
-    if return_coords_only:
-        return coords_for_noise
-
-    logger.debug(f"Generated spherical coordinates for noise sampling, shape: {coords_for_noise.shape}")
-
-    base_noise = get_noise_for_region_preview(
-        sphere_params=sphere_params,
-        coords_xyz=coords_for_noise
-    )
-
+    base_noise = get_noise_for_region_preview(sphere_params=sphere_params, coords_xyz=coords_for_noise)
     try:
         max_height_m = main_window.max_height_input.value()
         base_elevation_text = main_window.base_elevation_label.text().replace(" м", "").replace(",", "")
         base_elevation_m = float(base_elevation_text)
         amplitude_norm = base_elevation_m / max_height_m if max_height_m > 1e-6 else 1.0
-    except Exception as e:
-        logger.warning(f"Could not calculate amplitude norm: {e}, falling back to 1.0")
+    except Exception:
         amplitude_norm = 1.0
-
-    final_noise = base_noise * amplitude_norm
-
-    return final_noise.astype(np.float32)
+    return (base_noise * amplitude_norm).astype(np.float32)
 
 
 def _has_world_input_ancestor(node: GeneratorNode, visited: Set[str] = None) -> bool:
@@ -131,10 +97,6 @@ def _has_world_input_ancestor(node: GeneratorNode, visited: Set[str] = None) -> 
 
 
 def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
-    """
-    Выполняет все вычисления и возвращает словарь с результатом для обновления UI.
-    ВЕРСИЯ 2.2: Исправлен расчет частоты шума.
-    """
     target_node, is_global_mode = _get_target_node_and_mode(main_window)
     if not target_node:
         return None
@@ -142,17 +104,8 @@ def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
     context, resolution = _prepare_context(main_window)
 
     if is_global_mode:
-        logger.info("Сбор параметров глобального шума из UI для превью региона...")
-
-        # --- НАЧАЛО ИСПРАВЛЕНИЯ: Новая, корректная формула для частоты ---
         continent_size_km = main_window.ws_continent_scale_km.value()
-        # Преобразуем размер континента в км в простую частоту для 3D-шума.
-        # За основу берем соотношение: континент 5000 км -> частота ~4.0
         frequency = 20000.0 / max(continent_size_km, 1.0)
-        logger.info(
-            f"Рассчитана частота шума для превью: {frequency:.2f} (на основе размера континента: {continent_size_km:,.0f} км)")
-        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-
         sphere_params = {
             'octaves': int(main_window.ws_octaves.value()),
             'gain': main_window.ws_gain.value(),
@@ -165,7 +118,6 @@ def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
         base_noise = np.zeros_like(context['x_coords'], dtype=np.float32)
 
     context["world_input_noise"] = base_noise
-
     if np.any(base_noise) and main_window.graph:
         max_h = context.get('max_height_m', 1.0)
         stats = {
@@ -180,45 +132,36 @@ def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
 
     final_map_01 = run_graph(target_node, context)
 
+    # --- НОВЫЙ БЛОК: Чтение биомов из кэша ---
     biome_probabilities = {}
     if main_window.climate_enabled.isChecked():
         try:
-            logger.info("Calculating climate and biomes for preview...")
-            biomes_path = Path("game_engine_restructured/data/biomes.json")
-            with open(biomes_path, "r", encoding="utf-8") as f:
-                biomes_definition = json.load(f)
+            cache_path = Path(main_window.project_manager.current_project_path) / "cache" / "global_climate_data.json"
+            if not cache_path.exists():
+                logger.warning("Файл кэша климата не найден. Сначала обновите планету.")
+                biome_probabilities = {"error": "cache_miss"}
+            else:
+                with open(cache_path, "r", encoding="utf-8") as f:
+                    climate_data = json.load(f)
 
-            coords_for_climate = _generate_world_input(main_window, context, {}, return_coords_only=True)
+                region_id_str = str(main_window.current_region_id)
+                region_climate = climate_data.get("region_data", {}).get(region_id_str)
 
-            avg_temp_c = main_window.climate_avg_temp.value()
-            axis_tilt = main_window.climate_axis_tilt.value()
-            equator_pole_diff = axis_tilt * 1.5
-            base_temp_map = global_models.calculate_base_temperature(
-                xyz_coords=coords_for_climate.reshape(-1, 3),
-                base_temp_c=avg_temp_c,
-                equator_pole_temp_diff_c=equator_pole_diff
-            ).reshape(resolution, resolution)
+                if region_climate:
+                    biome_probabilities = region_climate.get("biome_probabilities", {})
+                else:
+                    logger.warning(f"Данные для региона ID {region_id_str} не найдены в кэше.")
+                    biome_probabilities = {"error": "region_miss"}
 
-            height_map_meters = final_map_01 * context.get('max_height_m', 1000.0)
-            temperature_map = base_temp_map + height_map_meters * -0.0065
-
-            humidity_map = np.full_like(temperature_map, 0.5)
-
-            avg_temp = float(np.mean(temperature_map))
-            avg_humidity = float(np.mean(humidity_map))
-            biome_probabilities = biome_matcher.calculate_biome_probabilities(
-                avg_temp_c=avg_temp, avg_humidity=avg_humidity, biomes_definition=biomes_definition
-            )
         except Exception as e:
-            logger.error(f"Ошибка при расчете климата для превью: {e}", exc_info=True)
-            biome_probabilities = {"error": 1.0}
-
-    north_vector_2d = None
+            logger.error(f"Ошибка при чтении кэша климата: {e}", exc_info=True)
+            biome_probabilities = {"error": "read_error"}
+    # --- КОНЕЦ НОВОГО БЛОКА ---
 
     return {
         "final_map_01": final_map_01,
         "max_height": context.get('max_height_m', 1000.0),
         "vertex_distance": main_window.vertex_distance_input.value(),
-        "north_vector_2d": north_vector_2d,
+        "north_vector_2d": None,  # Placeholder
         "biome_probabilities": biome_probabilities
     }

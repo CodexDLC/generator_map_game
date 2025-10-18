@@ -8,9 +8,6 @@ from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from OpenGL import GL
 from OpenGL.GL import *
 
-import json
-from generator_logic.climate import global_models, biome_matcher
-
 from editor.core.render_settings import RenderSettings
 from generator_logic.topology.icosa_grid import nearest_cell_by_xyz
 
@@ -98,6 +95,7 @@ class SpherePreviewWidget(QOpenGLWidget):
         self._last_mouse_pos = QtCore.QPoint()
         self._render_settings = RenderSettings()
 
+
         # --- НАЧАЛО ИЗМЕНЕНИЯ: Переменные для полюсов ---
         self._poles_shader_program = None
         self._poles_vbo_pos = None
@@ -163,6 +161,7 @@ class SpherePreviewWidget(QOpenGLWidget):
         proj.perspective(45.0, self.width() / max(1, self.height()), 0.1, 100.0)
         view = QtGui.QMatrix4x4()
         view.translate(0.0, 0.0, -self._cam_distance)
+        view.rotate(-90, 1, 0, 0)
         view.rotate(self._rotation)
         mvp = proj * view
 

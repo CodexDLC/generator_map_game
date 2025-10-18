@@ -25,7 +25,7 @@ def calculate_global_temperature(
     Рассчитывает глобальную карту температур, учитывая широту, высоту и влияние суши/океана.
     """
     # 1. Базовая температура от широты
-    latitude_factor = np.abs(xyz_coords[:, 2])
+    latitude_factor = np.abs(xyz_coords[:, 1])
     base_temp = params.get("avg_temp_c", 15.0)
     equator_pole_diff = params.get("axis_tilt_deg", 23.5) * 1.5
     latitudinal_temp = (base_temp + equator_pole_diff / 3.0) - latitude_factor * equator_pole_diff

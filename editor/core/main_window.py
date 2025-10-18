@@ -260,15 +260,19 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.biome_probabilities_list:
             self.biome_probabilities_list.clear()
             probabilities = result_data.get("biome_probabilities", {})
-            if probabilities:
-                if "error" in probabilities:
-                    self.biome_probabilities_list.addItem("Ошибка расчета климата")
-                else:
-                    sorted_probs = sorted(probabilities.items(), key=lambda item: item[1], reverse=True)
-                    for biome_name, prob in sorted_probs:
-                        if prob < 0.001: continue
-                        item_text = f"{biome_name.replace('_', ' ').title()}: {prob:.1%}"
-                        self.biome_probabilities_list.addItem(item_text)
+
+            # --- НОВЫЙ БЛОК ОБРАБОТКИ ОШИБОК КЭША ---
+            if probabilities.get("error") == "cache_miss":
+                self.biome_probabilities_list.addItem("Обновите планету для расчета климата")
+            elif probabilities.get("error"):
+                self.biome_probabilities_list.addItem("Ошибка загрузки данных о климате")
+            # --- КОНЕЦ НОВОГО БЛОКА ---
+            elif probabilities:
+                sorted_probs = sorted(probabilities.items(), key=lambda item: item[1], reverse=True)
+                for biome_name, prob in sorted_probs:
+                    if prob < 0.001: continue
+                    item_text = f"{biome_name.replace('_', ' ').title()}: {prob:.1%}"
+                    self.biome_probabilities_list.addItem(item_text)
             else:
                 self.biome_probabilities_list.addItem("Климат отключен")
 
@@ -281,19 +285,11 @@ class MainWindow(QtWidgets.QMainWindow):
             preview_resolution = int(preview_res_str.split('x')[0])
 
             display_map_01 = final_map_01
-            scaling_factor = 1.0
-
             if final_map_01.shape[0] != preview_resolution:
-                original_resolution = final_map_01.shape[0]
-                logger.debug(f"Масштабирование карты с {original_resolution}px до {preview_resolution}px для превью.")
-
-                if preview_resolution > 0:
-                    scaling_factor = original_resolution / preview_resolution
-
                 display_map_01 = cv2.resize(final_map_01, (preview_resolution, preview_resolution),
                                             interpolation=cv2.INTER_AREA)
 
-            final_map_meters = (display_map_01 * max_height) / scaling_factor
+            final_map_meters = display_map_01 * max_height
 
             if self.preview_widget:
                 self.preview_widget.update_mesh(final_map_meters, vertex_distance,

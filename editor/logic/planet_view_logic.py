@@ -3,21 +3,18 @@ import json
 import logging
 import math
 import numpy as np
-from PySide6 import QtWidgets
 from pathlib import Path
 from dataclasses import dataclass
 
-# Импорты вашего проекта
 from editor.render.planet_palettes import map_planet_height_palette, map_planet_bimodal_palette
-from generator_logic.climate import biome_matcher, global_climate
-from generator_logic.topology.icosa_grid import build_hexplanet
+from generator_logic.climate import biome_matcher
+from generator_logic.topology.icosa_grid import build_hexplanet, nearest_cell_by_xyz
 from generator_logic.terrain.global_sphere_noise import get_noise_for_sphere_view
 from editor.ui.layouts.world_settings_panel import PLANET_ROUGHNESS_PRESETS
 
 logger = logging.getLogger(__name__)
 
 
-# --- ШАГ 1: Сборщик параметров в виде структуры данных ---
 @dataclass
 class PlanetUpdateParams:
     """Структура для хранения всех параметров, собранных из UI."""
@@ -38,9 +35,7 @@ def _gather_planet_parameters(main_window) -> PlanetUpdateParams:
         radius_text = main_window.planet_radius_label.text().replace(" км", "").replace(",", "").replace(" ", "")
         radius_km = float(radius_text)
     except (ValueError, TypeError):
-        logger.error("Не удалось прочитать радиус планеты из UI, используется значение по умолчанию 6371 км.")
         radius_km = 6371.0
-
     radius_m = radius_km * 1000.0
     if radius_m < 1.0: raise ValueError("Радиус планеты слишком мал")
 
@@ -75,21 +70,18 @@ def _gather_planet_parameters(main_window) -> PlanetUpdateParams:
         climate_params={
             'avg_temp_c': main_window.climate_avg_temp.value(),
             'axis_tilt_deg': main_window.climate_axis_tilt.value(),
-            'land_warming_effect_c': 2.5
         },
         sea_level_01=main_window.climate_sea_level.value() / 100.0
     )
 
 
-# --- Вспомогательные функции для геометрии (без изменений) ---
 def _normalize_vector(v):
     norm = np.linalg.norm(v, axis=-1, keepdims=True)
     return v / np.maximum(norm, 1e-9)
 
 
 def _slerp(u, v, t):
-    u = _normalize_vector(u);
-    v = _normalize_vector(v)
+    u, v = _normalize_vector(u), _normalize_vector(v)
     dot = float(np.clip(np.dot(u, v), -1.0, 1.0))
     theta = math.acos(dot)
     if theta < 1e-6: return u.copy()
@@ -110,9 +102,7 @@ def _subdivide_triangle(v1, v2, v3, level):
     return tris
 
 
-# --- ШАГ 2: Генератор базовой геометрии ---
-def _generate_base_geometry(planet_data: dict, subdivision_level: int) -> tuple[
-    np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def _generate_base_geometry(planet_data: dict, subdivision_level: int):
     polys_lonlat = planet_data['cell_polys_lonlat_rad']
     centers_xyz = planet_data['centers_xyz']
 
@@ -144,7 +134,6 @@ def _generate_base_geometry(planet_data: dict, subdivision_level: int) -> tuple[
 
     V_sphere_base = _normalize_vector(np.array(unique_vertices, dtype=np.float32))
     F_fill = np.array(final_triangles_indices, dtype=np.uint32)
-
     I_lines, line_vertex_map, line_unique_vertices = [], {}, []
     for poly in polys_lonlat:
         poly_indices = []
@@ -160,87 +149,93 @@ def _generate_base_geometry(planet_data: dict, subdivision_level: int) -> tuple[
     return V_sphere_base, F_fill, V_lines, np.array(I_lines, dtype=np.uint32)
 
 
-# --- ШАГ 3, 4, 5: Генерация высот, климата, цветов и сборка ---
 def orchestrate_planet_update(main_window) -> dict | None:
-    """
-    Главная функция-оркестратор. Собирает параметры и последовательно вызывает
-    функции для генерации геометрии, высот, климата и данных для рендера.
-    """
-    logger.info("Обновление вида планеты (рефакторинг)...")
-
+    logger.info("Запуск полной симуляции планеты...")
     try:
-        # 1. Сбор параметров
         params = _gather_planet_parameters(main_window)
 
-        # 2. Создание топологии и базовой геометрии для РЕНДЕРА
+        # Генерируем ДВЕ сетки:
+        # 1. Логическая сетка (грубая) - для гексагональной сетки и ID регионов
         planet_data = build_hexplanet(f=params.subdivision_level_grid)
+        # 2. Визуальная/симуляционная сетка (детальная) - для рендеринга и точного климата
         V_base, F_fill, V_lines, I_lines = _generate_base_geometry(planet_data, params.subdivision_level_geom)
+        logger.info(f"-> Геометрия сгенерирована: {len(V_base)} вершин для симуляции/рендера.")
 
-        # 3. Генерация карты высот (для рендера)
-        heights_01_render = get_noise_for_sphere_view(params.sphere_params, V_base)
-        heights_01_render = heights_01_render.flatten()
-        V_displaced = V_base * (1.0 + params.disp_scale * (heights_01_render - 0.5))[:, np.newaxis]
+        # Генерация рельефа на детальной сетке
+        heights_01 = get_noise_for_sphere_view(params.sphere_params, V_base).flatten()
+        V_displaced = V_base * (1.0 + params.disp_scale * (heights_01 - 0.5))[:, np.newaxis]
 
-        # 4. Симуляция климата и получение цветов
         if params.is_climate_enabled:
-            logger.info("  -> Режим климата включен. Запуск симуляции на ЛОГИЧЕСКОЙ сетке...")
+            logger.info("-> Расчет детального климата на сетке рендеринга...")
             biomes_path = Path("game_engine_restructured/data/biomes.json")
             with open(biomes_path, "r", encoding="utf-8") as f:
                 biomes_definition = json.load(f)
 
-            # --- Шаг 4.1: Вычисляем параметры на логической сетке (ячейках) ---
-            centers_xyz = planet_data['centers_xyz']
-            heights_01_on_grid = get_noise_for_sphere_view(params.sphere_params, centers_xyz)
-            heights_01_on_grid = heights_01_on_grid.flatten()  # <--- ДОБАВИТЬ ЭТУ СТРОКУ
-            is_land_mask_on_grid = heights_01_on_grid >= params.sea_level_01
-
+            # --- Шаг 1: Расчет климата на каждой вершине детальной сетки ---
+            is_land_mask = heights_01 >= params.sea_level_01
+            heights_abs = np.linalg.norm(V_displaced * params.radius_m, axis=1)
             sea_level_m_abs = (params.radius_m - params.max_displacement_m) + (
                         params.sea_level_01 * (2 * params.max_displacement_m))
+            heights_m_above_sea = heights_abs - sea_level_m_abs
 
-            V_displaced_on_grid = centers_xyz * (1.0 + params.disp_scale * (heights_01_on_grid - 0.5))[:, np.newaxis]
-            vertex_heights_abs = np.linalg.norm(V_displaced * params.radius_m, axis=1)
-            heights_m_above_sea = vertex_heights_abs - sea_level_m_abs
-            heights_m_above_sea_on_grid = heights_abs_on_grid - sea_level_m_abs
+            latitude_factor = np.abs(V_base[:, 2])
+            base_temp = params.climate_params.get("avg_temp_c", 15.0)
+            equator_pole_diff = params.climate_params.get("axis_tilt_deg", 23.5) * 1.5
+            latitudinal_temp = (base_temp + equator_pole_diff / 3.0) - latitude_factor * equator_pole_diff
+            temperature_map = latitudinal_temp + heights_m_above_sea * -0.0065
 
-            # --- Шаг 4.2: Запускаем симуляцию с данными, соответствующими `neighbors` ---
-            climate_data_on_grid = global_climate.orchestrate_global_climate_simulation(
-                xyz_coords=centers_xyz,
-                heights_m=heights_m_above_sea_on_grid,
-                is_land_mask=is_land_mask_on_grid,
-                neighbors=planet_data['neighbors'],
-                params=params.climate_params
-            )
+            humidity_map = np.full_like(temperature_map, 0.4, dtype=np.float32)
+            humidity_map[~is_land_mask] = 1.0
 
-            # --- Шаг 4.3: Переносим данные о климате с ячеек на вершины рендер-модели ---
-            from generator_logic.topology.icosa_grid import nearest_cell_by_xyz
-            # Для каждой вершины находим ID ближайшей ячейки
-            vertex_to_cell_map = np.array([nearest_cell_by_xyz(v, centers_xyz) for v in V_base], dtype=np.int32)
-
-            # Собираем биомы для каждой ВЕРШИНЫ на основе данных из ближайшей ячейки
+            # --- Шаг 2: Определение биомов и цветов для каждой вершины ---
             dominant_biomes_for_render = []
-            is_land_mask_render = heights_01_render >= params.sea_level_01  # Маска суши для рендер-модели
-
             for i in range(len(V_base)):
-                if not is_land_mask_render[i]:
-                    dominant_biomes_for_render.append("water")  # Это просто заглушка для палитры
+                if not is_land_mask[i]:
+                    dominant_biomes_for_render.append("water")
                     continue
-
-                cell_idx = vertex_to_cell_map[i]
-                temp = climate_data_on_grid["temperature"][cell_idx]
-                hum = climate_data_on_grid["humidity"][cell_idx]
-
+                temp, hum = temperature_map[i], humidity_map[i]
                 probs = biome_matcher.calculate_biome_probabilities(temp, hum, biomes_definition)
                 dominant_biomes_for_render.append(max(probs, key=probs.get) if probs else "default")
 
-            colors = map_planet_bimodal_palette(heights_01_render, params.sea_level_01, dominant_biomes_for_render)
-        else:
-            logger.info("  -> Режим климата выключен. Раскраска по высоте.")
-            colors = map_planet_height_palette(heights_01_render)
+            colors = map_planet_bimodal_palette(heights_01, params.sea_level_01, dominant_biomes_for_render)
 
-        # 6. Сборка данных для рендера
+            # --- Шаг 3: Агрегация детальных данных в кэш для грубой логической сетки ---
+            logger.info("-> Агрегация детальных данных о климате в кэш регионов...")
+            vertex_to_cell_map = np.array([nearest_cell_by_xyz(v, planet_data['centers_xyz']) for v in V_base],
+                                          dtype=np.int32)
+
+            global_climate_cache = {"version": 2, "world_seed": params.sphere_params['seed'], "region_data": {}}
+            num_regions = len(planet_data['centers_xyz'])
+            for i in range(num_regions):
+                region_vertex_indices = np.where(vertex_to_cell_map == i)[0]
+                if region_vertex_indices.size == 0: continue
+
+                avg_temp = np.mean(temperature_map[region_vertex_indices])
+                avg_hum = np.mean(humidity_map[region_vertex_indices])
+                probs = biome_matcher.calculate_biome_probabilities(avg_temp, avg_hum, biomes_definition)
+                sanitized_probs = {k: float(v) for k, v in probs.items()}
+
+                global_climate_cache["region_data"][str(i)] = {
+                    "average_temperature_c": float(avg_temp),
+                    "average_humidity": float(avg_hum),
+                    "dominant_biome": max(sanitized_probs, key=sanitized_probs.get) if sanitized_probs else "default",
+                    "biome_probabilities": sanitized_probs
+                }
+
+            if main_window.project_manager.current_project_path:
+                cache_dir = Path(main_window.project_manager.current_project_path) / "cache"
+                cache_dir.mkdir(exist_ok=True)
+                cache_file = cache_dir / "global_climate_data.json"
+                with open(cache_file, 'w', encoding='utf-8') as f:
+                    json.dump(global_climate_cache, f, indent=2)
+                logger.info(f"Глобальный кэш климата сохранен: {cache_file}")
+        else:
+            logger.info("-> Режим климата выключен. Раскраска по высоте.")
+            colors = map_planet_height_palette(heights_01)
+
+        # Сборка данных для рендера
         r_fill_max = float(np.linalg.norm(V_displaced, axis=1).max())
         V_lines_displaced = V_lines * (r_fill_max + max(0.002, 0.01 * r_fill_max))
-
         offset = len(V_displaced)
         all_vertices = np.vstack([V_displaced, V_lines_displaced]).astype(np.float32)
         line_colors = np.zeros((len(V_lines_displaced), 3), dtype=np.float32)
@@ -253,7 +248,6 @@ def orchestrate_planet_update(main_window) -> dict | None:
             "colors": all_colors, "planet_data": planet_data
         }
 
-        # 7. Кэширование
         if main_window.project_manager.current_project_path:
             cache_dir = Path(main_window.project_manager.current_project_path) / "cache"
             cache_dir.mkdir(exist_ok=True)
@@ -262,7 +256,6 @@ def orchestrate_planet_update(main_window) -> dict | None:
             logger.info(f"Геометрия планеты сохранена в кэш: {cache_file}")
 
         return render_data
-
     except Exception as e:
         logger.error(f"Ошибка при обновлении вида планеты: {e}", exc_info=True)
         return None
