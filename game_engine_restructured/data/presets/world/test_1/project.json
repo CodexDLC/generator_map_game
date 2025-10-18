@@ -26,7 +26,7 @@
     }
   },
   "world_topology": {
-    "subdivision": "3 (92 регионов)",
+    "subdivision": "8 (642 регионов)",
     "resolution": "4096x4096"
   },
   "climate": {

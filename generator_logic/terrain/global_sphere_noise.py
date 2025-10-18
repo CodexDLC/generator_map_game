@@ -79,18 +79,23 @@ def get_noise_for_sphere_view(sphere_params: dict, coords_xyz: np.ndarray) -> np
 
 def get_noise_for_region_preview(sphere_params: dict, coords_xyz: np.ndarray) -> np.ndarray:
     """
-    Для превью региона. Выполняет ГЛОБАЛЬНУЮ нормализацию.
+    Для превью региона. Теперь использует ЛОКАЛЬНУЮ нормализацию для соответствия виду планеты.
     """
     noise_bipolar = _calculate_base_noise(sphere_params, coords_xyz)
 
     power = sphere_params.get('power', 1.0)
     if power != 1.0:
+        # Применяем степень к нормализованному [0,1] диапазону
         noise_01 = (noise_bipolar + 1.0) * 0.5
-        # --- ИСПРАВЛЕНИЕ: Принудительно обрезаем диапазон перед возведением в степень ---
         noise_01 = np.clip(noise_01, 0.0, 1.0)
         noise_01 = np.power(noise_01, power)
         noise_bipolar = noise_01 * 2.0 - 1.0
 
-    noise_01_global = (noise_bipolar + 1.0) * 0.5
+    # Локальная нормализация: растягиваем диапазон высот конкретного региона до [0, 1]
+    mn, mx = float(np.nanmin(noise_bipolar)), float(np.nanmax(noise_bipolar))
+    if mx > mn:
+        noise_01_local = (noise_bipolar - mn) / (mx - mn)
+    else:
+        noise_01_local = np.zeros_like(noise_bipolar)
 
-    return np.clip(noise_01_global, 0.0, 1.0).astype(np.float32)
+    return np.clip(noise_01_local, 0.0, 1.0).astype(np.float32)

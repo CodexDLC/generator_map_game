@@ -204,7 +204,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @QtCore.Slot()
     def _update_planet_view(self):
+        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+        if self.planet_widget:
+            self.planet_widget.setEnabled(False) # Блокируем виджет
         self.loading_overlay.setParent(self.planet_widget.parent())
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
         self.loading_overlay.raise_()
         self.loading_overlay.show()
 
@@ -216,7 +220,11 @@ class MainWindow(QtWidgets.QMainWindow):
     @QtCore.Slot(object)
     def _on_planet_generation_finished(self, result_data: dict):
         self.loading_overlay.hide()
+        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
         if self.planet_widget:
+            self.planet_widget.setEnabled(True) # Разблокируем виджет
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+        if self.planet_widget and result_data: # Добавил проверку на result_data
             self.planet_widget.set_planet_data(result_data["planet_data"])
             self.planet_widget.set_geometry(
                 result_data["vertices"],
@@ -305,6 +313,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.loading_overlay.hide()
         if self.right_outliner:
             self.right_outliner.set_busy(False)
+        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+        if self.planet_widget:
+            self.planet_widget.setEnabled(True) # Также разблокируем в случае ошибки
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
         logger.error(error_message)
         QtWidgets.QMessageBox.critical(self, "Ошибка в фоновом потоке", error_message)
 

@@ -172,49 +172,70 @@ def orchestrate_planet_update(main_window) -> dict | None:
         # 1. Сбор параметров
         params = _gather_planet_parameters(main_window)
 
-        # 2. Создание топологии и базовой геометрии
+        # 2. Создание топологии и базовой геометрии для РЕНДЕРА
         planet_data = build_hexplanet(f=params.subdivision_level_grid)
         V_base, F_fill, V_lines, I_lines = _generate_base_geometry(planet_data, params.subdivision_level_geom)
 
-        # 3. Генерация карты высот
-        heights_01 = get_noise_for_sphere_view(params.sphere_params, V_base)
+        # 3. Генерация карты высот (для рендера)
+        heights_01_render = get_noise_for_sphere_view(params.sphere_params, V_base)
+        heights_01_render = heights_01_render.flatten()
+        V_displaced = V_base * (1.0 + params.disp_scale * (heights_01_render - 0.5))[:, np.newaxis]
 
-        # 4. Применение смещения к вершинам
-        V_displaced = V_base * (1.0 + params.disp_scale * (heights_01 - 0.5))[:, np.newaxis]
-
-        # 5. Симуляция климата и получение цветов
+        # 4. Симуляция климата и получение цветов
         if params.is_climate_enabled:
-            logger.info("  -> Режим климата включен. Запуск глобальной симуляции...")
+            logger.info("  -> Режим климата включен. Запуск симуляции на ЛОГИЧЕСКОЙ сетке...")
             biomes_path = Path("game_engine_restructured/data/biomes.json")
             with open(biomes_path, "r", encoding="utf-8") as f:
                 biomes_definition = json.load(f)
 
-            is_land_mask = heights_01 >= params.sea_level_01
+            # --- Шаг 4.1: Вычисляем параметры на логической сетке (ячейках) ---
+            centers_xyz = planet_data['centers_xyz']
+            heights_01_on_grid = get_noise_for_sphere_view(params.sphere_params, centers_xyz)
+            heights_01_on_grid = heights_01_on_grid.flatten()  # <--- ДОБАВИТЬ ЭТУ СТРОКУ
+            is_land_mask_on_grid = heights_01_on_grid >= params.sea_level_01
 
-            # Расчет абсолютных высот для симуляции
             sea_level_m_abs = (params.radius_m - params.max_displacement_m) + (
                         params.sea_level_01 * (2 * params.max_displacement_m))
-            vertex_heights_abs = np.linalg.norm(V_displaced, axis=1)
-            heights_m_above_sea = vertex_heights_abs - sea_level_m_abs
 
-            climate_data = global_climate.orchestrate_global_climate_simulation(
-                xyz_coords=V_base, heights_m=heights_m_above_sea, is_land_mask=is_land_mask,
-                neighbors=planet_data['neighbors'], params=params.climate_params
+            V_displaced_on_grid = centers_xyz * (1.0 + params.disp_scale * (heights_01_on_grid - 0.5))[:, np.newaxis]
+            vertex_heights_abs = np.linalg.norm(V_displaced * params.radius_m, axis=1)
+            heights_m_above_sea = vertex_heights_abs - sea_level_m_abs
+            heights_m_above_sea_on_grid = heights_abs_on_grid - sea_level_m_abs
+
+            # --- Шаг 4.2: Запускаем симуляцию с данными, соответствующими `neighbors` ---
+            climate_data_on_grid = global_climate.orchestrate_global_climate_simulation(
+                xyz_coords=centers_xyz,
+                heights_m=heights_m_above_sea_on_grid,
+                is_land_mask=is_land_mask_on_grid,
+                neighbors=planet_data['neighbors'],
+                params=params.climate_params
             )
 
-            dominant_biomes = []
-            if np.any(is_land_mask):
-                land_temps = climate_data["temperature"][is_land_mask]
-                land_humidity = climate_data["humidity"][is_land_mask]
-                for i in range(len(land_temps)):
-                    probs = biome_matcher.calculate_biome_probabilities(land_temps[i], land_humidity[i],
-                                                                        biomes_definition)
-                    dominant_biomes.append(max(probs, key=probs.get) if probs else "default")
+            # --- Шаг 4.3: Переносим данные о климате с ячеек на вершины рендер-модели ---
+            from generator_logic.topology.icosa_grid import nearest_cell_by_xyz
+            # Для каждой вершины находим ID ближайшей ячейки
+            vertex_to_cell_map = np.array([nearest_cell_by_xyz(v, centers_xyz) for v in V_base], dtype=np.int32)
 
-            colors = map_planet_bimodal_palette(heights_01, params.sea_level_01, dominant_biomes)
+            # Собираем биомы для каждой ВЕРШИНЫ на основе данных из ближайшей ячейки
+            dominant_biomes_for_render = []
+            is_land_mask_render = heights_01_render >= params.sea_level_01  # Маска суши для рендер-модели
+
+            for i in range(len(V_base)):
+                if not is_land_mask_render[i]:
+                    dominant_biomes_for_render.append("water")  # Это просто заглушка для палитры
+                    continue
+
+                cell_idx = vertex_to_cell_map[i]
+                temp = climate_data_on_grid["temperature"][cell_idx]
+                hum = climate_data_on_grid["humidity"][cell_idx]
+
+                probs = biome_matcher.calculate_biome_probabilities(temp, hum, biomes_definition)
+                dominant_biomes_for_render.append(max(probs, key=probs.get) if probs else "default")
+
+            colors = map_planet_bimodal_palette(heights_01_render, params.sea_level_01, dominant_biomes_for_render)
         else:
             logger.info("  -> Режим климата выключен. Раскраска по высоте.")
-            colors = map_planet_height_palette(heights_01)
+            colors = map_planet_height_palette(heights_01_render)
 
         # 6. Сборка данных для рендера
         r_fill_max = float(np.linalg.norm(V_displaced, axis=1).max())
