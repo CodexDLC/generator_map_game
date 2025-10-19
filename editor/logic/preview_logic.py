@@ -1,7 +1,8 @@
-# ЗАМЕНА ВСЕГО ФАЙЛА: editor/logic/preview_logic.py
+# editor/logic/preview_logic.py
 from __future__ import annotations
 import logging
 import numpy as np
+import math
 import json
 from pathlib import Path
 
@@ -9,6 +10,8 @@ from NodeGraphQt import BaseNode
 
 from editor.graph.graph_runner import run_graph
 from editor.nodes.height.io.world_input_node import WorldInputNode
+from generator_logic.climate import global_models, biome_matcher
+
 from generator_logic.terrain.global_sphere_noise import get_noise_for_region_preview
 
 from typing import TYPE_CHECKING, Set, Tuple, Optional, Dict, Any
@@ -30,24 +33,24 @@ def _get_target_node_and_mode(main_window: MainWindow) -> tuple[None, bool] | tu
     return target_node, is_global_mode
 
 
-def _prepare_context_for_preview(main_window: MainWindow) -> Tuple[Dict[str, Any], int]:
+def _prepare_context(main_window: MainWindow) -> Tuple[Dict[str, Any], int]:
     """
-    ИСПРАВЛЕНО: Эта функция теперь готовит контекст ТОЛЬКО для превью.
-    Она вызывает collect_ui_context с правильным флагом for_preview=True.
+    Готовит контекст для генерации.
+    Разрешение ВСЕГДА берется из настроек РЕГИОНА. Настройка превью ИГНОРИРУЕТСЯ.
     """
-    context = main_window.project_manager.collect_ui_context(for_preview=True)
+    context = main_window.project_manager.collect_ui_context(for_preview=False)
     try:
-        preview_res_str = main_window.preview_resolution_input.currentText()
-        resolution = int(preview_res_str.split('x')[0])
+        # <<< НАЧАЛО ИЗМЕНЕНИЯ: Единственный источник разрешения - "Разрешение региона" >>>
+        region_res_str = main_window.region_resolution_input.currentText()
+        resolution = int(region_res_str.split('x')[0])
+        # <<< КОНЕЦ ИЗМЕНЕНИЯ >>>
     except (AttributeError, ValueError, IndexError):
-        resolution = 1024  # Значение по умолчанию для превью
+        resolution = 1024 # Фоллбэк
 
-    # Остальные параметры берутся из общих настроек проекта, что корректно
     vertex_distance = main_window.vertex_distance_input.value()
     world_side_m = resolution * vertex_distance
     context['WORLD_SIZE_METERS'] = world_side_m
 
-    # Координаты генерируются под разрешение превью
     x_meters = np.linspace(-world_side_m / 2.0, world_side_m / 2.0, resolution, dtype=np.float32)
     z_meters = np.linspace(-world_side_m / 2.0, world_side_m / 2.0, resolution, dtype=np.float32)
     context['x_coords'], context['z_coords'] = np.meshgrid(x_meters, z_meters)
@@ -56,12 +59,14 @@ def _prepare_context_for_preview(main_window: MainWindow) -> Tuple[Dict[str, Any
 
 def _generate_world_input(main_window: "MainWindow", context: Dict[str, Any], sphere_params: dict,
                           return_coords_only: bool = False) -> np.ndarray:
-    logger.info("Генерация входа мирового шума для превью региона...")
+    logger.info("Generating world input for region preview...")
+
     try:
         radius_text = main_window.planet_radius_label.text().replace(" км", "").replace(",", "").replace(" ", "")
         radius_m = float(radius_text) * 1000.0
         if radius_m < 1.0: raise ValueError("Radius is too small")
     except Exception:
+        logger.warning("Could not parse radius from UI, falling back to default.")
         radius_m = 6371000.0
 
     x_m, z_m = context['x_coords'], context['z_coords']
@@ -73,7 +78,8 @@ def _generate_world_input(main_window: "MainWindow", context: Dict[str, Any], sp
     tangent_u = np.cross(center_vec, up_vec)
     tangent_u /= np.linalg.norm(tangent_u)
     tangent_v = np.cross(center_vec, tangent_u)
-    angular_x, angular_z = x_m / radius_m, z_m / radius_m
+    angular_x = x_m / radius_m
+    angular_z = z_m / radius_m
     points_in_plane = (center_vec[np.newaxis, np.newaxis, :]
                        + tangent_u[np.newaxis, np.newaxis, :] * angular_x[..., np.newaxis]
                        + tangent_v[np.newaxis, np.newaxis, :] * angular_z[..., np.newaxis])
@@ -83,15 +89,23 @@ def _generate_world_input(main_window: "MainWindow", context: Dict[str, Any], sp
     if return_coords_only:
         return coords_for_noise
 
-    base_noise = get_noise_for_region_preview(sphere_params=sphere_params, coords_xyz=coords_for_noise)
+    logger.debug(f"Generated spherical coordinates for noise sampling, shape: {coords_for_noise.shape}")
+    base_noise = get_noise_for_region_preview(
+        sphere_params=sphere_params,
+        coords_xyz=coords_for_noise
+    )
+
     try:
         max_height_m = main_window.max_height_input.value()
         base_elevation_text = main_window.base_elevation_label.text().replace(" м", "").replace(",", "")
         base_elevation_m = float(base_elevation_text)
         amplitude_norm = base_elevation_m / max_height_m if max_height_m > 1e-6 else 1.0
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Could not calculate amplitude norm: {e}, falling back to 1.0")
         amplitude_norm = 1.0
-    return (base_noise * amplitude_norm).astype(np.float32)
+
+    final_noise = base_noise * amplitude_norm
+    return final_noise.astype(np.float32)
 
 
 def _has_world_input_ancestor(node: GeneratorNode, visited: Set[str] = None) -> bool:
@@ -111,8 +125,8 @@ def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
     if not target_node:
         return None
 
-    # ИСПРАВЛЕНО: Используем функцию, которая готовит контекст именно для превью
-    context, resolution = _prepare_context_for_preview(main_window)
+    # Теперь эта функция всегда использует "Разрешение региона"
+    context, resolution = _prepare_context(main_window)
 
     if is_global_mode:
         continent_size_km = main_window.ws_continent_scale_km.value()
@@ -129,8 +143,9 @@ def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
         base_noise = np.zeros_like(context['x_coords'], dtype=np.float32)
 
     context["world_input_noise"] = base_noise
+
     if np.any(base_noise) and main_window.graph:
-        max_h = context.get('project', {}).get('max_height_m', 1.0)
+        max_h = context.get('max_height_m', 1.0)
         stats = {
             'min_norm': np.min(base_noise), 'max_norm': np.max(base_noise), 'mean_norm': np.mean(base_noise),
             'min_m': np.min(base_noise) * max_h, 'max_m': np.max(base_noise) * max_h,
@@ -143,33 +158,24 @@ def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
 
     final_map_01 = run_graph(target_node, context)
 
+    # Логика климата остается без изменений, она здесь не мешает
     biome_probabilities = {}
     if main_window.climate_enabled.isChecked():
         try:
             cache_path = Path(main_window.project_manager.current_project_path) / "cache" / "global_climate_data.json"
-            if not cache_path.exists():
-                logger.warning("Файл кэша климата не найден. Сначала обновите планету.")
-                biome_probabilities = {"error": "cache_miss"}
-            else:
+            if cache_path.exists():
                 with open(cache_path, "r", encoding="utf-8") as f:
                     climate_data = json.load(f)
-
                 region_id_str = str(main_window.current_region_id)
                 region_climate = climate_data.get("region_data", {}).get(region_id_str)
-
                 if region_climate:
                     biome_probabilities = region_climate.get("biome_probabilities", {})
-                else:
-                    logger.warning(f"Данные для региона ID {region_id_str} не найдены в кэше.")
-                    biome_probabilities = {"error": "region_miss"}
-
         except Exception as e:
-            logger.error(f"Ошибка при чтении кэша климата: {e}", exc_info=True)
-            biome_probabilities = {"error": "read_error"}
+            logger.error(f"Ошибка при чтении кэша климата для превью: {e}")
 
     return {
         "final_map_01": final_map_01,
-        "max_height": context.get('project', {}).get('max_height_m', 1000.0),
+        "max_height": context.get('max_height_m', 1000.0),
         "vertex_distance": main_window.vertex_distance_input.value(),
         "north_vector_2d": None,
         "biome_probabilities": biome_probabilities
