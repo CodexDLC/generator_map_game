@@ -128,13 +128,14 @@ class SpherePreviewWidget(QOpenGLWidget):
         fs = self.compile_shader(GL_FRAGMENT_SHADER, FS_CODE)
         self._shader_program = self.link_program(vs, fs)
 
-        # --- НАЧАЛО ИЗМЕНЕНИЯ: Шейдер и буферы для полюсов ---
+        # --- Шейдер и буферы для полюсов ---
         vs_poles = self.compile_shader(GL_VERTEX_SHADER, VS_POLES_CODE)
         fs_poles = self.compile_shader(GL_FRAGMENT_SHADER, FS_POLES_CODE)
         self._poles_shader_program = self.link_program(vs_poles, fs_poles)
 
-        pole_positions = np.array([[0, 1.02, 0], [0, -1.02, 0]], dtype=np.float32) # Y-up
-        pole_colors = np.array([[1, 0, 0], [0, 0, 1]], dtype=np.float32) # Red, Blue
+        # ИЗМЕНЕНИЕ ЗДЕСЬ: Полюса теперь на оси Z, чтобы соответствовать геометрии
+        pole_positions = np.array([[0, 0, 1.02], [0, 0, -1.02]], dtype=np.float32)  # Z-up
+        pole_colors = np.array([[1, 0, 0], [0, 0, 1]], dtype=np.float32)  # Red, Blue
 
         self._poles_vbo_pos = GL.glGenBuffers(1)
         GL.glBindBuffer(GL_ARRAY_BUFFER, self._poles_vbo_pos)
@@ -143,13 +144,12 @@ class SpherePreviewWidget(QOpenGLWidget):
         self._poles_vbo_col = GL.glGenBuffers(1)
         GL.glBindBuffer(GL_ARRAY_BUFFER, self._poles_vbo_col)
         GL.glBufferData(GL_ARRAY_BUFFER, pole_colors.nbytes, pole_colors, GL_STATIC_DRAW)
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
         GL.glEnable(GL_DEPTH_TEST)
         GL.glEnable(GL_CULL_FACE)
         GL.glEnable(GL_POLYGON_OFFSET_FILL)
         GL.glPolygonOffset(1.0, 1.0)
-        GL.glEnable(GL_PROGRAM_POINT_SIZE) # Разрешаем шейдеру задавать размер точек
+        GL.glEnable(GL_PROGRAM_POINT_SIZE)
 
         GL.glClearColor(0.1, 0.1, 0.15, 1.0)
 

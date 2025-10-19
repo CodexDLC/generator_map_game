@@ -178,6 +178,7 @@ def orchestrate_planet_update(main_window) -> dict | None:
                         params.sea_level_01 * (2 * params.max_displacement_m))
             heights_m_above_sea = heights_abs - sea_level_m_abs
 
+            # ИЗМЕНЕНИЕ ЗДЕСЬ: Возвращаем расчет широты на ось Z (индекс 2)
             latitude_factor = np.abs(V_base[:, 2])
             base_temp = params.climate_params.get("avg_temp_c", 15.0)
             equator_pole_diff = params.climate_params.get("axis_tilt_deg", 23.5) * 1.5

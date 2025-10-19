@@ -10,9 +10,8 @@ def calculate_base_temperature(
     """
     Рассчитывает базовую температуру на сфере в зависимости от широты.
     """
-    # Y-координата в нормализованном пространстве [-1, 1] соответствует синусу широты.
-    # Используем индекс 1 для доступа к Y.
-    latitude_factor = np.abs(xyz_coords[:, 1])  # от 0 (экватор) до 1 (полюса)
+    # Z-координата (индекс 2) в нормализованном пространстве [-1, 1] соответствует синусу широты.
+    latitude_factor = np.abs(xyz_coords[:, 2])  # от 0 (экватор) до 1 (полюса)
 
     temperature = base_temp_c - latitude_factor * equator_pole_temp_diff_c
     return temperature.astype(np.float32)
