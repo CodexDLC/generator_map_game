@@ -30,25 +30,32 @@ def _get_target_node_and_mode(main_window: MainWindow) -> tuple[None, bool] | tu
     return target_node, is_global_mode
 
 
-def _prepare_context(main_window: MainWindow) -> Tuple[Dict[str, Any], int]:
-    context = main_window.project_manager.collect_ui_context(for_preview=False)
+def _prepare_context_for_preview(main_window: MainWindow) -> Tuple[Dict[str, Any], int]:
+    """
+    ИСПРАВЛЕНО: Эта функция теперь готовит контекст ТОЛЬКО для превью.
+    Она вызывает collect_ui_context с правильным флагом for_preview=True.
+    """
+    context = main_window.project_manager.collect_ui_context(for_preview=True)
     try:
-        region_res_str = main_window.region_resolution_input.currentText()
-        resolution = int(region_res_str.split('x')[0])
+        preview_res_str = main_window.preview_resolution_input.currentText()
+        resolution = int(preview_res_str.split('x')[0])
     except (AttributeError, ValueError, IndexError):
-        resolution = 4096
+        resolution = 1024  # Значение по умолчанию для превью
 
+    # Остальные параметры берутся из общих настроек проекта, что корректно
     vertex_distance = main_window.vertex_distance_input.value()
     world_side_m = resolution * vertex_distance
     context['WORLD_SIZE_METERS'] = world_side_m
 
+    # Координаты генерируются под разрешение превью
     x_meters = np.linspace(-world_side_m / 2.0, world_side_m / 2.0, resolution, dtype=np.float32)
     z_meters = np.linspace(-world_side_m / 2.0, world_side_m / 2.0, resolution, dtype=np.float32)
     context['x_coords'], context['z_coords'] = np.meshgrid(x_meters, z_meters)
     return context, resolution
 
 
-def _generate_world_input(main_window: "MainWindow", context: Dict[str, Any], sphere_params: dict) -> np.ndarray:
+def _generate_world_input(main_window: "MainWindow", context: Dict[str, Any], sphere_params: dict,
+                          return_coords_only: bool = False) -> np.ndarray:
     logger.info("Генерация входа мирового шума для превью региона...")
     try:
         radius_text = main_window.planet_radius_label.text().replace(" км", "").replace(",", "").replace(" ", "")
@@ -72,6 +79,9 @@ def _generate_world_input(main_window: "MainWindow", context: Dict[str, Any], sp
                        + tangent_v[np.newaxis, np.newaxis, :] * angular_z[..., np.newaxis])
     coords_for_noise = points_in_plane / np.linalg.norm(points_in_plane, axis=-1, keepdims=True)
     coords_for_noise = coords_for_noise.astype(np.float32)
+
+    if return_coords_only:
+        return coords_for_noise
 
     base_noise = get_noise_for_region_preview(sphere_params=sphere_params, coords_xyz=coords_for_noise)
     try:
@@ -101,7 +111,8 @@ def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
     if not target_node:
         return None
 
-    context, resolution = _prepare_context(main_window)
+    # ИСПРАВЛЕНО: Используем функцию, которая готовит контекст именно для превью
+    context, resolution = _prepare_context_for_preview(main_window)
 
     if is_global_mode:
         continent_size_km = main_window.ws_continent_scale_km.value()
@@ -119,7 +130,7 @@ def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
 
     context["world_input_noise"] = base_noise
     if np.any(base_noise) and main_window.graph:
-        max_h = context.get('max_height_m', 1.0)
+        max_h = context.get('project', {}).get('max_height_m', 1.0)
         stats = {
             'min_norm': np.min(base_noise), 'max_norm': np.max(base_noise), 'mean_norm': np.mean(base_noise),
             'min_m': np.min(base_noise) * max_h, 'max_m': np.max(base_noise) * max_h,
@@ -132,7 +143,6 @@ def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
 
     final_map_01 = run_graph(target_node, context)
 
-    # --- НОВЫЙ БЛОК: Чтение биомов из кэша ---
     biome_probabilities = {}
     if main_window.climate_enabled.isChecked():
         try:
@@ -156,12 +166,11 @@ def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
         except Exception as e:
             logger.error(f"Ошибка при чтении кэша климата: {e}", exc_info=True)
             biome_probabilities = {"error": "read_error"}
-    # --- КОНЕЦ НОВОГО БЛОКА ---
 
     return {
         "final_map_01": final_map_01,
-        "max_height": context.get('max_height_m', 1000.0),
+        "max_height": context.get('project', {}).get('max_height_m', 1000.0),
         "vertex_distance": main_window.vertex_distance_input.value(),
-        "north_vector_2d": None,  # Placeholder
+        "north_vector_2d": None,
         "biome_probabilities": biome_probabilities
     }
