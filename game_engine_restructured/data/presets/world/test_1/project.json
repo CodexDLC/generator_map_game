@@ -26,13 +26,13 @@
     }
   },
   "world_topology": {
-    "subdivision": "8 (642 регионов)",
-    "resolution": "4096x4096"
+    "subdivision": "3 (92 регионов)",
+    "resolution": "1024x1024"
   },
   "climate": {
     "enabled": true,
     "sea_level_pct": 32.6,
-    "avg_temp_c": 15.0,
+    "avg_temp_c": 2.6,
     "axis_tilt_deg": 23.5,
     "wind_dir_deg": 225.0,
     "shadow_strength": 0.6

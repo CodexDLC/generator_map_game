@@ -81,7 +81,7 @@ def get_global_wind_vectors(xyz_coords: np.ndarray) -> np.ndarray:
     """
     n_points = xyz_coords.shape[0]
     wind_vectors = np.zeros((n_points, 3), dtype=np.float32)
-    latitude_rad = np.arcsin(np.clip(xyz_coords[:, 2], -1.0, 1.0))
+    latitude_rad = np.arcsin(np.clip(xyz_coords[:, 1], -1.0, 1.0))
     hadley_cell_limit = math.radians(30)
     ferrel_cell_limit = math.radians(60)
 

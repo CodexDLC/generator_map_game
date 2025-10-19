@@ -9,9 +9,9 @@ EPS = 1e-12
 def _icosahedron() -> Tuple[np.ndarray, np.ndarray]:
     phi = (1.0 + math.sqrt(5.0)) / 2.0
     verts = np.array([
-        [-1,  phi, 0], [ 1,  phi, 0], [-1, -phi, 0], [ 1, -phi, 0],
-        [0, -1,  phi], [0,  1,  phi], [0, -1, -phi], [0,  1, -phi],
-        [ phi, 0, -1], [ phi, 0,  1], [-phi, 0, -1], [-phi, 0,  1]
+        [-1, 0,  phi], [ 1, 0,  phi], [-1, 0, -phi], [ 1, 0, -phi],
+        [0,  phi, -1], [0,  phi,  1], [0, -phi, -1], [0, -phi,  1],
+        [ phi, -1, 0], [ phi,  1, 0], [-phi, -1, 0], [-phi,  1, 0]
     ], dtype=np.float64)
 
     faces = np.array([

@@ -161,7 +161,6 @@ class SpherePreviewWidget(QOpenGLWidget):
         proj.perspective(45.0, self.width() / max(1, self.height()), 0.1, 100.0)
         view = QtGui.QMatrix4x4()
         view.translate(0.0, 0.0, -self._cam_distance)
-        view.rotate(-90, 1, 0, 0)
         view.rotate(self._rotation)
         mvp = proj * view
 
