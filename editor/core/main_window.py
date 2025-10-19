@@ -204,11 +204,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @QtCore.Slot()
     def _update_planet_view(self):
-        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+        # --- РЕКОМЕНДУЕМОЕ ИЗМЕНЕНИЕ ---
+        if self.update_planet_btn:
+            self.update_planet_btn.setEnabled(False)  # Блокируем КНОПКУ
+
         if self.planet_widget:
-            self.planet_widget.setEnabled(False) # Блокируем виджет
+            self.planet_widget.setEnabled(False)
         self.loading_overlay.setParent(self.planet_widget.parent())
-        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
         self.loading_overlay.raise_()
         self.loading_overlay.show()
 
@@ -220,10 +222,13 @@ class MainWindow(QtWidgets.QMainWindow):
     @QtCore.Slot(object)
     def _on_planet_generation_finished(self, result_data: dict):
         self.loading_overlay.hide()
-        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+
         if self.planet_widget:
             self.planet_widget.setEnabled(True) # Разблокируем виджет
-        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
+        if self.update_planet_btn:
+            self.update_planet_btn.setEnabled(True)
+
         if self.planet_widget and result_data: # Добавил проверку на result_data
             self.planet_widget.set_planet_data(result_data["planet_data"])
             self.planet_widget.set_geometry(
@@ -281,17 +286,20 @@ class MainWindow(QtWidgets.QMainWindow):
             max_height = result_data["max_height"]
             vertex_distance = result_data["vertex_distance"]
 
-            preview_res_str = self.preview_resolution_input.currentText()
-            preview_resolution = int(preview_res_str.split('x')[0])
+            # Этот блок полностью удаляется или комментируется
+            # preview_res_str = self.preview_resolution_input.currentText()
+            # preview_resolution = int(preview_res_str.split('x')[0])
 
-            display_map_01 = final_map_01
-            if final_map_01.shape[0] != preview_resolution:
-                display_map_01 = cv2.resize(final_map_01, (preview_resolution, preview_resolution),
-                                            interpolation=cv2.INTER_AREA)
+            # display_map_01 = final_map_01 # Эта строка тоже больше не нужна
+            # if final_map_01.shape[0] != preview_resolution:
+            #     display_map_01 = cv2.resize(final_map_01, (preview_resolution, preview_resolution),
+            #                                 interpolation=cv2.INTER_AREA)
 
-            final_map_meters = display_map_01 * max_height
+            # Теперь мы всегда используем исходную карту final_map_01
+            final_map_meters = final_map_01 * max_height
 
             if self.preview_widget:
+                # Передаем в виджет карту в оригинальном разрешении
                 self.preview_widget.update_mesh(final_map_meters, vertex_distance,
                                                 north_vector_2d=result_data.get("north_vector_2d"))
 
@@ -309,10 +317,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.loading_overlay.hide()
         if self.right_outliner:
             self.right_outliner.set_busy(False)
-        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
         if self.planet_widget:
-            self.planet_widget.setEnabled(True) # Также разблокируем в случае ошибки
-        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+            self.planet_widget.setEnabled(True)
+
+        # --- РЕКОМЕНДУЕМОЕ ИЗМЕНЕНИЕ ---
+        if self.update_planet_btn:
+            self.update_planet_btn.setEnabled(True)  # Разблокируем КНОПКУ в случае ошибки
+
         logger.error(error_message)
         QtWidgets.QMessageBox.critical(self, "Ошибка в фоновом потоке", error_message)
 

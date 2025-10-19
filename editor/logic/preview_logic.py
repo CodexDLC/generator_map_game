@@ -2,7 +2,6 @@
 from __future__ import annotations
 import logging
 import numpy as np
-import math
 import json
 from pathlib import Path
 
@@ -10,7 +9,6 @@ from NodeGraphQt import BaseNode
 
 from editor.graph.graph_runner import run_graph
 from editor.nodes.height.io.world_input_node import WorldInputNode
-from generator_logic.climate import global_models, biome_matcher
 
 from generator_logic.terrain.global_sphere_noise import get_noise_for_region_preview
 
