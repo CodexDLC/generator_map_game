@@ -31,33 +31,49 @@ def _get_target_node_and_mode(main_window: MainWindow) -> tuple[None, bool] | tu
     return target_node, is_global_mode
 
 
-def _prepare_context(main_window: MainWindow) -> Tuple[Dict[str, Any], int]:
+def _prepare_context(main_window: MainWindow, for_export: bool) -> Tuple[Dict[str, Any], int]:
     """
     Готовит контекст для генерации.
-    Разрешение ВСЕГДА берется из настроек РЕГИОНА. Настройка превью ИГНОРИРУЕТСЯ.
+    Если for_export=True, всегда используется полное "Разрешение региона".
+    Иначе, используется "Разрешение вычислений" для быстрого превью.
     """
     context = main_window.project_manager.collect_ui_context(for_preview=False)
+
     try:
-        # <<< НАЧАЛО ИЗМЕНЕНИЯ: Единственный источник разрешения - "Разрешение региона" >>>
         region_res_str = main_window.region_resolution_input.currentText()
-        resolution = int(region_res_str.split('x')[0])
-        # <<< КОНЕЦ ИЗМЕНЕНИЯ >>>
+        region_resolution = int(region_res_str.split('x')[0])
     except (AttributeError, ValueError, IndexError):
-        resolution = 1024 # Фоллбэк
+        region_resolution = 1024
+
+    # <<< ИЗМЕНЕНИЕ: Выбираем разрешение в зависимости от цели >>>
+    if for_export:
+        calc_resolution = region_resolution
+        logger.info(f"Подготовка контекста для ЭКСПОРТА. Разрешение: {calc_resolution}x{calc_resolution}")
+    else:
+        try:
+            calc_res_str = main_window.preview_calc_resolution_input.currentText()
+            if "Полное" in calc_res_str:
+                calc_resolution = region_resolution
+            else:
+                calc_resolution = int(calc_res_str.split('x')[0])
+        except (AttributeError, ValueError, IndexError):
+            calc_resolution = 1024
+        logger.info(f"Подготовка контекста для ПРЕВЬЮ. Разрешение: {calc_resolution}x{calc_resolution}")
 
     vertex_distance = main_window.vertex_distance_input.value()
-    world_side_m = resolution * vertex_distance
+    world_side_m = region_resolution * vertex_distance
     context['WORLD_SIZE_METERS'] = world_side_m
 
-    x_meters = np.linspace(-world_side_m / 2.0, world_side_m / 2.0, resolution, dtype=np.float32)
-    z_meters = np.linspace(-world_side_m / 2.0, world_side_m / 2.0, resolution, dtype=np.float32)
+    x_meters = np.linspace(-world_side_m / 2.0, world_side_m / 2.0, calc_resolution, dtype=np.float32)
+    z_meters = np.linspace(-world_side_m / 2.0, world_side_m / 2.0, calc_resolution, dtype=np.float32)
     context['x_coords'], context['z_coords'] = np.meshgrid(x_meters, z_meters)
-    return context, resolution
+
+    return context, calc_resolution
 
 
 def _generate_world_input(main_window: "MainWindow", context: Dict[str, Any], sphere_params: dict,
                           return_coords_only: bool = False) -> np.ndarray:
-    logger.info("Generating world input for region preview...")
+    logger.info("Generating world input for region...")
 
     try:
         radius_text = main_window.planet_radius_label.text().replace(" км", "").replace(",", "").replace(" ", "")
@@ -87,7 +103,6 @@ def _generate_world_input(main_window: "MainWindow", context: Dict[str, Any], sp
     if return_coords_only:
         return coords_for_noise
 
-    logger.debug(f"Generated spherical coordinates for noise sampling, shape: {coords_for_noise.shape}")
     base_noise = get_noise_for_region_preview(
         sphere_params=sphere_params,
         coords_xyz=coords_for_noise
@@ -97,10 +112,17 @@ def _generate_world_input(main_window: "MainWindow", context: Dict[str, Any], sp
         max_height_m = main_window.max_height_input.value()
         base_elevation_text = main_window.base_elevation_label.text().replace(" м", "").replace(",", "")
         base_elevation_m = float(base_elevation_text)
-        amplitude_norm = base_elevation_m / max_height_m if max_height_m > 1e-6 else 1.0
+
+        if max_height_m > 1e-6 and base_elevation_m > 1e-6:
+            amplitude_norm = base_elevation_m / max_height_m
+        else:
+            amplitude_norm = 0.33
+            logger.warning(
+                f"Could not calculate amplitude norm (base_elevation={base_elevation_m}, max_height={max_height_m}), falling back to {amplitude_norm}")
+
     except Exception as e:
-        logger.warning(f"Could not calculate amplitude norm: {e}, falling back to 1.0")
-        amplitude_norm = 1.0
+        amplitude_norm = 0.33
+        logger.warning(f"Could not calculate amplitude norm: {e}, falling back to {amplitude_norm}")
 
     final_noise = base_noise * amplitude_norm
     return final_noise.astype(np.float32)
@@ -118,13 +140,15 @@ def _has_world_input_ancestor(node: GeneratorNode, visited: Set[str] = None) -> 
     return False
 
 
-def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
+def generate_node_graph_output(main_window: MainWindow, for_export: bool = False) -> Optional[Dict[str, Any]]:
     target_node, is_global_mode = _get_target_node_and_mode(main_window)
     if not target_node:
         return None
 
-    # Теперь эта функция всегда использует "Разрешение региона"
-    context, resolution = _prepare_context(main_window)
+    context, calc_resolution = _prepare_context(main_window, for_export)
+
+    region_res_str = main_window.region_resolution_input.currentText()
+    original_resolution = int(region_res_str.split('x')[0])
 
     if is_global_mode:
         continent_size_km = main_window.ws_continent_scale_km.value()
@@ -156,7 +180,14 @@ def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
 
     final_map_01 = run_graph(target_node, context)
 
-    # Логика климата остается без изменений, она здесь не мешает
+    original_vertex_distance = main_window.vertex_distance_input.value()
+
+    if calc_resolution != original_resolution:
+        compensation_factor = original_resolution / calc_resolution
+        compensated_vertex_distance = original_vertex_distance * compensation_factor
+    else:
+        compensated_vertex_distance = original_vertex_distance
+
     biome_probabilities = {}
     if main_window.climate_enabled.isChecked():
         try:
@@ -174,7 +205,7 @@ def generate_preview_data(main_window: MainWindow) -> Optional[Dict[str, Any]]:
     return {
         "final_map_01": final_map_01,
         "max_height": context.get('max_height_m', 1000.0),
-        "vertex_distance": main_window.vertex_distance_input.value(),
+        "vertex_distance": compensated_vertex_distance if not for_export else original_vertex_distance,
         "north_vector_2d": None,
         "biome_probabilities": biome_probabilities
     }

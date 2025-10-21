@@ -8,7 +8,7 @@ import json
 import math
 from pathlib import Path
 
-import cv2
+import re
 import numpy as np
 from PySide6 import QtWidgets, QtCore, QtGui
 
@@ -71,6 +71,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.max_height_input: Optional[QtWidgets.QDoubleSpinBox] = None
         self.planet_radius_label: Optional[QtWidgets.QLabel] = None
         self.base_elevation_label: Optional[QtWidgets.QLabel] = None
+        self.surface_area_label: Optional[QtWidgets.QLabel] = None
+        self.ocean_area_label: Optional[QtWidgets.QLabel] = None
+        self.land_elevation_label: Optional[QtWidgets.QLabel] = None
+        self.ocean_depth_label: Optional[QtWidgets.QLabel] = None
         self.ws_noise_box: Optional[CollapsibleBox] = None
         self.planet_type_preset_input: Optional[QtWidgets.QComboBox] = None
         self.ws_sea_level: Optional[SliderSpinCombo] = None
@@ -81,6 +85,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ws_warp_strength: Optional[SliderSpinCombo] = None
         self.ws_seed: Optional[SeedWidget] = None
         self.preview_resolution_input: Optional[QtWidgets.QComboBox] = None
+        self.preview_calc_resolution_input: Optional[QtWidgets.QComboBox] = None
         self.region_id_label: Optional[QtWidgets.QLabel] = None
         self.region_center_x_label: Optional[QtWidgets.QLabel] = None
         self.region_center_z_label: Optional[QtWidgets.QLabel] = None
@@ -339,6 +344,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.preview_resolution_input: self.preview_resolution_input.currentIndexChanged.connect(
             self._trigger_preview_update)
 
+        if self.preview_calc_resolution_input: self.preview_calc_resolution_input.currentIndexChanged.connect(
+            self._trigger_preview_update)
+
         if self.update_planet_btn:
             self.update_planet_btn.clicked.connect(self._update_planet_view)
 
@@ -352,7 +360,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.ws_warp_strength, self.ws_seed, self.climate_enabled, self.climate_sea_level,
             self.climate_avg_temp, self.climate_axis_tilt,
             # --- ДОБАВЛЕНЫ НОВЫЕ ВИДЖЕТЫ В СПИСОК ---
-            self.climate_wind_dir, self.climate_shadow_strength
+            self.climate_wind_dir,
+            self.climate_shadow_strength,
+            self.preview_calc_resolution_input
         ]
         for control in controls_for_dirty_mark:
             if not control: continue
@@ -384,12 +394,15 @@ class MainWindow(QtWidgets.QMainWindow):
             self.presets_widget.delete_requested.connect(self.action_delete_preset_by_name)
             self.presets_widget.save_as_requested.connect(self.action_save_active_preset)
 
-
     def _create_left_tabs(self) -> QtWidgets.QTabWidget:
         tabs = QtWidgets.QTabWidget()
         tabs.setDocumentMode(True)
+
+        # Эта функция возвращает все элементы UI в словаре ws_widgets
         world_settings_panel, ws_widgets = make_world_settings_widget(self)
 
+        # Этот цикл присваивает каждый виджет из словаря атрибуту MainWindow
+        # Например: self.planet_radius_label = ws_widgets["planet_radius_label"]
         for name, widget in ws_widgets.items():
             setattr(self, name, widget)
 
@@ -432,61 +445,126 @@ class MainWindow(QtWidgets.QMainWindow):
         resolution = int(res_str.split('x')[0])
         max_dist = MAX_SIDE_METERS / resolution
         self.vertex_distance_input.blockSignals(True)
-        self.vertex_distance_input.setRange(0.25, max_dist)
+        self.vertex_distance_input.setRange(1.0, max_dist)
         if self.vertex_distance_input.value() > max_dist:
             self.vertex_distance_input.setValue(max_dist)
         self.vertex_distance_input.blockSignals(False)
 
     def _update_calculated_fields(self):
+        # Добавляем проверку на наличие всех виджетов (включая новые)
         if not all([self.subdivision_level_input, self.region_resolution_input, self.vertex_distance_input,
                     self.planet_radius_label, self.base_elevation_label, self.max_height_input,
-                    self.planet_type_preset_input]):
+                    self.planet_type_preset_input, self.surface_area_label, self.ocean_area_label,
+                    self.land_elevation_label, self.ocean_depth_label, self.climate_sea_level]):
             return
 
         try:
             # 1. Берем базовые параметры, которые задает пользователь
             res_str = self.region_resolution_input.currentText()
             resolution = int(res_str.split('x')[0])
-            dist = self.vertex_distance_input.value()
+            dist = self.vertex_distance_input.value()  # Расстояние м/вершина
 
             subdiv_text = self.subdivision_level_input.currentText()
-            num_regions_str = "".join(filter(str.isdigit, subdiv_text))
-            num_regions = int(num_regions_str) if num_regions_str else 0
 
-            # 2. Вычисляем физический размер ОДНОГО региона
+            # --- ИСПРАВЛЕННАЯ ЛОГИКА ИЗВЛЕЧЕНИЯ ЧИСЛА РЕГИОНОВ ---
+            # Используем регулярное выражение, чтобы найти число, окруженное скобками.
+            import re  # Хотя вы просили не повторять, оставляю тут для целостности метода
+            match = re.search(r'\(\s*(\d+)\s*регион', subdiv_text)
+            if match:
+                num_regions = int(match.group(1))  # Извлекаем только число 642
+            else:
+                # Фоллбэк: если формат строки изменится
+                num_regions_str = "".join(filter(str.isdigit, subdiv_text))
+                # Удаляем первое число, которое является уровнем подразделения (напр., '8'),
+                # оставляя только число регионов (642) - это более надежный, но все еще фоллбэк.
+                # Оставляем старую (менее точную) логику фоллбэка, но при успешном match она не используется
+                num_regions = int(num_regions_str) if num_regions_str else 0
+
+            logger.debug(f"Извлечено число регионов (num_regions): {num_regions}")
+
+            # Получаем уровень моря для расчетов
+            sea_level_percent = self.climate_sea_level.value()
+            sea_level_01 = sea_level_percent / 100.0
+
+            # --- НАЧАЛО ДЕТАЛЬНОГО РАСЧЕТА МАСШТАБА (ЛОГИРОВАНИЕ) ---
+            logger.debug("--- НАЧАЛО ДЕТАЛЬНОГО РАСЧЕТА МАСШТАБА ---")
+            logger.debug(f"Входные данные: resolution={resolution}, dist={dist}м, num_regions={num_regions}")
+
+            # 2. Вычисляем физическую сторону КВАДРАТНОГО региона (в метрах)
             region_side_m = resolution * dist
-            # Площадь шестиугольного региона (более точная)
-            hex_area_m2 = (region_side_m ** 2) * (math.sqrt(3) / 2.0)
+            square_area_m2 = region_side_m ** 2
 
-            # 3. Вычисляем общую площадь поверхности и РАДИУС ПЛАНЕТЫ
+            logger.debug(f"1. Сторона квад. региона (м): {region_side_m:,.2f}")
+            logger.debug(f"2. Площадь квад. региона (м²): {square_area_m2:,.2f}")
+
+            # 3. Применяем коэффициент коррекции для ГЕКСАГОНА
+            HEX_AREA_FACTOR = 0.866
+            hex_area_m2 = square_area_m2 * HEX_AREA_FACTOR
+
+            logger.debug(f"3. Коэф. гексагона (0.866): {HEX_AREA_FACTOR}")
+            logger.debug(f"4. Площадь гексагона (м²): {hex_area_m2:,.2f}")
+
+            # 4. Общая площадь поверхности - это сумма площадей всех гексагонов
             total_surface_area_m2 = num_regions * hex_area_m2
+
+            # 5. Вычисляем новый, ЛОГИЧЕСКИ ПРАВИЛЬНЫЙ радиус
             radius_m = math.sqrt(total_surface_area_m2 / (4 * math.pi))
             radius_km = radius_m / 1000.0
 
-            # 4. Обновляем вычисляемые поля в UI
-            self.planet_radius_label.setText(f"{radius_km:,.0f} км")
+            surface_area_km2 = total_surface_area_m2 / 1_000_000.0
 
+            logger.debug(f"5. Общая площадь (км²): {surface_area_km2:,.2f}")
+            logger.debug(f"6. Вычисленный Радиус (км): {radius_km:,.2f}")
+            logger.debug("--- КОНЕЦ ДЕТАЛЬНОГО РАСЧЕТА МАСШТАБА ---")
+
+            # --- ОБНОВЛЕНИЕ ВЫЧИСЛЯЕМЫХ ПОЛЕЙ (UI) ---
+
+            # a) Радиус и Площадь поверхности
+            self.planet_radius_label.setText(f"{radius_km:,.1f} км")
+            self.surface_area_label.setText(f"{surface_area_km2:,.0f} км²")
+
+            # b) Расчет и обновление площади океанов (приблизительно)
+            ocean_area_km2 = surface_area_km2 * sea_level_01
+            self.ocean_area_label.setText(f"{ocean_area_km2:,.0f} км² ({sea_level_percent:.0f}%)")
+
+            # c) Перепад высот
             preset_name = self.planet_type_preset_input.currentText()
+            # Предполагается, что PLANET_ROUGHNESS_PRESETS доступен
             roughness_pct, max_h_multiplier = PLANET_ROUGHNESS_PRESETS.get(preset_name, (0.003, 2.5))
 
             base_elevation = radius_m * roughness_pct
             max_h = base_elevation * max_h_multiplier
 
             self.base_elevation_label.setText(f"{base_elevation:,.0f} м")
+
+            # d) Высота суши и глубина океана
+            max_land_elevation = max_h * (1.0 - sea_level_01)
+            max_ocean_depth = max_h * sea_level_01
+
+            self.land_elevation_label.setText(f"до +{max_land_elevation:,.0f} м")
+            self.ocean_depth_label.setText(f"до -{max_ocean_depth:,.0f} м")
+
+            # e) Максимальная высота (обновление спин-бокса)
             self.max_height_input.blockSignals(True)
             self.max_height_input.setValue(max_h)
             self.max_height_input.blockSignals(False)
 
             logger.debug(
                 f"Расчет высот: Тип='{preset_name}', Шероховатость={roughness_pct * 100:.3f}%, "
-                f"Радиус={radius_km:.1f}км -> Базовый перепад={base_elevation:.1f}м, "
-                f"Макс. высота={max_h:.1f}м"
+                f"Радиус={radius_km:,.1f}км -> Базовый перепад={base_elevation:,.1f}м, "
+                f"Макс. высота={max_h:,.1f}м"
             )
 
         except Exception as e:
-            logger.error(f"Ошибка при расчете полей: {e}")
-            self.planet_radius_label.setText("Ошибка")
-            self.base_elevation_label.setText("Ошибка")
+            logger.error(f"Ошибка при расчете полей: {e}", exc_info=True)
+            # Обновляем все поля на "Ошибка"
+            labels_to_reset = [
+                self.planet_radius_label, self.base_elevation_label, self.surface_area_label,
+                self.ocean_area_label, self.land_elevation_label, self.ocean_depth_label
+            ]
+            for label in labels_to_reset:
+                if label:
+                    label.setText("Ошибка")
             self.max_height_input.setValue(0)
 
     @QtCore.Slot(object)

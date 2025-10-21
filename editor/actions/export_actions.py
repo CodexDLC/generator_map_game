@@ -5,7 +5,8 @@ from pathlib import Path
 import numpy as np
 from PySide6 import QtWidgets, QtCore
 
-from editor.logic.preview_logic import generate_preview_data
+# <<< ИЗМЕНЕНИЕ: Импортируем новую функцию >>>
+from editor.logic.preview_logic import generate_node_graph_output
 from game_engine_restructured.core.export import (
     write_world_meta_json,
     write_client_chunk_meta,
@@ -30,7 +31,6 @@ class ExportDialog(QtWidgets.QDialog):
         self.layout = QtWidgets.QVBoxLayout(self)
         self.form_layout = QtWidgets.QFormLayout()
 
-        # Поле для выбора папки
         self.path_edit = QtWidgets.QLineEdit(last_dir or "")
         self.path_button = QtWidgets.QPushButton("...")
         self.path_button.clicked.connect(self._select_path)
@@ -39,19 +39,16 @@ class ExportDialog(QtWidgets.QDialog):
         path_layout.addWidget(self.path_button)
         self.form_layout.addRow("Папка для экспорта:", path_layout)
 
-        # Выбор размера чанка
         self.chunk_size_combo = QtWidgets.QComboBox()
         self.chunk_size_combo.addItems(VALID_CHUNK_SIZES)
         self.chunk_size_combo.setCurrentText("512")
         self.form_layout.addRow("Размер чанка (px):", self.chunk_size_combo)
 
-        # ID мира
         self.world_id_edit = QtWidgets.QLineEdit("world_location")
         self.form_layout.addRow("ID мира:", self.world_id_edit)
 
         self.layout.addLayout(self.form_layout)
 
-        # Кнопки OK/Cancel
         self.button_box = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel
         )
@@ -93,7 +90,7 @@ def run_region_export(main_window):
     world_id = export_settings["world_id"]
     base_path = Path(export_settings["output_path"])
 
-    world_seed_for_path = "25"
+    world_seed_for_path = "25" # TODO: Get from project settings
     world_path = base_path / world_id / world_seed_for_path
 
     logger.info(f"Начало экспорта региона в '{world_path}' с размером чанка {chunk_size}x{chunk_size}")
@@ -102,21 +99,19 @@ def run_region_export(main_window):
     QtWidgets.QApplication.processEvents()
 
     try:
-        preview_data = generate_preview_data(main_window)
-        if not preview_data:
+        # <<< ИЗМЕНЕНИЕ: Вызываем новую функцию с флагом for_export=True >>>
+        export_data = generate_node_graph_output(main_window, for_export=True)
+        if not export_data:
             raise RuntimeError("Не удалось сгенерировать данные для экспорта (нода не выбрана?).")
 
-        heightmap_full = preview_data["final_map_01"] * preview_data["max_height"]
+        heightmap_full = export_data["final_map_01"] * export_data["max_height"]
         region_res = heightmap_full.shape[0]
 
         if region_res % chunk_size != 0:
             raise ValueError(f"Разрешение региона ({region_res}) должно быть кратно размеру чанка ({chunk_size}).")
 
-        # --- НАЧАЛО ИЗМЕНЕНИЯ ---
-        # Теперь _world_meta.json сохраняется ВНУТРИ папки с сидом.
         world_meta_path = world_path / "_world_meta.json"
-        world_path.mkdir(parents=True, exist_ok=True)  # Создаем папку мира, если ее нет
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+        world_path.mkdir(parents=True, exist_ok=True)
 
         write_world_meta_json(
             str(world_meta_path),
@@ -125,7 +120,7 @@ def run_region_export(main_window):
             chunk_px=chunk_size,
             meters_per_pixel=main_window.vertex_distance_input.value(),
             height_min_m=0.0,
-            height_max_m=preview_data["max_height"]
+            height_max_m=export_data["max_height"]
         )
         logger.info(f"Файл _world_meta.json сохранен.")
 
@@ -146,7 +141,7 @@ def run_region_export(main_window):
                 empty_overlay = np.zeros((chunk_size, chunk_size), dtype=np.uint8)
 
                 write_heightmap_r16(str(chunk_dir / "heightmap.r16"), height_chunk.tolist(),
-                                    h_norm=preview_data["max_height"])
+                                    h_norm=export_data["max_height"])
                 write_control_map_r32(str(chunk_dir / "control.r32"), empty_surface, empty_nav, empty_overlay)
 
                 chunk_contract = ClientChunkContract(cx=cx, cz=cz)

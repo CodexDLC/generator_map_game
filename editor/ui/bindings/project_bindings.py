@@ -12,6 +12,7 @@ def collect_project_data_from_ui(mw) -> dict:
         "world_topology": {
             "subdivision": mw.subdivision_level_input.currentText(),
             "resolution": mw.region_resolution_input.currentText(),
+            "calc_resolution_preview": mw.preview_calc_resolution_input.currentText(), # <-- НОВОЕ
         },
         "global_noise": {
             "planet_type_preset": mw.planet_type_preset_input.currentText(),
@@ -22,7 +23,6 @@ def collect_project_data_from_ui(mw) -> dict:
             "warp_strength": mw.ws_warp_strength.value(),
             "seed": mw.ws_seed.value(),
         },
-        # --- НОВЫЙ БЛОК ДЛЯ СОХРАНЕНИЯ КЛИМАТА ---
         "climate": {
             "enabled": mw.climate_enabled.isChecked(),
             "sea_level_pct": mw.climate_sea_level.value(),
@@ -39,12 +39,13 @@ def apply_project_to_ui(mw, data: dict) -> None:
     logger.debug("Applying project data to UI.")
     topo = data.get("world_topology", {})
     noise = data.get("global_noise", {})
-    climate = data.get("climate", {}) # Загружаем секцию климата
+    climate = data.get("climate", {})
 
     mw.subdivision_level_input.setCurrentText(topo.get("subdivision", "8 (642 регионов)"))
     mw.region_resolution_input.setCurrentText(topo.get("resolution", "4096x4096"))
+    # --- НОВОЕ ---
+    mw.preview_calc_resolution_input.setCurrentText(topo.get("calc_resolution_preview", "1024x1024"))
 
-    # --- Совместимость для старых проектов ---
     if "continent_scale_km" in noise:
         mw.ws_continent_scale_km.setValue(noise.get("continent_scale_km", 4000.0))
     elif "scale" in noise:
@@ -61,7 +62,6 @@ def apply_project_to_ui(mw, data: dict) -> None:
     mw.ws_warp_strength.setValue(noise.get("warp_strength", 0.2))
     mw.ws_seed.setValue(noise.get("seed", 12345))
 
-    # --- ПРИМЕНЯЕМ НАСТРОЙКИ КЛИМАТА ---
     mw.climate_enabled.setChecked(climate.get("enabled", False))
     mw.climate_sea_level.setValue(climate.get("sea_level_pct", 40.0))
     mw.climate_avg_temp.setValue(climate.get("avg_temp_c", 15.0))
@@ -69,8 +69,6 @@ def apply_project_to_ui(mw, data: dict) -> None:
     mw.climate_wind_dir.setValue(climate.get("wind_dir_deg", 225.0))
     mw.climate_shadow_strength.setValue(climate.get("shadow_strength", 0.6))
 
-
-    # Вызываем обновление вычисляемых полей ПОСЛЕ установки всех значений
     QtCore.QTimer.singleShot(0, mw._update_calculated_fields)
 
 
@@ -80,6 +78,7 @@ def collect_context_from_ui(mw, for_preview: bool = True) -> dict:
     """
     try:
         if for_preview:
+            # Этот путь больше не должен использоваться для разрешения вычислений
             preview_res_str = mw.preview_resolution_input.currentText()
             resolution = int(preview_res_str.split('x')[0])
         else:

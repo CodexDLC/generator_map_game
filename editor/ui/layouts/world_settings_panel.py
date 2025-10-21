@@ -2,7 +2,6 @@
 from __future__ import annotations
 from PySide6 import QtWidgets
 
-
 from editor.ui.widgets.custom_controls import CollapsibleBox, SliderSpinCombo, SeedWidget
 
 SUBDIVISION_LEVELS = {
@@ -60,7 +59,7 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
 
     widgets["vertex_distance_input"] = QtWidgets.QDoubleSpinBox()
     widgets["vertex_distance_input"].setDecimals(2)
-    widgets["vertex_distance_input"].setSingleStep(0.25)
+    widgets["vertex_distance_input"].setSingleStep(1.0)
     world_box.body.addRow("Расстояние м/вершина:", widgets["vertex_distance_input"])
 
     widgets["max_height_input"] = QtWidgets.QDoubleSpinBox()
@@ -73,6 +72,30 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     world_box.body.addRow("Макс. Высота (м):", widgets["max_height_input"])
 
     layout.addWidget(world_box)
+
+    # --- Секция: Вычисляемые параметры (ВОССТАНОВЛЕНА ВАША ВЕРСИЯ) ---
+    calc_box = CollapsibleBox("Вычисляемые параметры")
+    calc_box.setChecked(True)
+    widgets["planet_radius_label"] = QtWidgets.QLabel("0 км")
+    calc_box.body.addRow("<i>Радиус планеты:</i>", widgets["planet_radius_label"])
+
+    widgets["surface_area_label"] = QtWidgets.QLabel("0 км²")
+    calc_box.body.addRow("<i>Площадь поверхности:</i>", widgets["surface_area_label"])
+
+    widgets["ocean_area_label"] = QtWidgets.QLabel("0 км² (0%)")
+    calc_box.body.addRow("<i>Площадь океанов (прибл.):</i>", widgets["ocean_area_label"])
+
+    widgets["base_elevation_label"] = QtWidgets.QLabel("0 м")
+    calc_box.body.addRow("<i>Базовый перепад высот:</i>", widgets["base_elevation_label"])
+
+    widgets["land_elevation_label"] = QtWidgets.QLabel("до +0 м")
+    calc_box.body.addRow("<i>Высота суши:</i>", widgets["land_elevation_label"])
+
+    widgets["ocean_depth_label"] = QtWidgets.QLabel("до -0 м")
+    calc_box.body.addRow("<i>Глубина океана:</i>", widgets["ocean_depth_label"])
+
+    layout.addWidget(calc_box)
+    # --- КОНЕЦ ВОССТАНОВЛЕННОГО БЛОКА ---
 
     # --- Секция: Форма Планеты (Глобальный Шум) ---
     noise_box = CollapsibleBox("Форма Планеты (Глобальный Шум)")
@@ -119,7 +142,7 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
 
     # --- Секция: Климат ---
     climate_box = CollapsibleBox("Климат")
-    climate_box.setChecked(True)  # Раскрываем по умолчанию
+    climate_box.setChecked(True)
     widgets["climate_enabled"] = QtWidgets.QCheckBox("Включить глобальный климат")
     climate_box.body.addRow(widgets["climate_enabled"])
 
@@ -141,7 +164,6 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     widgets["climate_axis_tilt"].setDecimals(1)
     climate_box.body.addRow("Наклон оси (°):", widgets["climate_axis_tilt"])
 
-    # --- НАЧАЛО ВОССТАНОВЛЕННЫХ ПОЛЕЙ ---
     climate_box.body.addRow(QtWidgets.QLabel("<b>Влажность и Ветер:</b>"))
 
     widgets["climate_wind_dir"] = SliderSpinCombo()
@@ -155,26 +177,26 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     widgets["climate_shadow_strength"].setValue(0.6)
     widgets["climate_shadow_strength"].setDecimals(2)
     climate_box.body.addRow("Сила дождевой тени:", widgets["climate_shadow_strength"])
-    # --- КОНЕЦ ВОССТАНОВЛЕННЫХ ПОЛЕЙ ---
 
     layout.addWidget(climate_box)
-
-    # --- Секция: Вычисляемые параметры ---
-    calc_box = CollapsibleBox("Вычисляемые параметры")
-    calc_box.setChecked(True)
-    widgets["planet_radius_label"] = QtWidgets.QLabel("0 км")
-    calc_box.body.addRow("<i>Радиус планеты:</i>", widgets["planet_radius_label"])
-    widgets["base_elevation_label"] = QtWidgets.QLabel("0 м")
-    calc_box.body.addRow("<i>Базовый перепад высот:</i>", widgets["base_elevation_label"])
-    layout.addWidget(calc_box)
 
     # --- Секция: Настройки Превью ---
     preview_box = CollapsibleBox("Настройки Превью")
     preview_box.setChecked(True)
+
+    # --- НОВЫЙ ЭЛЕМЕНТ ИНТЕГРИРОВАН СЮДА ---
+    widgets["preview_calc_resolution_input"] = QtWidgets.QComboBox()
+    widgets["preview_calc_resolution_input"].addItems(
+        ["Полное разрешение", "2048x2048", "1024x1024", "512x512", "256x256"])
+    widgets["preview_calc_resolution_input"].setCurrentText("1024x1024")
+    widgets["preview_calc_resolution_input"].setToolTip("Разрешение, в котором рассчитывается граф (меньше = быстрее)")
+    preview_box.body.addRow("Разрешение вычислений:", widgets["preview_calc_resolution_input"])
+
     widgets["preview_resolution_input"] = QtWidgets.QComboBox()
     widgets["preview_resolution_input"].addItems(["512x512", "1024x1024", "2048x2048"])
     widgets["preview_resolution_input"].setCurrentText("1024x1024")
-    preview_box.body.addRow("Разрешение превью:", widgets["preview_resolution_input"])
+    preview_box.body.addRow("Разрешение 3D-вида:", widgets["preview_resolution_input"])
+
     widgets["region_id_label"] = QtWidgets.QLabel("0")
     preview_box.body.addRow("ID Региона:", widgets["region_id_label"])
     widgets["region_center_x_label"] = QtWidgets.QLabel("0.0")
@@ -190,7 +212,6 @@ def make_world_settings_widget(main_window) -> tuple[QtWidgets.QWidget, dict]:
     # Пустышка для обратной совместимости
     widgets["ws_sea_level"] = QtWidgets.QWidget()
     widgets["ws_sea_level"].value = lambda: 0.0
-    # Удаляем старый относительный масштаб
     widgets["ws_relative_scale"] = QtWidgets.QWidget()
     widgets["ws_relative_scale"].value = lambda: 0.25
 
