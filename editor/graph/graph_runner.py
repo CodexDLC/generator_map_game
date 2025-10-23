@@ -5,17 +5,19 @@ import numpy as np
 from editor.utils.diag import diag_array
 from game_engine_restructured.numerics.field_packet import get_data, is_packet
 
+# --- ДОБАВЛЯЕМ ЭТОТ ИМПОРТ ---
+from editor.nodes.height.io.world_input_node import WorldInputNode
+
+# --- КОНЕЦ ИМПОРТА ---
+
 logger = logging.getLogger(__name__)
+
 
 def run_graph(out_node, context, on_tick=lambda p, m: True):
     """
     Запускает вычисление графа, начиная с переданной выходной ноды.
-
-    Args:
-        out_node: Нода (например, OutputNode), с которой начинается вычисление.
-        context: Словарь с параметрами для генерации.
-        on_tick: Callback для отслеживания прогресса.
     """
+
     def tick(p, m):
         try:
             if on_tick:
@@ -27,7 +29,24 @@ def run_graph(out_node, context, on_tick=lambda p, m: True):
     try:
         logger.info("Graph run started.")
         tick(10, f"Вычисление от ноды '{out_node.name()}'…")
-        result = out_node.compute(context)
+
+        # --- НАСТОЯЩЕЕ ИСПРАВЛЕНИЕ ---
+        # Эта логика обрабатывает оба случая:
+
+        # 1. Если выбрана сама WorldInputNode (которая вернет None из compute())
+        if isinstance(out_node, WorldInputNode):
+            # Мы вручную вызываем _compute, чтобы он заполнил кэш
+            out_node._compute(context)
+            # И вручную берем 'height' для превью
+            result = context.get("world_input_height")
+            logger.warning("run_graph: Выбрана WorldInputNode. Взят 'height' из кэша контекста.")
+        else:
+            # 2. Если выбрана любая другая нода (Combiner и т.д.)
+            # Запускаем ее как обычно. Она сама запросит у WorldInput
+            # нужный порт (height или mask) через compute_outputs()
+            result = out_node.compute(context)
+        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
         logger.info("Graph computation finished successfully.")
 
     except Exception:
@@ -48,6 +67,7 @@ def run_graph(out_node, context, on_tick=lambda p, m: True):
     # Проверка на None
     if arr is None:
         logger.error("Validation failed: Output node returned None or empty data.")
+        # Эта ошибка теперь будет возникать только если что-то действительно пошло не так
         raise RuntimeError("Output.compute вернул None или пустые данные (проверь соединения)")
 
     # Проверка на форму
@@ -66,7 +86,8 @@ def run_graph(out_node, context, on_tick=lambda p, m: True):
     # Дополнительная проверка формы на совпадение с context["x_coords"]
     if "x_coords" in context and isinstance(context["x_coords"], np.ndarray):
         if arr.shape != context["x_coords"].shape:
-            logger.warning(f"Shape mismatch: result shape={arr.shape}, x_coords shape={context['x_coords'].shape}. Using zeros.")
+            logger.warning(
+                f"Shape mismatch: result shape={arr.shape}, x_coords shape={context['x_coords'].shape}. Using zeros.")
             arr = np.zeros_like(context["x_coords"], dtype=np.float32)
 
     logger.info(f"Validation successful. Final map shape: {arr.shape}")

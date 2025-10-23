@@ -66,7 +66,7 @@ class WorldInputNode(GeneratorNode):
 
         # Важно: _compute больше не возвращает результат напрямую!
         # Вместо этого мы переопределим метод compute_outputs
-        return self._result_cache_height
+        return None
 
     # --- ДОБАВЛЯЕМ НОВЫЙ МЕТОД ---
     def compute_outputs(self, context, requested_port: Port) -> np.ndarray | None:
