@@ -37,9 +37,10 @@ class PreviewGenerationWorker(QtCore.QRunnable):
     @QtCore.Slot()
     def run(self):
         try:
-            # <<< ИСПРАВЛЕНИЕ ЗДЕСЬ: Вызываем функцию с правильным именем >>>
             result_data = preview_logic.generate_node_graph_output(self._mw, for_export=False)
+            # --- Убедись, что именно result_data передается ---
             self.signals.finished.emit(result_data)
+            # --------------------------------------------------
         except Exception as e:
             tb = traceback.format_exc()
             self.signals.error.emit(f"Ошибка генерации превью: {e}\n\n{tb}")

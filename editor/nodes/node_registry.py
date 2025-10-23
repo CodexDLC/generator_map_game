@@ -31,9 +31,13 @@ def register_all_nodes(graph):
         # Универсальные.Математика
         ("editor.nodes.universal.math.normalize01_node", "Normalize01Node"),
 
+        # --- ДОБАВЛЯЕМ НОВУЮ НОДУ СЮДА ---
+        # Универсальные.Маски
+        ("editor.nodes.universal.masks.region_shape_mask_node", "RegionShapeMaskNode"),
+        # ------------------------------------
+
         # UI
         ("editor.nodes.backdrop_node", "CustomBackdropNode"),
-        ("editor.nodes.universal.debug.sphere_projection_node", "SphereProjectionNode"),
     ]
 
     ok, fail = 0, 0

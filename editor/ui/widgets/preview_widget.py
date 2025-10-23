@@ -3,18 +3,21 @@ from __future__ import annotations
 import gc
 import logging
 import math
+from typing import Optional, Tuple
+
 import numpy as np
 from PySide6 import QtWidgets, QtCore
 from vispy import scene
 
 from editor.core.render_settings import RenderSettings
+from editor.logic.preview_logic import EPS
 from editor.render_palettes import map_palette_cpu
 
 logger = logging.getLogger(__name__)
 
 
 def _normalize_01(z: np.ndarray) -> tuple[np.ndarray, float, float]:
-    zmin = float(np.nanmin(z));
+    zmin = float(np.nanmin(z))
     zmax = float(np.nanmax(z))
     if zmax - zmin < 1e-12:
         return np.zeros_like(z, dtype=np.float32), zmin, zmax
@@ -23,7 +26,7 @@ def _normalize_01(z: np.ndarray) -> tuple[np.ndarray, float, float]:
 
 
 def _dir_from_angles(az_deg: float, alt_deg: float) -> tuple[float, float, float]:
-    az = math.radians(az_deg);
+    az = math.radians(az_deg)
     alt = math.radians(alt_deg)
     x = math.cos(alt) * math.cos(az)
     y = math.cos(alt) * math.sin(az)
@@ -110,27 +113,34 @@ def _create_solid_mesh_data(z_data: np.ndarray, cell_size: float, s: RenderSetti
 class Preview3DWidget(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+
         self._mesh = None
         self._settings = RenderSettings()
 
         self.canvas = scene.SceneCanvas(keys="interactive", show=False, config={"samples": 4})
         self.view = self.canvas.central_widget.add_view()
         self.view.bgcolor = 'black'
+        # --- ИЗМЕНЕНИЕ: Устанавливаем камеру так, чтобы Z был вверх ---
         self.view.camera = scene.cameras.TurntableCamera(up='z', fov=self._settings.fov, azimuth=45.0, elevation=30.0)
 
+        # --- КОМПАС: Настраиваем стрелку ---
+        # Стрелка будет указывать вдоль оси +Y в своей локальной системе координат
+        # Мы будем вращать ее вокруг оси Z
         self._compass = scene.visuals.Arrow(
-            pos=np.array([[0, 0, 0], [0, 25, 0]]),
+            pos=np.array([[0, 0, 0], [0, 25, 0]]),  # Стрелка от (0,0,0) до (0,25,0)
             color='white',
             arrow_size=12.0,
             arrow_type='triangle_60',
-            parent=self.canvas.scene
+            parent=self.canvas.scene  # Добавляем на всю сцену, а не в view
         )
-        self._compass.transform = scene.transforms.STTransform()
-        self._compass.visible = False
+        self._compass.transform = scene.transforms.STTransform()  # Создаем трансформ
+        self._compass.visible = False  # Скрываем по умолчанию
 
-        scene.visuals.XYZAxis(parent=self.view.scene)
-        lay = QtWidgets.QVBoxLayout(self);
-        lay.setContentsMargins(0, 0, 0, 0);
+        # --- КОНЕЦ ИЗМЕНЕНИЙ КОМПАСА ---
+
+        scene.visuals.XYZAxis(parent=self.view.scene)  # Оси остаются для отладки
+        lay = QtWidgets.QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self.canvas.native)
 
     def _clear_scene(self) -> None:
@@ -146,11 +156,13 @@ class Preview3DWidget(QtWidgets.QWidget):
         if self.parent() and hasattr(self.parent(), '_on_apply_clicked'):
             QtCore.QTimer.singleShot(0, self.parent()._on_apply_clicked)
 
-    def update_mesh(self, height_map: np.ndarray, cell_size: float, **kwargs) -> None:
+    def update_mesh(self, height_map: np.ndarray, cell_size: float, *,
+                    north_vector_2d: Optional[Tuple[float, float]] = None) -> None:
         self._clear_scene()
         if not isinstance(height_map, np.ndarray) or height_map.shape[0] < 2 or height_map.shape[1] < 2:
             return
         if not np.all(np.isfinite(height_map)):
+            logger.warning("Height map contains non-finite values, skipping mesh update.")
             return
 
         s = self._settings
@@ -158,35 +170,65 @@ class Preview3DWidget(QtWidgets.QWidget):
 
         mesh_data = _create_solid_mesh_data(z, cell_size, s)
         if not mesh_data:
+            logger.warning("Failed to create mesh data.")
             return
 
-        self._mesh = scene.visuals.Mesh(
-            vertices=mesh_data["vertices"],
-            faces=mesh_data["faces"],
-            vertex_colors=mesh_data["vertex_colors"],
-            shading=None,
-            parent=self.view.scene
-        )
+        try:
+            self._mesh = scene.visuals.Mesh(
+                vertices=mesh_data["vertices"],
+                faces=mesh_data["faces"],
+                vertex_colors=mesh_data["vertex_colors"],
+                shading=None,  # Используем vertex_colors напрямую
+                parent=self.view.scene
+            )
+        except Exception as e:
+            logger.error(f"Error creating VisPy Mesh: {e}", exc_info=True)
+            return  # Не можем продолжить без меша
 
-        north_vector_2d = kwargs.get("north_vector_2d")
-        if north_vector_2d is not None and np.linalg.norm(north_vector_2d) > 1e-6:
-            angle_deg = np.rad2deg(np.arctan2(north_vector_2d[1], north_vector_2d[0])) - 90
+        # --- ЛОГИКА ОТОБРАЖЕНИЯ КОМПАСА ---
+        if north_vector_2d is not None and np.linalg.norm(north_vector_2d) > EPS:
+            # north_vector_2d = (nx, nz) в локальной системе координат превью
+            nx, nz = north_vector_2d
+            # Угол от оси +Z (вверх на экране превью) к вектору севера
+            # atan2(x, z) дает угол от оси +Z
+            angle_rad = math.atan2(nx, nz)
+            angle_deg = np.rad2deg(angle_rad)
+
+            # Позиционируем компас в левом верхнем углу
+            # Координаты canvas идут от левого нижнего угла
             canvas_w, canvas_h = self.canvas.size
-            pos = (40, canvas_h - 40, 0)
+            # Позиция в пикселях от левого нижнего угла
+            pos = (40, canvas_h - 40, 0)  # X=40, Y=Высота-40, Z=0
 
-            logger.debug(f"Compass: vector={north_vector_2d}, angle={angle_deg:.1f}, pos={pos}")
+            logger.debug(f"Compass: vector=({nx:.3f}, {nz:.3f}), angle={angle_deg:.1f} deg from +Z, canvas_pos={pos}")
 
+            # Применяем трансформации
+            # Сначала перемещаем стрелку в угол
             self._compass.transform.translate = pos
-            self._compass.transform.rotation = angle_deg
+            # Затем вращаем ее ВОКРУГ ОСИ Z (0,0,1) на нужный угол
+            # В VisPy вращение происходит в порядке Z, Y, X
+            self._compass.transform.rotation = (0, 0, angle_deg)  # Поворот вокруг Z
             self._compass.visible = True
         else:
             self._compass.visible = False
+            logger.debug("Compass: No north vector provided or zero length.")
+        # --- КОНЕЦ ЛОГИКИ КОМПАСА ---
 
+        # Логика auto_frame остается
         if s.auto_frame:
             h, w = height_map.shape
-            zmin, zmax = float(np.nanmin(z)), float(np.nanmax(z))
-            self.view.camera.set_range(x=(0, w * cell_size), y=(0, h * cell_size), z=(zmin, zmax))
-            self.view.camera.distance = 1.8 * max(w * cell_size, h * cell_size)
+            # Используем z_min/z_max из _create_solid_mesh_data, если они там считаются,
+            # или считаем здесь
+            try:
+                zmin_val = float(np.nanmin(z)) if np.any(np.isfinite(z)) else 0.0
+                zmax_val = float(np.nanmax(z)) if np.any(np.isfinite(z)) else 1.0
+                if zmax_val <= zmin_val: zmax_val = zmin_val + 1.0  # Защита от плоской карты
+            except Exception:
+                zmin_val, zmax_val = 0.0, 1.0
+
+            self.view.camera.set_range(x=(0, w * cell_size), y=(0, h * cell_size), z=(zmin_val, zmax_val))
+            # Дистанцию можно немного увеличить, чтобы компас не перекрывал меш
+            self.view.camera.distance = 2.0 * max(w * cell_size, h * cell_size)
 
         self.canvas.update()
 

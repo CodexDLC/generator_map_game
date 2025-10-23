@@ -290,23 +290,19 @@ class MainWindow(QtWidgets.QMainWindow):
             final_map_01 = result_data["final_map_01"]
             max_height = result_data["max_height"]
             vertex_distance = result_data["vertex_distance"]
+            # --- ИЗВЛЕКАЕМ ВЕКТОР СЕВЕРА ---
+            north_vector_list = result_data.get("north_vector_2d") # Может быть None или list
 
-            # Этот блок полностью удаляется или комментируется
-            # preview_res_str = self.preview_resolution_input.currentText()
-            # preview_resolution = int(preview_res_str.split('x')[0])
+            # --- ДОБАВЬ ЭТОТ ЛОГ ---
+            logger.debug(f"Received north_vector_2d in _on_preview_generation_finished: {north_vector_2d}")
+            # --- КОНЕЦ ДОБАВЛЕНИЯ ---
 
-            # display_map_01 = final_map_01 # Эта строка тоже больше не нужна
-            # if final_map_01.shape[0] != preview_resolution:
-            #     display_map_01 = cv2.resize(final_map_01, (preview_resolution, preview_resolution),
-            #                                 interpolation=cv2.INTER_AREA)
-
-            # Теперь мы всегда используем исходную карту final_map_01
             final_map_meters = final_map_01 * max_height
 
             if self.preview_widget:
-                # Передаем в виджет карту в оригинальном разрешении
+                # --- ИЗМЕНЕНИЕ: Передаем список ---
                 self.preview_widget.update_mesh(final_map_meters, vertex_distance,
-                                                north_vector_2d=result_data.get("north_vector_2d"))
+                                                north_vector_2d=north_vector_list)
 
             if self.node_inspector:
                 self.node_inspector.refresh_from_selection()
