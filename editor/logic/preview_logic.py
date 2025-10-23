@@ -65,15 +65,16 @@ def _prepare_context(main_window: MainWindow, for_export: bool) -> Tuple[Dict[st
     return context, calc_resolution
 
 # --- Функция _generate_world_input ИЗМЕНЕНА ---
-def _generate_world_input(main_window: "MainWindow", context: Dict[str, Any], sphere_params: dict) -> Tuple[np.ndarray, np.ndarray, Optional[List[float]]]:
+def _generate_world_input(main_window: "MainWindow", context: Dict[str, Any], sphere_params: dict, return_coords_only: bool = False) -> Tuple[np.ndarray, np.ndarray, Optional[List[float]]] | np.ndarray:
     """
     Генерирует:
     1. (output_height): Детальный 3D-шум для региона [0..1].
     2. (output_mask): Базовую маску из единиц.
     3. (north_vector_2d): Локальный 2D вектор направления на Северный полюс.
+    ИЛИ
+    Если return_coords_only=True, возвращает только массив 3D координат.
     """
     logger.info("Generating world input (3D noise and North vector)...")
-    # === ЧАСТЬ 1: ГЕНЕРАЦИЯ ДЕТАЛЬНОЙ ВЫСОТЫ (3D-ШУМ) ===
     try:
         radius_text = main_window.planet_radius_label.text().replace(" км", "").replace(",", "").replace(" ", "")
         radius_m = float(radius_text) * 1000.0
@@ -87,42 +88,42 @@ def _generate_world_input(main_window: "MainWindow", context: Dict[str, Any], sp
     if np.linalg.norm(center_vec) < EPS: center_vec = np.array([1.0, 0.0, 0.0]) # Fallback
     center_vec /= np.linalg.norm(center_vec) # Нормализуем на всякий случай
 
-    # Определяем "вверх" для расчета базиса (Y-up или Z-up)
-    # Используем Z-up [0, 0, 1] как глобальный "Север" планеты
+    # Определяем "вверх" для расчета базиса (Z-up)
     global_north_vec = np.array([0.0, 0.0, 1.0], dtype=np.float32)
 
     # Вычисляем локальные оси U и V (X и Z на плоскости превью)
-    # tangent_u будет примерно вдоль оси X превью
-    # tangent_v будет примерно вдоль оси Z превью
     if np.abs(np.dot(center_vec, global_north_vec)) > 0.99:
-         # Если мы на полюсе, выбираем другое направление для "вверх", чтобы избежать коллинеарности
+         # Если мы на полюсе, выбираем другое направление для "вверх"
          alternative_up = np.array([0.0, 1.0, 0.0], dtype=np.float32)
          tangent_u = np.cross(alternative_up, center_vec)
     else:
-         tangent_u = np.cross(global_north_vec, center_vec) # U = North x Center (смотрит влево/вправо)
+         tangent_u = np.cross(global_north_vec, center_vec) # U = North x Center
 
-    # Проверка на нулевой вектор (если center_vec коллинеарен global_north_vec)
     if np.linalg.norm(tangent_u) < EPS:
          alternative_up = np.array([0.0, 1.0, 0.0], dtype=np.float32)
          tangent_u = np.cross(alternative_up, center_vec)
 
     tangent_u /= np.linalg.norm(tangent_u)
-    tangent_v = np.cross(center_vec, tangent_u) # V = Center x U (смотрит вперед/назад)
+    tangent_v = np.cross(center_vec, tangent_u) # V = Center x U
     tangent_v /= np.linalg.norm(tangent_v)
 
-    # Генерация координат для шума (без изменений)
+    # Генерация координат для шума
     points_in_plane = (center_vec[np.newaxis, np.newaxis, :]
                        + tangent_u[np.newaxis, np.newaxis, :] * (x_m / radius_m)[..., np.newaxis]
                        + tangent_v[np.newaxis, np.newaxis, :] * (z_m / radius_m)[..., np.newaxis])
     coords_for_noise = points_in_plane / np.linalg.norm(points_in_plane, axis=-1, keepdims=True)
     coords_for_noise = coords_for_noise.astype(np.float32)
 
-    # Вызов 3D-шума (без изменений)
+    # Если нужен только массив координат
+    if return_coords_only:
+        return coords_for_noise
+
+    # === ЧАСТЬ 1: ГЕНЕРАЦИЯ ДЕТАЛЬНОЙ ВЫСОТЫ (3D-ШУМ) ===
     base_noise = get_noise_for_region_preview(
         sphere_params=sphere_params,
         coords_xyz=coords_for_noise
     )
-    # Нормализация амплитуды (без изменений)
+    # Нормализация амплитуды
     try:
         max_height_m = main_window.max_height_input.value()
         base_elevation_text = main_window.base_elevation_label.text().replace(" м", "").replace(",", "")
@@ -135,27 +136,28 @@ def _generate_world_input(main_window: "MainWindow", context: Dict[str, Any], sp
     output_height = (base_noise * amplitude_norm).astype(np.float32)
     logger.info("3D noise generation finished.")
 
-    # === ЧАСТЬ 2: ГЕНЕРАЦИЯ БАЗОВОЙ МАСКИ (без изменений) ===
+    # === ЧАСТЬ 2: ГЕНЕРАЦИЯ БАЗОВОЙ МАСКИ ===
     output_mask = np.ones_like(output_height, dtype=np.float32)
 
     # === ЧАСТЬ 3: ВЫЧИСЛЕНИЕ ЛОКАЛЬНОГО ВЕКТОРА СЕВЕРА ===
     logger.info("Calculating local North vector...")
-    # Проекция глобального севера на локальную плоскость (касательную)
     north_tangent = global_north_vec - np.dot(global_north_vec, center_vec) * center_vec
     north_norm = np.linalg.norm(north_tangent)
-    north_vector_2d = None
+    north_vector_2d = None # Инициализируем как None
     if north_norm > EPS:
         north_tangent /= north_norm
+        # Проецируем нормализованный вектор севера на локальные оси U и V
         north_u = np.dot(north_tangent, tangent_u)
         north_v = np.dot(north_tangent, tangent_v)
-        # --- ИЗМЕНЕНИЕ: Возвращаем список ---
+        # --- ИЗМЕНЕНИЕ: Возвращаем список [float, float] ---
         north_vector_2d = [float(north_u), float(north_v)]
         # ------------------------------------
-        logger.info(f"Local North vector calculated: [{north_u:.3f}, {north_v:.3f}]")  # Обновим лог для ясности
+        logger.info(f"Local North vector calculated: [{north_u:.3f}, {north_v:.3f}] (U corresponds to screen X, V to screen Z/UP)")
     else:
+        # Это происходит, если центр региона (center_vec) совпадает с полюсом (global_north_vec)
         logger.warning("Cannot determine North vector at the pole.")
 
-    # Возвращаем список или None
+    # Возвращаем height, mask и north_vector_2d (который может быть None)
     return output_height, output_mask, north_vector_2d
 
 
@@ -179,7 +181,6 @@ def _has_world_input_ancestor(node: GeneratorNode, visited: Set[str] = None) -> 
                      return True
     return False
 
-# --- Функция generate_node_graph_output БЕЗ ИЗМЕНЕНИЙ (кроме получения biome_probabilities) ---
 def generate_node_graph_output(main_window: MainWindow, for_export: bool = False) -> Optional[Dict[str, Any]]:
     target_node, is_global_mode = _get_target_node_and_mode(main_window)
     if not target_node:
@@ -189,10 +190,10 @@ def generate_node_graph_output(main_window: MainWindow, for_export: bool = False
     context, calc_resolution = _prepare_context(main_window, for_export)
     original_resolution = context.get('_original_resolution', calc_resolution)
 
-    north_vector_2d = None # Инициализируем
+    # Инициализируем north_vector_2d значением None по умолчанию
+    north_vector_2d = None
 
     if is_global_mode:
-        # ... (сбор sphere_params - без изменений) ...
         continent_size_km = main_window.ws_continent_scale_km.value()
         frequency = 20000.0 / max(continent_size_km, 1.0)
         sphere_params = {
@@ -202,30 +203,31 @@ def generate_node_graph_output(main_window: MainWindow, for_export: bool = False
             'frequency': frequency,
             'power': main_window.ws_power.value(),
         }
-        # Получаем все три значения
+        # Получаем все три значения из _generate_world_input
         base_height, base_mask, north_vector_2d = _generate_world_input(main_window, context, sphere_params)
+        logger.debug(f"North vector from _generate_world_input: {north_vector_2d}") # Добавим лог для проверки
     else:
-        # ... (генерация плоского входа - без изменений) ...
         shape = context['x_coords'].shape
         base_height = np.zeros(shape, dtype=np.float32)
-        base_mask = np.ones(shape, dtype=np.float32) # Маска все равно нужна для контекста
+        base_mask = np.ones(shape, dtype=np.float32)
 
-    # Сохраняем в контекст (mask остается для WorldInputNode, если он еще не переделан)
     context["world_input_height"] = base_height
-    context["world_input_mask"] = base_mask # Оставляем для совместимости
+    context["world_input_mask"] = base_mask
 
-    # Обновляем статистику WorldInputNode (без изменений)
-    # ...
+    # Обновляем статистику WorldInputNode, если это возможно
+    if isinstance(target_node, WorldInputNode):
+         # Код обновления статистики WorldInputNode (если он нужен)
+         # Например: target_node.update_stats(...)
+         pass # Пока просто заглушка
 
-    # Запускаем граф (без изменений)
+    # Запускаем граф
     final_map_01 = run_graph(target_node, context)
     if final_map_01 is None:
         logger.error("Graph execution returned None.")
         shape = context['x_coords'].shape
         final_map_01 = np.zeros(shape, dtype=np.float32)
 
-    # Компенсация разрешения (без изменений)
-    # ...
+    # Компенсация разрешения
     original_vertex_distance = context.get('_original_vertex_distance', 1.0)
     display_map_01 = final_map_01
     if calc_resolution != original_resolution and not for_export:
@@ -236,7 +238,7 @@ def generate_node_graph_output(main_window: MainWindow, for_export: bool = False
     else:
         display_vertex_distance = original_vertex_distance
 
-    # --- Получение вероятностей биомов (без изменений) ---
+    # Получение вероятностей биомов (без изменений)
     biome_probabilities = {}
     if main_window.project_manager and main_window.project_manager.current_project_path and main_window.climate_enabled.isChecked():
         try:
@@ -258,11 +260,12 @@ def generate_node_graph_output(main_window: MainWindow, for_export: bool = False
             logger.error(f"Ошибка при чтении кэша климата для превью: {e}")
             biome_probabilities = {"error": str(e)}
 
-    # Возвращаем данные для UI
+    # !!! ВОТ ИСПРАВЛЕНИЕ !!!
+    # Возвращаем РЕАЛЬНО вычисленный north_vector_2d, а не None
     return {
         "final_map_01": display_map_01,
         "max_height": context.get('max_height_m', 1.0),
         "vertex_distance": display_vertex_distance,
-        "north_vector_2d": None, # Пока не используется
+        "north_vector_2d": north_vector_2d, # <--- ИСПРАВЛЕНО
         "biome_probabilities": biome_probabilities
     }

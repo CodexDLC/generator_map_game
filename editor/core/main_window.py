@@ -281,6 +281,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 sorted_probs = sorted(probabilities.items(), key=lambda item: item[1], reverse=True)
                 for biome_name, prob in sorted_probs:
                     if prob < 0.001: continue
+                    # Используем title() для заглавных букв в словах
                     item_text = f"{biome_name.replace('_', ' ').title()}: {prob:.1%}"
                     self.biome_probabilities_list.addItem(item_text)
             else:
@@ -290,19 +291,19 @@ class MainWindow(QtWidgets.QMainWindow):
             final_map_01 = result_data["final_map_01"]
             max_height = result_data["max_height"]
             vertex_distance = result_data["vertex_distance"]
-            # --- ИЗВЛЕКАЕМ ВЕКТОР СЕВЕРА ---
-            north_vector_list = result_data.get("north_vector_2d") # Может быть None или list
+            # --- ИЗВЛЕКАЕМ ВЕКТОР СЕВЕРА (может быть None или list) ---
+            north_vector_list = result_data.get("north_vector_2d")
 
-            # --- ДОБАВЬ ЭТОТ ЛОГ ---
-            logger.debug(f"Received north_vector_2d in _on_preview_generation_finished: {north_vector_2d}")
+            # --- ДОБАВЛЕН ЛОГ ДЛЯ ОТЛАДКИ ---
+            logger.debug(f"Received north_vector_2d in _on_preview_generation_finished: {north_vector_list}")
             # --- КОНЕЦ ДОБАВЛЕНИЯ ---
 
             final_map_meters = final_map_01 * max_height
 
             if self.preview_widget:
-                # --- ИЗМЕНЕНИЕ: Передаем список ---
+                # --- Передаем список (или None) в update_mesh ---
                 self.preview_widget.update_mesh(final_map_meters, vertex_distance,
-                                                north_vector_2d=north_vector_list)
+                                                north_vector_2d=north_vector_list)  # Передаем как именованный аргумент
 
             if self.node_inspector:
                 self.node_inspector.refresh_from_selection()
