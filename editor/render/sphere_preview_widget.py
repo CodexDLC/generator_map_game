@@ -6,76 +6,20 @@ import numpy as np
 from PySide6 import QtCore, QtGui
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from OpenGL import GL
+# (импорты OpenGL.GL.* остаются, т.к. они нужны для paintGL)
 from OpenGL.GL import *
 
 from editor.core.render_settings import RenderSettings
 from generator_logic.topology.icosa_grid import nearest_cell_by_xyz
 
+# --- ДОБАВЛЕНЫ ИМПОРТЫ ИЗ CORE_GL ---
+from editor.render.core_gl import shader_library, shader_manager
+
 logger = logging.getLogger(__name__)
 
-# --- Шейдеры для основного рельефа ---
-VS_CODE = """
-#version 330 core
-layout (location = 0) in vec3 aPos;
-layout (location = 2) in vec3 aColor;
 
-uniform mat4 u_mvp;
-uniform mat4 u_model_view;
+# --- УДАЛЕНЫ ВСЕ КОНСТАНТЫ (VS_CODE, FS_CODE, VS_POLES_CODE, FS_POLES_CODE) ---
 
-out vec3 v_normal_view;
-out vec3 v_pos_view;
-out vec3 v_color;
-
-void main() {
-    gl_Position = u_mvp * vec4(aPos, 1.0);
-    v_normal_view = mat3(transpose(inverse(u_model_view))) * normalize(aPos);
-    v_pos_view = vec3(u_model_view * vec4(aPos, 1.0));
-    v_color = aColor;
-}
-"""
-
-FS_CODE = """
-#version 330 core
-uniform int u_is_line;
-in vec3 v_color;
-out vec4 FragColor;
-
-void main() {
-    if (u_is_line == 1) {
-        FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-        return;
-    }
-    vec3 base = clamp(v_color, 0.0, 1.0);
-    FragColor = vec4(base, 1.0);
-}
-"""
-
-# --- НАЧАЛО ИЗМЕНЕНИЯ: Шейдеры для маркеров полюсов ---
-VS_POLES_CODE = """
-#version 330 core
-layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec3 aColor;
-
-uniform mat4 u_mvp;
-out vec3 v_color;
-
-void main() {
-    gl_Position = u_mvp * vec4(aPos, 1.0);
-    v_color = aColor;
-    gl_PointSize = 12.0;
-}
-"""
-
-FS_POLES_CODE = """
-#version 330 core
-in vec3 v_color;
-out vec4 FragColor;
-
-void main() {
-    FragColor = vec4(v_color, 1.0);
-}
-"""
-# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 class SpherePreviewWidget(QOpenGLWidget):
     cell_picked = QtCore.Signal(int)
@@ -95,12 +39,9 @@ class SpherePreviewWidget(QOpenGLWidget):
         self._last_mouse_pos = QtCore.QPoint()
         self._render_settings = RenderSettings()
 
-
-        # --- НАЧАЛО ИЗМЕНЕНИЯ: Переменные для полюсов ---
         self._poles_shader_program = None
         self._poles_vbo_pos = None
         self._poles_vbo_col = None
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     def set_render_settings(self, settings: RenderSettings):
         self._render_settings = settings
@@ -123,17 +64,18 @@ class SpherePreviewWidget(QOpenGLWidget):
         self.update()
 
     def initializeGL(self):
-        # --- Основной шейдер ---
-        vs = self.compile_shader(GL_VERTEX_SHADER, VS_CODE)
-        fs = self.compile_shader(GL_FRAGMENT_SHADER, FS_CODE)
-        self._shader_program = self.link_program(vs, fs)
 
-        # --- Шейдер и буферы для полюсов ---
-        vs_poles = self.compile_shader(GL_VERTEX_SHADER, VS_POLES_CODE)
-        fs_poles = self.compile_shader(GL_FRAGMENT_SHADER, FS_POLES_CODE)
-        self._poles_shader_program = self.link_program(vs_poles, fs_poles)
+        # --- ИЗМЕНЕНИЕ: Компиляция основного шейдера ---
+        vs = shader_manager.compile_shader(GL_VERTEX_SHADER, shader_library.VS_CODE)
+        fs = shader_manager.compile_shader(GL_FRAGMENT_SHADER, shader_library.FS_CODE)
+        self._shader_program = shader_manager.link_program(vs, fs)
 
-        # ИЗМЕНЕНИЕ ЗДЕСЬ: Полюса теперь на оси Z, чтобы соответствовать геометрии
+        # --- ИЗМЕНЕНИЕ: Компиляция шейдера для полюсов ---
+        vs_poles = shader_manager.compile_shader(GL_VERTEX_SHADER, shader_library.VS_POLES_CODE)
+        fs_poles = shader_manager.compile_shader(GL_FRAGMENT_SHADER, shader_library.FS_POLES_CODE)
+        self._poles_shader_program = shader_manager.link_program(vs_poles, fs_poles)
+
+        # (Остальная часть initializeGL без изменений)
         pole_positions = np.array([[0, 0, 1.02], [0, 0, -1.02]], dtype=np.float32)  # Z-up
         pole_colors = np.array([[1, 0, 0], [0, 0, 1]], dtype=np.float32)  # Red, Blue
 
@@ -154,6 +96,7 @@ class SpherePreviewWidget(QOpenGLWidget):
         GL.glClearColor(0.1, 0.1, 0.15, 1.0)
 
     def paintGL(self):
+        # (Этот метод остается без изменений)
         GL.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
         # --- Общие матрицы проекции и вида ---
@@ -166,7 +109,7 @@ class SpherePreviewWidget(QOpenGLWidget):
 
         # --- 1. РИСУЕМ ПЛАНЕТУ ---
         if self._shader_program and self._vertices.size > 0:
-            if self._vbo_pos is None: # Инициализация буферов если их нет
+            if self._vbo_pos is None:  # Инициализация буферов если их нет
                 self._vbo_pos = GL.glGenBuffers(1)
                 GL.glBindBuffer(GL_ARRAY_BUFFER, self._vbo_pos)
                 GL.glBufferData(GL_ARRAY_BUFFER, self._vertices.nbytes, self._vertices, GL_STATIC_DRAW)
@@ -182,7 +125,8 @@ class SpherePreviewWidget(QOpenGLWidget):
 
             GL.glUseProgram(self._shader_program)
             GL.glUniformMatrix4fv(GL.glGetUniformLocation(self._shader_program, "u_mvp"), 1, GL_FALSE, mvp.data())
-            GL.glUniformMatrix4fv(GL.glGetUniformLocation(self._shader_program, "u_model_view"), 1, GL_FALSE, view.data())
+            GL.glUniformMatrix4fv(GL.glGetUniformLocation(self._shader_program, "u_model_view"), 1, GL_FALSE,
+                                  view.data())
 
             GL.glEnableVertexAttribArray(0)
             GL.glBindBuffer(GL_ARRAY_BUFFER, self._vbo_pos)
@@ -223,9 +167,11 @@ class SpherePreviewWidget(QOpenGLWidget):
             GL.glDisableVertexAttribArray(1)
 
     def resizeGL(self, w: int, h: int):
+        # (Этот метод остается без изменений)
         GL.glViewport(0, 0, w, h)
 
     def mousePressEvent(self, event: QtGui.QMouseEvent):
+        # (Этот метод остается без изменений)
         self._last_mouse_pos = event.position().toPoint()
         if self._planet_data is None or 'centers_xyz' not in self._planet_data or self._vertices.size == 0:
             return
@@ -267,13 +213,15 @@ class SpherePreviewWidget(QOpenGLWidget):
 
         intersection_dist = -b - math.sqrt(discriminant)
         intersection_point_3d = ray_origin + ray_dir * intersection_dist
-        intersection_np = np.array([intersection_point_3d.x(), intersection_point_3d.y(), intersection_point_3d.z()], dtype=np.float32)
+        intersection_np = np.array([intersection_point_3d.x(), intersection_point_3d.y(), intersection_point_3d.z()],
+                                   dtype=np.float32)
         intersection_np /= np.linalg.norm(intersection_np)
 
         closest_idx = nearest_cell_by_xyz(intersection_np, self._planet_data['centers_xyz'])
         self.cell_picked.emit(int(closest_idx))
 
     def mouseMoveEvent(self, event: QtGui.QMouseEvent):
+        # (Этот метод остается без изменений)
         dx = event.position().toPoint().x() - self._last_mouse_pos.x()
         dy = event.position().toPoint().y() - self._last_mouse_pos.y()
         if event.buttons() & QtCore.Qt.MouseButton.LeftButton:
@@ -284,29 +232,8 @@ class SpherePreviewWidget(QOpenGLWidget):
         self._last_mouse_pos = event.position().toPoint()
 
     def wheelEvent(self, event: QtGui.QWheelEvent):
+        # (Этот метод остается без изменений)
         new_distance = self._cam_distance - event.angleDelta().y() / 240.0
         self._cam_distance = max(1.1, min(new_distance, 10.0))
         self.update()
 
-    def compile_shader(self, shader_type, shader_source):
-        shader = GL.glCreateShader(shader_type)
-        GL.glShaderSource(shader, shader_source)
-        GL.glCompileShader(shader)
-        if not GL.glGetShaderiv(shader, GL_COMPILE_STATUS):
-            log = GL.glGetShaderInfoLog(shader).decode('utf-8')
-            logger.error(f"Shader compilation failed: {log}")
-            return None
-        return shader
-
-    def link_program(self, vs, fs):
-        program = GL.glCreateProgram()
-        GL.glAttachShader(program, vs)
-        GL.glAttachShader(program, fs)
-        GL.glLinkProgram(program)
-        if not GL.glGetProgramiv(program, GL_LINK_STATUS):
-            log = GL.glGetProgramInfoLog(program).decode('utf-8')
-            logger.error(f"Shader program linking failed: {log}")
-            return None
-        GL.glDeleteShader(vs)
-        GL.glDeleteShader(fs)
-        return program

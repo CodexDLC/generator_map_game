@@ -4,7 +4,8 @@ from typing import Callable
 from PySide6 import QtWidgets, QtCore
 
 from editor.core.render_settings import RenderSettings, RENDER_PRESETS
-from editor.render_palettes import PALETTES
+# <--- ДОБАВЛЕНО: Импортируем нашу новую, единую палитру ---
+from editor.render.palettes import LAND_PALETTES
 
 
 def _create_spin_row(label: str, value: float, min_val: float, max_val: float, step: float, decimals: int = 1):
@@ -77,11 +78,9 @@ class RenderPanel(QtWidgets.QWidget):
         self.auto.setChecked(self.s.auto_frame)
         lay.addWidget(self.auto)
 
-        # --- НАЧАЛО ИЗМЕНЕНИЯ ---
         self.show_grid_cb = QtWidgets.QCheckBox("Показывать гексовую сетку")
         self.show_grid_cb.setChecked(self.s.show_hex_grid)
         lay.addWidget(self.show_grid_cb)
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
         lay.addWidget(
             QtWidgets.QFrame(self, frameShape=QtWidgets.QFrame.Shape.HLine, frameShadow=QtWidgets.QFrame.Shadow.Sunken))
@@ -96,7 +95,8 @@ class RenderPanel(QtWidgets.QWidget):
         h = QtWidgets.QHBoxLayout()
         h.addWidget(QtWidgets.QLabel("Палитра:"))
         self.palette = QtWidgets.QComboBox()
-        self.palette.addItems(list(PALETTES.keys()))
+        # <--- ИЗМЕНЕНО: Используем LAND_PALETTES вместо PALETTES ---
+        self.palette.addItems(list(LAND_PALETTES.keys()))
         self.palette.setCurrentText(self.s.palette_name)
         h.addWidget(self.palette, 1)
         v.addLayout(h)
@@ -129,9 +129,7 @@ class RenderPanel(QtWidgets.QWidget):
             w.valueChanged.connect(self._emit_changes)
 
         self.auto.toggled.connect(self._emit_changes)
-        # --- НАЧАЛО ИЗМЕНЕНИЯ ---
         self.show_grid_cb.toggled.connect(self._emit_changes)
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
         self.reset_btn.clicked.connect(self._reset)
         self.apply_btn.clicked.connect(self._apply_preset)
@@ -160,9 +158,7 @@ class RenderPanel(QtWidgets.QWidget):
         self.s.height_exaggeration = float(self.hex.value())
         self.s.fov = float(self.fov.value())
         self.s.auto_frame = bool(self.auto.isChecked())
-        # --- НАЧАЛО ИЗМЕНЕНИЯ ---
         self.s.show_hex_grid = bool(self.show_grid_cb.isChecked())
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         self.s.light_mode = self.mode.currentText()
         self.s.use_palette = bool(self.use_palette.isChecked())
         self.s.palette_name = self.palette.currentText()
@@ -185,9 +181,7 @@ class RenderPanel(QtWidgets.QWidget):
             self.hex.setValue(self.s.height_exaggeration)
             self.fov.setValue(self.s.fov)
             self.auto.setChecked(self.s.auto_frame)
-            # --- НАЧАЛО ИЗМЕНЕНИЯ ---
             self.show_grid_cb.setChecked(self.s.show_hex_grid)
-            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
             self.mode.setCurrentText(self.s.light_mode)
             self.use_palette.setChecked(settings.use_palette)
             self.palette.setCurrentText(settings.palette_name)

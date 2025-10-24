@@ -8,7 +8,6 @@ import json
 import math
 from pathlib import Path
 
-import re
 import numpy as np
 from PySide6 import QtWidgets, QtCore, QtGui
 
@@ -26,7 +25,7 @@ from editor.ui.layouts.main_menu import build_menus
 from editor.ui.layouts.node_inspector_panel import make_node_inspector_widget
 from editor.ui.layouts.presets_panel import make_region_presets_widget
 from editor.ui.bindings.shortcuts import install_shortcuts
-from editor.ui.widgets.preview_widget import Preview3DWidget
+from editor.render.preview_widget import Preview3DWidget
 from editor.ui.layouts.world_settings_panel import make_world_settings_widget, MAX_SIDE_METERS, PLANET_ROUGHNESS_PRESETS
 from editor.ui.layouts.render_panel import make_render_panel_widget
 from editor.core.render_settings import RenderSettings

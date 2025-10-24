@@ -6,7 +6,7 @@ import numpy as np
 from pathlib import Path
 from dataclasses import dataclass
 
-from editor.render.planet_palettes import map_planet_height_palette, map_planet_bimodal_palette
+from editor.render.palettes import map_planet_bimodal_palette
 from generator_logic.climate import biome_matcher
 from generator_logic.topology.icosa_grid import build_hexplanet, nearest_cell_by_xyz
 from generator_logic.terrain.global_sphere_noise import get_noise_for_sphere_view
@@ -232,7 +232,7 @@ def orchestrate_planet_update(main_window) -> dict | None:
                 logger.info(f"Глобальный кэш климата сохранен: {cache_file}")
         else:
             logger.info("-> Режим климата выключен. Раскраска по высоте.")
-            colors = map_planet_height_palette(heights_01)
+            colors = map_height_to_grayscale(heights_01)
 
         # Сборка данных для рендера
         r_fill_max = float(np.linalg.norm(V_displaced, axis=1).max())
